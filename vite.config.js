@@ -9,5 +9,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false
-  }
+  },
+  // GitHub Pages 子路径配置
+  base: '/cloudgames/'
 })
