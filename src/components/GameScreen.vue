@@ -55,8 +55,46 @@
         </div>
       </div>
 
+      <!-- 连接状态提示 -->
+      <div v-if="connectionMessage && connectionStatus !== 'connected'" 
+           class="connection-status" 
+           :class="connectionStatus">
+        {{ connectionMessage }}
+      </div>
+
+      <!-- 断线提示和重连按钮 -->
+      <div v-if="!isOnline && !isPaused" class="disconnect-alert">
+        <div class="disconnect-title">连接中断</div>
+        <p class="disconnect-message">你与任务中心失去联系</p>
+        <button class="btn btn-primary" @click="handleReconnect" :disabled="isReconnecting">
+          {{ isReconnecting ? '重新连接中...' : '重新连接' }}
+        </button>
+      </div>
+
+      <!-- 游戏暂停提示 -->
+      <div v-if="isPaused" class="pause-alert">
+        <div class="pause-title">任务暂停</div>
+        <p class="pause-message">等待以下特工重新连接...</p>
+        <div class="disconnected-players">
+          <div v-for="player in disconnectedPlayers" :key="player.id" class="disconnected-player">
+            <span class="player-name">{{ player.name }}</span>
+            <span class="offline-badge">离线</span>
+          </div>
+        </div>
+        <div class="online-players">
+          <p style="font-size: 0.8rem; margin-bottom: 0.5rem;">已连接特工:</p>
+          <div v-for="player in onlinePlayers" :key="player.id" class="online-player">
+            <span class="player-name">{{ player.name }}</span>
+            <span class="online-badge">在线</span>
+          </div>
+        </div>
+        <button v-if="!isOnline" class="btn btn-primary" @click="handleReconnect" :disabled="isReconnecting">
+          {{ isReconnecting ? '重新连接中...' : '重新连接' }}
+        </button>
+      </div>
+
       <!-- 当前情报官信息 -->
-      <div v-if="currentEncryptorInfo" class="current-encryptor">
+      <div v-if="currentEncryptorInfo && !isPaused" class="current-encryptor">
         <div class="current-encryptor-name">
           情报官: {{ currentEncryptorInfo.name }}
         </div>
@@ -65,7 +103,23 @@
         </div>
       </div>
 
-      <div class="game-area">
+      <!-- 在线玩家列表 -->
+      <div class="online-players-bar">
+        <div class="online-count">
+          <span class="count-number">{{ onlinePlayerCount }}</span>
+          <span class="count-total">/4</span>
+        </div>
+        <div class="player-avatars">
+          <div v-for="player in allPlayers" :key="player.id" 
+               class="player-avatar" 
+               :class="{ online: player.isOnline, offline: !player.isOnline, you: player.id === gameState.playerId }">
+            <span class="avatar-name">{{ player.name.charAt(0) }}</span>
+            <span class="avatar-status"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="game-area" v-if="!isPaused">
         <!-- 我方关键词 -->
         <div class="screen-panel our-team">
           <div class="screen-title">{{ ourTeamLabel }} 密码本</div>
@@ -348,17 +402,42 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import { gameState, handleSubmitClues, handleSubmitTeamGuess, handleSubmitOpponentGuess, handleSubmitTeamVote, handleNextRound, handlePlayAgain, GAME_PHASES } from '../stores/gameStore';
+import { gameState, handleSubmitClues, handleSubmitTeamGuess, handleSubmitOpponentGuess, handleSubmitTeamVote, handleNextRound, handlePlayAgain, reconnectRoom, GAME_PHASES } from '../stores/gameStore';
 
 const clues = ref(['', '', '']);
 const teammateGuess = ref(['', '', '']);
 const opponentGuess = ref(['', '', '']);
 const selectedVote = ref(null);
+const isReconnecting = ref(false);
 
 const whiteInterceptTokens = computed(() => gameState.room.teams?.white?.interceptTokens || 0);
 const whiteMissTokens = computed(() => gameState.room.teams?.white?.missTokens || 0);
 const blackInterceptTokens = computed(() => gameState.room.teams?.black?.interceptTokens || 0);
 const blackMissTokens = computed(() => gameState.room.teams?.black?.missTokens || 0);
+
+const connectionStatus = computed(() => gameState.connectionStatus);
+const connectionMessage = computed(() => gameState.connectionMessage);
+
+const isOnline = computed(() => {
+  const player = gameState.room.players.find(p => p.id === gameState.playerId);
+  return player?.isOnline !== false;
+});
+
+const isPaused = computed(() => gameState.room.phase === GAME_PHASES.PAUSED);
+
+const allPlayers = computed(() => gameState.room.players || []);
+
+const onlinePlayers = computed(() => {
+  return gameState.room.players?.filter(p => p.isOnline) || [];
+});
+
+const disconnectedPlayers = computed(() => {
+  return gameState.room.players?.filter(p => !p.isOnline) || [];
+});
+
+const onlinePlayerCount = computed(() => {
+  return onlinePlayers.value.length;
+});
 
 const isOurTeamEncrypting = computed(() => {
   return gameState.team === gameState.room.encryptorTeam;
@@ -472,6 +551,15 @@ const voteOptions = computed(() => {
   return options;
 });
 
+async function handleReconnect() {
+  isReconnecting.value = true;
+  try {
+    await reconnectRoom();
+  } finally {
+    isReconnecting.value = false;
+  }
+}
+
 async function onCluesSubmit() {
   const validClues = clues.value.map(c => c.trim());
   if (validClues.some(c => !c)) {
@@ -531,3 +619,180 @@ async function onNextRoundClick() {
   }
 }
 </script>
+
+<style scoped>
+.connection-status {
+  padding: 0.8rem;
+  margin-bottom: 1rem;
+  text-align: center;
+  font-family: var(--typewriter);
+  font-size: 0.85rem;
+  border: 2px solid;
+}
+
+.connection-status.connecting {
+  background: rgba(46, 74, 98, 0.1);
+  border-color: var(--ink-blue);
+  color: var(--ink-blue);
+}
+
+.connection-status.connected {
+  background: rgba(61, 92, 58, 0.1);
+  border-color: var(--ink-green);
+  color: var(--ink-green);
+}
+
+.connection-status.error {
+  background: rgba(139, 38, 53, 0.1);
+  border-color: var(--ink-red);
+  color: var(--ink-red);
+}
+
+.connection-status.reconnecting {
+  background: rgba(107, 68, 35, 0.1);
+  border-color: var(--ink-brown);
+  color: var(--ink-brown);
+  animation: blink 1.5s ease-in-out infinite;
+}
+
+.disconnect-alert, .pause-alert {
+  background: var(--paper-bg);
+  border: 3px solid var(--ink-red);
+  padding: 2rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.disconnect-title, .pause-title {
+  font-family: var(--typewriter);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--ink-red);
+  margin-bottom: 1rem;
+  letter-spacing: 0.1em;
+}
+
+.disconnect-message, .pause-message {
+  font-family: var(--typewriter);
+  color: var(--ink-brown);
+  margin-bottom: 1.5rem;
+}
+
+.disconnected-players, .online-players {
+  margin: 1rem 0;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.disconnected-player, .online-player {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.3rem;
+}
+
+.player-name {
+  font-family: var(--typewriter);
+  font-size: 0.9rem;
+}
+
+.offline-badge {
+  background: var(--ink-red);
+  color: var(--paper-bg);
+  padding: 0.1rem 0.4rem;
+  font-family: var(--typewriter);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+}
+
+.online-badge {
+  background: var(--ink-green);
+  color: var(--paper-bg);
+  padding: 0.1rem 0.4rem;
+  font-family: var(--typewriter);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+}
+
+.online-players-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8rem 1.2rem;
+  background: var(--paper-bg);
+  border: 2px solid var(--telegram-border);
+  margin-bottom: 1.5rem;
+}
+
+.online-count {
+  display: flex;
+  align-items: baseline;
+  gap: 0.2rem;
+}
+
+.count-number {
+  font-family: var(--typewriter);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--ink-black);
+}
+
+.count-total {
+  font-family: var(--typewriter);
+  font-size: 0.9rem;
+  color: var(--ink-brown);
+}
+
+.player-avatars {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.player-avatar {
+  width: 36px;
+  height: 36px;
+  border: 2px solid var(--telegram-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  background: var(--paper-bg);
+}
+
+.player-avatar.online {
+  border-color: var(--ink-green);
+}
+
+.player-avatar.offline {
+  border-color: var(--ink-red);
+  opacity: 0.6;
+}
+
+.player-avatar.you {
+  border-width: 3px;
+}
+
+.avatar-name {
+  font-family: var(--typewriter);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ink-black);
+}
+
+.avatar-status {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ink-red);
+  border: 2px solid var(--paper-bg);
+}
+
+.player-avatar.online .avatar-status {
+  background: var(--ink-green);
+}
+</style>

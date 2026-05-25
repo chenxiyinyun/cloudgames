@@ -7,7 +7,8 @@ export const GAME_PHASES = {
   TEAM_VOTING: 'team_voting',
   GUESSING: 'guessing',
   RESULT: 'result',
-  ENDED: 'ended'
+  ENDED: 'ended',
+  PAUSED: 'paused'  // 新增：暂停状态（等待断线玩家重连）
 };
 
 export const GUESS_TYPE = {
@@ -39,7 +40,9 @@ export function createInitialRoom(hostPlayerId, hostName, roomCode) {
       team: null,
       isHost: true,
       isEncryptor: false,
-      order: 0
+      order: 0,
+      isOnline: true,  // 新增：在线状态
+      _peerId: null
     }],
     teams: {
       white: { players: [], encryptorIndex: 0, interceptionTokens: 0, miscommunicationTokens: 0 },
@@ -65,12 +68,30 @@ export function createInitialRoom(hostPlayerId, hostName, roomCode) {
     winner: null,
     // 轮换索引
     rotationIndex: 0,
+    // 断线重连相关
+    disconnectedPlayers: [],  // 断线玩家列表
+    savedPhase: null,         // 暂停前保存的阶段
+    savedEncryptor: null,     // 暂停前保存的情报官
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
 }
 
 export function addPlayerToRoom(room, playerName, playerId) {
+  // 检查是否是断线重连
+  const disconnectedPlayer = room.disconnectedPlayers?.find(p => p.id === playerId);
+  if (disconnectedPlayer) {
+    // 恢复玩家在线状态
+    const player = room.players.find(p => p.id === playerId);
+    if (player) {
+      player.isOnline = true;
+      player.name = playerName; // 更新名称
+      room.disconnectedPlayers = room.disconnectedPlayers.filter(p => p.id !== playerId);
+      room.updatedAt = Date.now();
+      return { room, reconnected: true };
+    }
+  }
+
   if (room.players.length >= 4) {
     return { error: '房间已满' };
   }
@@ -85,15 +106,38 @@ export function addPlayerToRoom(room, playerName, playerId) {
     team: null,
     isHost: false,
     isEncryptor: false,
-    order: room.players.length
+    order: room.players.length,
+    isOnline: true,
+    _peerId: null
   };
 
   room.players.push(player);
   room.updatedAt = Date.now();
-  return { room };
+  return { room, reconnected: false };
 }
 
 export function removePlayerFromRoom(room, playerId) {
+  const player = room.players.find(p => p.id === playerId);
+  if (!player) return room;
+
+  // 游戏进行中时，标记为断线而不是移除
+  if (room.status === 'playing' && room.phase !== GAME_PHASES.WAITING) {
+    player.isOnline = false;
+    if (!room.disconnectedPlayers) room.disconnectedPlayers = [];
+    room.disconnectedPlayers.push({
+      id: player.id,
+      name: player.name,
+      team: player.team,
+      disconnectedAt: Date.now()
+    });
+    
+    // 暂停游戏
+    pauseGame(room);
+    room.updatedAt = Date.now();
+    return room;
+  }
+
+  // 等待阶段直接移除
   room.players = room.players.filter(p => p.id !== playerId);
 
   if (room.players.length > 0) {
@@ -123,6 +167,40 @@ export function removePlayerFromRoom(room, playerId) {
 
   room.updatedAt = Date.now();
   return room;
+}
+
+// 暂停游戏
+function pauseGame(room) {
+  if (room.phase === GAME_PHASES.PAUSED) return; // 已经暂停了
+  
+  room.savedPhase = room.phase;
+  room.savedEncryptor = room.encryptor;
+  room.phase = GAME_PHASES.PAUSED;
+  room.status = 'paused';
+}
+
+// 恢复游戏
+export function resumeGame(room) {
+  if (room.phase !== GAME_PHASES.PAUSED) return room;
+  
+  // 检查是否所有玩家都已重连
+  const allOnline = room.players.every(p => p.isOnline);
+  if (!allOnline) return room; // 还有玩家未重连，继续等待
+  
+  room.phase = room.savedPhase || GAME_PHASES.ENCRYPTING;
+  room.status = 'playing';
+  room.savedPhase = null;
+  room.savedEncryptor = null;
+  room.disconnectedPlayers = [];
+  room.updatedAt = Date.now();
+  
+  return room;
+}
+
+// 检查是否可以恢复游戏
+export function canResumeGame(room) {
+  if (room.phase !== GAME_PHASES.PAUSED) return false;
+  return room.players.every(p => p.isOnline);
 }
 
 function reconstructTeams(room) {
@@ -196,6 +274,9 @@ export function startGame(room) {
   room.teams.black.interceptionTokens = 0;
   room.teams.white.miscommunicationTokens = 0;
   room.teams.black.miscommunicationTokens = 0;
+  room.disconnectedPlayers = [];
+  room.savedPhase = null;
+  room.savedEncryptor = null;
   room.updatedAt = Date.now();
 
   return room;
@@ -216,6 +297,10 @@ export function generateCode() {
 }
 
 export function submitClues(room, playerId, clues) {
+  if (room.phase === GAME_PHASES.PAUSED) {
+    return { error: '游戏已暂停，等待断线玩家重连' };
+  }
+  
   if (room.encryptor !== playerId) {
     return { error: '只有当前回合的情报官可以提交线索' };
   }
@@ -253,6 +338,10 @@ export function submitClues(room, playerId, clues) {
 
 // 提交队内猜测（队友两人各自提交）
 export function submitTeamGuess(room, playerId, guess) {
+  if (room.phase === GAME_PHASES.PAUSED) {
+    return { error: '游戏已暂停，等待断线玩家重连' };
+  }
+  
   if (room.phase !== GAME_PHASES.GUESSING) {
     return { error: '当前不是猜测阶段' };
   }
@@ -314,6 +403,10 @@ export function submitTeamGuess(room, playerId, guess) {
 
 // 提交队内统一投票（当两人不一致时使用）
 export function submitTeamFinalVote(room, playerId, guess) {
+  if (room.phase === GAME_PHASES.PAUSED) {
+    return { error: '游戏已暂停，等待断线玩家重连' };
+  }
+  
   if (room.phase !== GAME_PHASES.TEAM_VOTING && room.phase !== GAME_PHASES.GUESSING) {
     return { error: '当前不是投票阶段' };
   }
@@ -354,6 +447,10 @@ export function submitTeamFinalVote(room, playerId, guess) {
 
 // 提交对方拦截猜测
 export function submitOpponentGuess(room, playerId, guess) {
+  if (room.phase === GAME_PHASES.PAUSED) {
+    return { error: '游戏已暂停，等待断线玩家重连' };
+  }
+  
   if (room.phase !== GAME_PHASES.GUESSING && room.phase !== GAME_PHASES.TEAM_VOTING) {
     return { error: '当前不是猜测阶段' };
   }
@@ -594,6 +691,9 @@ export function resetGame(room) {
   room.roundHistory = [];
   room.winner = null;
   room.roundResult = null;
+  room.disconnectedPlayers = [];
+  room.savedPhase = null;
+  room.savedEncryptor = null;
   room.updatedAt = Date.now();
 
   return room;
@@ -623,4 +723,14 @@ export function getNextEncryptorInfo(room) {
     team: nextRotation.team,
     teamName: teamName(nextRotation.team)
   };
+}
+
+// 获取在线玩家数量
+export function getOnlinePlayerCount(room) {
+  return room.players.filter(p => p.isOnline).length;
+}
+
+// 获取断线玩家列表
+export function getDisconnectedPlayers(room) {
+  return room.players.filter(p => !p.isOnline);
 }

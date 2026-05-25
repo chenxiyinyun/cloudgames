@@ -6,7 +6,8 @@ import {
   addPlayerToRoom, removePlayerFromRoom,
   startGame, submitClues, submitTeamGuess, submitOpponentGuess, submitTeamFinalVote,
   checkNeedTeamVoting, processRound,
-  nextRound, resetGame, getCurrentEncryptorInfo
+  nextRound, resetGame, getCurrentEncryptorInfo,
+  resumeGame, canResumeGame, getOnlinePlayerCount, getDisconnectedPlayers
 } from '../services/gameEngine';
 
 const MSG = {
@@ -19,7 +20,9 @@ const MSG = {
   SUBMIT_OPPONENT_GUESS: 'SUBMIT_OPPONENT_GUESS',
   SUBMIT_TEAM_VOTE: 'SUBMIT_TEAM_VOTE',
   NEXT_ROUND: 'NEXT_ROUND',
-  PLAYER_LEFT: 'PLAYER_LEFT'
+  PLAYER_LEFT: 'PLAYER_LEFT',
+  PLAYER_RECONNECTED: 'PLAYER_RECONNECTED',
+  RESUME_GAME: 'RESUME_GAME'
 };
 
 export const gameState = reactive({
@@ -35,6 +38,8 @@ export const gameState = reactive({
   connected: false,
   connecting: false,
   error: null,
+  connectionStatus: 'disconnected', // disconnected, connecting, connected, error, reconnecting
+  connectionMessage: '',
 
   room: {
     players: [],
@@ -59,7 +64,9 @@ export const gameState = reactive({
     roundResult: null,
     winner: null,
     status: GAME_PHASES.WAITING,
-    rotationIndex: 0
+    rotationIndex: 0,
+    disconnectedPlayers: [],
+    savedPhase: null
   }
 });
 
@@ -73,8 +80,14 @@ function getInterceptTeamName() {
   return gameState.room.encryptorTeam === 'white' ? '黑队' : '白队';
 }
 
+function setConnectionStatus(status, message = '') {
+  gameState.connectionStatus = status;
+  gameState.connectionMessage = message;
+}
+
 export async function createRoom(name) {
   try {
+    setConnectionStatus('connecting', '正在创建任务...');
     gameState.connecting = true;
     const playerId = generatePlayerId();
     const roomCode = p2p.generateRoomCode();
@@ -85,6 +98,9 @@ export async function createRoom(name) {
     gameState.isHost = true;
 
     cachedRoom = createInitialRoom(playerId, name, roomCode);
+    // 设置房主peerId
+    const hostPlayer = cachedRoom.players.find(p => p.id === playerId);
+    if (hostPlayer) hostPlayer._peerId = `codenames-${roomCode}`;
 
     await p2p.createHost(roomCode, name);
 
@@ -94,12 +110,14 @@ export async function createRoom(name) {
 
     gameState.connected = true;
     gameState.connecting = false;
+    setConnectionStatus('connected', '任务创建成功');
     gameState.screen = 'lobby';
     return true;
   } catch (error) {
     console.error('Create room error:', error);
     gameState.error = error.message || '创建房间失败';
     gameState.connecting = false;
+    setConnectionStatus('error', error.message || '创建房间失败');
     cleanup();
     return false;
   }
@@ -107,6 +125,7 @@ export async function createRoom(name) {
 
 export async function joinRoom(name, code) {
   try {
+    setConnectionStatus('connecting', '正在连接任务...');
     gameState.connecting = true;
     const playerId = generatePlayerId();
 
@@ -126,12 +145,57 @@ export async function joinRoom(name, code) {
     });
 
     gameState.connecting = false;
+    setConnectionStatus('connected', '已加入任务');
     return true;
   } catch (error) {
     console.error('Join room error:', error);
     gameState.error = error.message || '加入房间失败';
     gameState.connecting = false;
+    setConnectionStatus('error', error.message || '加入房间失败');
     cleanup();
+    return false;
+  }
+}
+
+// 重连功能
+export async function reconnectRoom() {
+  if (!gameState.roomCode || !gameState.playerName) {
+    setConnectionStatus('error', '无法重连：缺少房间信息');
+    return false;
+  }
+
+  try {
+    setConnectionStatus('reconnecting', '正在重新连接...');
+    gameState.connecting = true;
+
+    // 清理旧连接
+    p2p.disconnect();
+
+    if (gameState.isHost) {
+      // 房主重连
+      await p2p.createHost(gameState.roomCode, gameState.playerName);
+      setupHostHandlers();
+    } else {
+      // 访客重连
+      await p2p.joinRoom(gameState.roomCode, gameState.playerName);
+      setupGuestHandlers();
+
+      p2p.sendTo(p2p.getConnectedPeers()[0], MSG.JOIN_REQUEST, {
+        playerId: gameState.playerId,
+        playerName: gameState.playerName,
+        originalPeerId: p2p.peer?.id,
+        isReconnect: true
+      });
+    }
+
+    gameState.connecting = false;
+    setConnectionStatus('connected', '重连成功');
+    return true;
+  } catch (error) {
+    console.error('Reconnect error:', error);
+    gameState.error = error.message || '重连失败';
+    gameState.connecting = false;
+    setConnectionStatus('error', error.message || '重连失败');
     return false;
   }
 }
@@ -139,6 +203,12 @@ export async function joinRoom(name, code) {
 function setupHostHandlers() {
   p2p.onPlayerConnected = (conn) => {
     console.log('Player connected:', conn.peer);
+    // 发送当前房间状态给新连接的玩家
+    if (cachedRoom) {
+      setTimeout(() => {
+        p2p.sendTo(conn.peer, MSG.ROOM_STATE, { room: cachedRoom });
+      }, 500);
+    }
   };
 
   p2p.onPlayerDisconnected = (peerId) => {
@@ -157,14 +227,16 @@ function setupHostHandlers() {
   p2p.onError = (err) => {
     console.error('Host error:', err);
     gameState.error = err.message;
+    setConnectionStatus('error', err.message);
   };
 }
 
 function setupGuestHandlers() {
   p2p.onPlayerDisconnected = (peerId) => {
+    setConnectionStatus('error', '与房主断开连接');
     gameState.error = '与房主断开连接';
-    cleanup();
-    gameState.screen = 'menu';
+    // 不立即清理，允许重连
+    gameState.connected = false;
   };
 
   p2p.onMessage = (data, peerId) => {
@@ -174,14 +246,36 @@ function setupGuestHandlers() {
   p2p.onError = (err) => {
     console.error('Guest error:', err);
     gameState.error = err.message;
+    setConnectionStatus('error', err.message);
   };
 }
 
 function handleHostMessage(data, peerId) {
   switch (data.type) {
     case MSG.JOIN_REQUEST: {
-      const { playerId, playerName, originalPeerId } = data.payload;
-      console.log('Join request from:', playerName);
+      const { playerId, playerName, originalPeerId, isReconnect } = data.payload;
+      console.log('Join request from:', playerName, isReconnect ? '(reconnect)' : '');
+      
+      // 检查是否是断线重连
+      const existingPlayer = cachedRoom?.players.find(p => p.id === playerId);
+      if (existingPlayer && !existingPlayer.isOnline) {
+        // 断线重连
+        existingPlayer.isOnline = true;
+        existingPlayer._peerId = originalPeerId || peerId;
+        if (cachedRoom.disconnectedPlayers) {
+          cachedRoom.disconnectedPlayers = cachedRoom.disconnectedPlayers.filter(p => p.id !== playerId);
+        }
+        
+        // 检查是否可以恢复游戏
+        if (canResumeGame(cachedRoom)) {
+          resumeGame(cachedRoom);
+        }
+        
+        broadcastState();
+        p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: true, reconnected: true });
+        return;
+      }
+      
       const result = addPlayerToRoom(cachedRoom, playerName, playerId);
       if (result.error) {
         p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: false, error: result.error });
@@ -270,6 +364,7 @@ function handleGuestMessage(data, peerId) {
         }
         if (!gameState.connected) {
           gameState.connected = true;
+          setConnectionStatus('connected', '已连接');
           gameState.screen = 'lobby';
         }
       }
@@ -279,8 +374,11 @@ function handleGuestMessage(data, peerId) {
     case MSG.JOIN_RESPONSE: {
       if (data.payload.success === false) {
         gameState.error = data.payload.error || '加入房间失败';
+        setConnectionStatus('error', data.payload.error || '加入房间失败');
         cleanup();
         gameState.screen = 'menu';
+      } else if (data.payload.reconnected) {
+        setConnectionStatus('connected', '重连成功');
       }
       break;
     }
@@ -328,7 +426,9 @@ function updateLocalState(room) {
     roundResult: room.roundResult ? { ...room.roundResult } : null,
     winner: room.winner,
     status: room.status || GAME_PHASES.WAITING,
-    rotationIndex: room.rotationIndex || 0
+    rotationIndex: room.rotationIndex || 0,
+    disconnectedPlayers: room.disconnectedPlayers || [],
+    savedPhase: room.savedPhase || null
   };
 
   if (gameState.room.teams) {
@@ -457,6 +557,7 @@ function cleanup() {
   gameState.isEncryptor = false;
   gameState.isTeammate = false;
   gameState.isOpponent = false;
+  setConnectionStatus('disconnected', '');
 
   gameState.room = {
     players: [],
@@ -481,7 +582,9 @@ function cleanup() {
     roundResult: null,
     winner: null,
     status: GAME_PHASES.WAITING,
-    rotationIndex: 0
+    rotationIndex: 0,
+    disconnectedPlayers: [],
+    savedPhase: null
   };
 }
 
