@@ -36,6 +36,24 @@ const CACHE_ROOM_FIELDS = [
   'savedPhase'
 ];
 
+// 将响应式对象转换为普通对象（深拷贝）
+function toPlainObject(obj) {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj !== 'object') return obj;
+  if (obj instanceof Date) return obj.toISOString();
+  if (Array.isArray(obj)) return obj.map(toPlainObject);
+
+  const plain = {};
+  for (const key in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      // 跳过 Vue 内部属性
+      if (key.startsWith('__v_') || key === '_rawValue' || key === '_value') continue;
+      plain[key] = toPlainObject(obj[key]);
+    }
+  }
+  return plain;
+}
+
 export function saveStateToCache(state) {
   try {
     const cache = {
@@ -48,7 +66,7 @@ export function saveStateToCache(state) {
     // 缓存核心状态
     CACHE_FIELDS.forEach(field => {
       if (state[field] !== undefined) {
-        cache.state[field] = state[field];
+        cache.state[field] = toPlainObject(state[field]);
       }
     });
 
@@ -56,7 +74,7 @@ export function saveStateToCache(state) {
     if (state.room) {
       CACHE_ROOM_FIELDS.forEach(field => {
         if (state.room[field] !== undefined) {
-          cache.room[field] = state.room[field];
+          cache.room[field] = toPlainObject(state.room[field]);
         }
       });
     }

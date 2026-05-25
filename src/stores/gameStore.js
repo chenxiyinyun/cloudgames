@@ -73,6 +73,24 @@ export const gameState = reactive({
 
 let cachedRoom = null;
 
+// 安全的深拷贝函数，避免 structuredClone 的兼容性问题
+function deepClone(obj) {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj !== 'object') return obj;
+  if (obj instanceof Date) return new Date(obj.getTime());
+  if (Array.isArray(obj)) return obj.map(deepClone);
+
+  const cloned = {};
+  for (const key in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      // 跳过 Vue 响应式内部属性
+      if (key.startsWith('__v_') || key === '_rawValue' || key === '_value') continue;
+      cloned[key] = deepClone(obj[key]);
+    }
+  }
+  return cloned;
+}
+
 // 监听状态变化，自动保存到缓存
 watch(() => ({
   screen: gameState.screen,
@@ -469,7 +487,7 @@ function updateLocalState(room) {
 
   gameState.room = {
     players: room.players?.map(p => ({ ...p })) || [],
-    teams: structuredClone(room.teams) || {
+    teams: deepClone(room.teams) || {
       white: { players: [], interceptTokens: 0, missTokens: 0, encryptorIndex: 0 },
       black: { players: [], interceptTokens: 0, missTokens: 0, encryptorIndex: 0 }
     },
@@ -481,12 +499,12 @@ function updateLocalState(room) {
     encryptor: room.encryptor,
     encryptorTeam: room.encryptorTeam,
     clues: room.clues ? [...room.clues] : [],
-    teamVotes: room.teamVotes ? structuredClone(room.teamVotes) : {
+    teamVotes: room.teamVotes ? deepClone(room.teamVotes) : {
       white: { player1Guess: null, player2Guess: null, finalGuess: null },
       black: { player1Guess: null, player2Guess: null, finalGuess: null }
     },
     opponentGuess: room.opponentGuess ? [...room.opponentGuess] : null,
-    notes: structuredClone(room.notes) || { white: [], black: [] },
+    notes: deepClone(room.notes) || { white: [], black: [] },
     roundResult: room.roundResult ? { ...room.roundResult } : null,
     winner: room.winner,
     status: room.status || GAME_PHASES.WAITING,
