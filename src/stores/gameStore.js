@@ -1,4 +1,4 @@
-import { reactive } from 'vue';
+import { reactive, watch } from 'vue';
 import p2p from '../services/p2p';
 import {
   GAME_PHASES, GUESS_TYPE,
@@ -9,6 +9,7 @@ import {
   nextRound, resetGame, getCurrentEncryptorInfo,
   resumeGame, canResumeGame, getOnlinePlayerCount, getDisconnectedPlayers
 } from '../services/gameEngine';
+import { saveStateToCache, loadStateFromCache, clearStateCache, hasCachedState } from '../services/stateCache';
 
 const MSG = {
   ROOM_STATE: 'ROOM_STATE',
@@ -72,6 +73,23 @@ export const gameState = reactive({
 
 let cachedRoom = null;
 
+// 监听状态变化，自动保存到缓存
+watch(() => ({
+  screen: gameState.screen,
+  playerId: gameState.playerId,
+  playerName: gameState.playerName,
+  roomCode: gameState.roomCode,
+  isHost: gameState.isHost,
+  team: gameState.team,
+  connectionStatus: gameState.connectionStatus,
+  room: gameState.room
+}), (newState) => {
+  // 只在非菜单页面且已连接时保存
+  if (newState.screen !== 'menu' && newState.playerId) {
+    saveStateToCache(newState);
+  }
+}, { deep: true });
+
 function getEncryptorTeamName() {
   return gameState.room.encryptorTeam === 'white' ? '白队' : '黑队';
 }
@@ -83,6 +101,52 @@ function getInterceptTeamName() {
 function setConnectionStatus(status, message = '') {
   gameState.connectionStatus = status;
   gameState.connectionMessage = message;
+}
+
+// 从缓存恢复状态
+export function restoreFromCache() {
+  const cache = loadStateFromCache();
+  if (!cache) return false;
+
+  console.log('[GameStore] Restoring state from cache...');
+
+  // 恢复核心状态
+  if (cache.state) {
+    gameState.playerId = cache.state.playerId || null;
+    gameState.playerName = cache.state.playerName || '';
+    gameState.roomCode = cache.state.roomCode || null;
+    gameState.isHost = cache.state.isHost || false;
+    gameState.team = cache.state.team || null;
+    gameState.screen = cache.state.screen || 'menu';
+    gameState.connectionStatus = cache.state.connectionStatus || 'disconnected';
+  }
+
+  // 恢复房间状态
+  if (cache.room) {
+    Object.assign(gameState.room, cache.room);
+  }
+
+  // 重建 cachedRoom
+  if (gameState.roomCode && gameState.playerId) {
+    cachedRoom = {
+      ...gameState.room,
+      code: gameState.roomCode,
+      hostId: gameState.isHost ? gameState.playerId : null
+    };
+  }
+
+  // 更新本地派生状态
+  if (cachedRoom) {
+    updateLocalState(cachedRoom);
+  }
+
+  console.log('[GameStore] State restored from cache');
+  return true;
+}
+
+// 检查是否有缓存的状态可以恢复
+export function hasRestoreableState() {
+  return hasCachedState();
 }
 
 export async function createRoom(name) {
@@ -586,6 +650,9 @@ function cleanup() {
     disconnectedPlayers: [],
     savedPhase: null
   };
+
+  // 清除缓存
+  clearStateCache();
 }
 
 export { GAME_PHASES, GUESS_TYPE };
