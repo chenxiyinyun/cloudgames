@@ -4,6 +4,7 @@ export const GAME_PHASES = {
   WAITING: 'waiting',
   ASSIGNING_TEAMS: 'assigning_teams',
   ENCRYPTING: 'encrypting',
+  TEAM_VOTING: 'team_voting',
   GUESSING: 'guessing',
   RESULT: 'result',
   ENDED: 'ended'
@@ -13,6 +14,14 @@ export const GUESS_TYPE = {
   TEAMMATE: 'teammate',
   OPPONENT: 'opponent'
 };
+
+// 轮换顺序：黑A -> 白A -> 黑B -> 白B -> 循环
+const ROTATION_SEQUENCE = [
+  { team: 'black', index: 0 },
+  { team: 'white', index: 0 },
+  { team: 'black', index: 1 },
+  { team: 'white', index: 1 }
+];
 
 export function generatePlayerId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -44,12 +53,18 @@ export function createInitialRoom(hostPlayerId, hostName, roomCode) {
     encryptor: null,
     encryptorTeam: null,
     clues: [],
-    teammateGuess: null,
+    // 队内投票系统
+    teamVotes: {
+      white: { player1Guess: null, player2Guess: null, finalGuess: null },
+      black: { player1Guess: null, player2Guess: null, finalGuess: null }
+    },
     opponentGuess: null,
     usedClues: [],
     notes: { white: [], black: [] },
     roundHistory: [],
     winner: null,
+    // 轮换索引
+    rotationIndex: 0,
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
@@ -128,7 +143,7 @@ export function assignTeams(room) {
 
   room.players.forEach((player, index) => {
     player.team = index < 2 ? 'white' : 'black';
-    player.isEncryptor = (index === 0 || index === 2);
+    player.isEncryptor = false; // 初始时不设置情报官，游戏开始后再设置
     player.order = index;
   });
 
@@ -155,10 +170,21 @@ export function startGame(room) {
   room.status = 'playing';
   room.currentRound = 1;
   room.phase = GAME_PHASES.ENCRYPTING;
-  room.encryptor = room.teams.white.players[0];
-  room.encryptorTeam = 'white';
+  
+  // 设置第一个情报官：黑队A (rotationIndex = 0)
+  room.rotationIndex = 0;
+  const firstRotation = ROTATION_SEQUENCE[0];
+  room.encryptorTeam = firstRotation.team;
+  room.encryptor = room.teams[firstRotation.team].players[firstRotation.index];
+  
+  // 更新玩家角色
+  updateEncryptorRole(room);
+  
   room.clues = [];
-  room.teammateGuess = null;
+  room.teamVotes = {
+    white: { player1Guess: null, player2Guess: null, finalGuess: null },
+    black: { player1Guess: null, player2Guess: null, finalGuess: null }
+  };
   room.opponentGuess = null;
   room.usedClues = [];
   room.notes = { white: [], black: [] };
@@ -173,6 +199,12 @@ export function startGame(room) {
   room.updatedAt = Date.now();
 
   return room;
+}
+
+function updateEncryptorRole(room) {
+  room.players.forEach(p => {
+    p.isEncryptor = (p.id === room.encryptor);
+  });
 }
 
 export function generateCode() {
@@ -211,19 +243,18 @@ export function submitClues(room, playerId, clues) {
 
   room.clues = validClues;
   room.usedClues.push(...validClues.map(c => c.toLowerCase()));
+  
+  // 进入猜测阶段 - 两队同时提交猜测
   room.phase = GAME_PHASES.GUESSING;
   room.updatedAt = Date.now();
 
   return { room };
 }
 
-export function submitGuess(room, playerId, guessType, guess) {
+// 提交队内猜测（队友两人各自提交）
+export function submitTeamGuess(room, playerId, guess) {
   if (room.phase !== GAME_PHASES.GUESSING) {
     return { error: '当前不是猜测阶段' };
-  }
-
-  if (![GUESS_TYPE.TEAMMATE, GUESS_TYPE.OPPONENT].includes(guessType)) {
-    return { error: '无效的猜测类型' };
   }
 
   if (!Array.isArray(guess) || guess.length !== 3) {
@@ -237,43 +268,163 @@ export function submitGuess(room, playerId, guessType, guess) {
   const player = room.players.find(p => p.id === playerId);
   if (!player) return { error: '玩家不存在' };
 
-  if (guessType === GUESS_TYPE.TEAMMATE) {
-    if (player.team !== room.encryptorTeam) {
-      return { error: '只有加密方队友可以提交猜测' };
-    }
-    if (player.isEncryptor) {
-      return { error: '情报官不能提交猜测' };
-    }
-    if (room.teammateGuess !== null) {
-      return { error: '队伍猜测已提交' };
-    }
-    room.teammateGuess = guess;
-  } else {
-    if (player.team === room.encryptorTeam) {
-      return { error: '只有对方队可以拦截' };
-    }
-    if (room.opponentGuess !== null) {
-      return { error: '拦截猜测已提交' };
-    }
-    room.opponentGuess = guess;
+  // 情报官不能提交猜测
+  if (player.isEncryptor) {
+    return { error: '情报官不能提交猜测' };
   }
 
+  const team = player.team;
+  const teamPlayers = room.teams[team].players;
+  const playerIndex = teamPlayers.indexOf(playerId);
+  
+  if (playerIndex === -1) {
+    return { error: '玩家不在队伍中' };
+  }
+
+  // 检查是否已提交过
+  const voteKey = playerIndex === 0 ? 'player1Guess' : 'player2Guess';
+  if (room.teamVotes[team][voteKey] !== null) {
+    return { error: '你已经提交过猜测了' };
+  }
+
+  room.teamVotes[team][voteKey] = guess;
   room.updatedAt = Date.now();
 
-  if (room.teammateGuess !== null && room.opponentGuess !== null) {
+  // 检查该队是否两人都提交了
+  const teamVote = room.teamVotes[team];
+  if (teamVote.player1Guess !== null && teamVote.player2Guess !== null) {
+    // 判断两人是否一致
+    const guess1 = teamVote.player1Guess;
+    const guess2 = teamVote.player2Guess;
+    const isSame = guess1.every((g, i) => g === guess2[i]);
+    
+    if (isSame) {
+      teamVote.finalGuess = guess1;
+    }
+    // 如果不一致，进入投票阶段，等待统一决定
+  }
+
+  // 检查是否可以处理回合
+  if (canProcessRound(room)) {
     return processRound(room);
   }
 
   return { room };
 }
 
-export function processRound(room) {
-  const correctCode = room.currentCode;
-  const teammateCorrect = room.teammateGuess.every((g, i) => g === correctCode[i]);
-  const opponentCorrect = room.opponentGuess.every((g, i) => g === correctCode[i]);
+// 提交队内统一投票（当两人不一致时使用）
+export function submitTeamFinalVote(room, playerId, guess) {
+  if (room.phase !== GAME_PHASES.TEAM_VOTING && room.phase !== GAME_PHASES.GUESSING) {
+    return { error: '当前不是投票阶段' };
+  }
 
+  if (!Array.isArray(guess) || guess.length !== 3) {
+    return { error: '需要提交3个数字' };
+  }
+
+  if (guess.some(g => !Number.isInteger(g) || g < 1 || g > 4)) {
+    return { error: '每个数字必须在1-4之间' };
+  }
+
+  const player = room.players.find(p => p.id === playerId);
+  if (!player) return { error: '玩家不存在' };
+
+  const team = player.team;
+  
+  // 只有该队成员可以投票
+  if (player.team !== team) {
+    return { error: '只能为自己队伍投票' };
+  }
+
+  // 如果已经有一致猜测，不需要投票
+  if (room.teamVotes[team].finalGuess !== null) {
+    return { error: '队伍已经达成一致' };
+  }
+
+  room.teamVotes[team].finalGuess = guess;
+  room.updatedAt = Date.now();
+
+  // 检查是否可以处理回合
+  if (canProcessRound(room)) {
+    return processRound(room);
+  }
+
+  return { room };
+}
+
+// 提交对方拦截猜测
+export function submitOpponentGuess(room, playerId, guess) {
+  if (room.phase !== GAME_PHASES.GUESSING && room.phase !== GAME_PHASES.TEAM_VOTING) {
+    return { error: '当前不是猜测阶段' };
+  }
+
+  if (!Array.isArray(guess) || guess.length !== 3) {
+    return { error: '需要提交3个数字' };
+  }
+
+  if (guess.some(g => !Number.isInteger(g) || g < 1 || g > 4)) {
+    return { error: '每个数字必须在1-4之间' };
+  }
+
+  const player = room.players.find(p => p.id === playerId);
+  if (!player) return { error: '玩家不存在' };
+
+  // 只有对方队伍可以拦截
+  if (player.team === room.encryptorTeam) {
+    return { error: '只有对方队可以拦截' };
+  }
+
+  // 检查是否已提交过
+  if (room.opponentGuess !== null) {
+    return { error: '拦截猜测已提交' };
+  }
+
+  room.opponentGuess = guess;
+  room.updatedAt = Date.now();
+
+  // 检查是否可以处理回合
+  if (canProcessRound(room)) {
+    return processRound(room);
+  }
+
+  return { room };
+}
+
+// 检查是否可以处理回合
+function canProcessRound(room) {
   const encryptorTeam = room.encryptorTeam;
   const interceptTeam = encryptorTeam === 'white' ? 'black' : 'white';
+  
+  // 加密方队友必须达成一致
+  const encryptorTeamHasFinal = room.teamVotes[encryptorTeam].finalGuess !== null;
+  // 对方必须提交拦截
+  const opponentHasGuess = room.opponentGuess !== null;
+  
+  return encryptorTeamHasFinal && opponentHasGuess;
+}
+
+// 检查是否需要进入投票阶段
+export function checkNeedTeamVoting(room) {
+  const encryptorTeam = room.encryptorTeam;
+  const teamVote = room.teamVotes[encryptorTeam];
+  
+  // 两人都提交了但不一致
+  if (teamVote.player1Guess !== null && teamVote.player2Guess !== null && teamVote.finalGuess === null) {
+    return true;
+  }
+  return false;
+}
+
+export function processRound(room) {
+  const correctCode = room.currentCode;
+  const encryptorTeam = room.encryptorTeam;
+  const interceptTeam = encryptorTeam === 'white' ? 'black' : 'white';
+  
+  const teammateGuess = room.teamVotes[encryptorTeam].finalGuess;
+  const opponentGuess = room.opponentGuess;
+
+  const teammateCorrect = teammateGuess.every((g, i) => g === correctCode[i]);
+  const opponentCorrect = opponentGuess.every((g, i) => g === correctCode[i]);
 
   let message = '';
   const roundResult = {
@@ -281,8 +432,8 @@ export function processRound(room) {
     encryptorTeam,
     interceptTeam,
     correctCode: [...correctCode],
-    teammateGuess: [...room.teammateGuess],
-    opponentGuess: [...room.opponentGuess],
+    teammateGuess: [...teammateGuess],
+    opponentGuess: [...opponentGuess],
     teammateCorrect,
     opponentCorrect,
     tokens: {
@@ -295,16 +446,16 @@ export function processRound(room) {
 
   if (teammateCorrect && opponentCorrect) {
     room.teams[interceptTeam].interceptionTokens++;
-    message = `⚠️ ${teamName(encryptorTeam)}队友猜对了，但${teamName(interceptTeam)}也成功拦截！${teamName(interceptTeam)}获得1个拦截标记！`;
+    message = ` intercepted! ${teamName(interceptTeam)}获得1个拦截标记！`;
   } else if (teammateCorrect && !opponentCorrect) {
-    message = `✅ ${teamName(encryptorTeam)}队友猜对了，${teamName(interceptTeam)}拦截失败！无事发生，继续下一回合！`;
+    message = ` ${teamName(encryptorTeam)}队友猜对了，${teamName(interceptTeam)}拦截失败！无事发生，继续下一回合！`;
   } else if (!teammateCorrect && opponentCorrect) {
     room.teams[interceptTeam].interceptionTokens++;
     room.teams[encryptorTeam].miscommunicationTokens++;
-    message = `🛡️ ${teamName(encryptorTeam)}队友猜错了，${teamName(interceptTeam)}成功拦截！${teamName(interceptTeam)}获得1个拦截标记，${teamName(encryptorTeam)}获得1个失误标记！`;
+    message = ` ${teamName(encryptorTeam)}队友猜错了，${teamName(interceptTeam)}成功拦截！${teamName(interceptTeam)}获得1个拦截标记，${teamName(encryptorTeam)}获得1个失误标记！`;
   } else {
     room.teams[encryptorTeam].miscommunicationTokens++;
-    message = `❌ 双方都猜错了！${teamName(encryptorTeam)}获得1个失误标记！正确密码是: ${correctCode.join(' - ')}`;
+    message = ` 双方都猜错了！${teamName(encryptorTeam)}获得1个失误标记！正确密码是: ${correctCode.join(' - ')}`;
   }
 
   roundResult.message = message;
@@ -313,14 +464,14 @@ export function processRound(room) {
     round: room.currentRound,
     clues: [...room.clues],
     code: [...correctCode],
-    teammateGuess: [...room.teammateGuess],
+    teammateGuess: [...teammateGuess],
     success: teammateCorrect
   });
 
   room.notes[interceptTeam].push({
     round: room.currentRound,
     clues: [...room.clues],
-    opponentGuess: [...room.opponentGuess],
+    opponentGuess: [...opponentGuess],
     success: opponentCorrect
   });
 
@@ -355,25 +506,25 @@ export function checkWinCondition(room, roundResult) {
     room.winner = 'white';
     room.status = GAME_PHASES.ENDED;
     if (roundResult) {
-      roundResult.message += '<br><br>🎉 白队获得胜利！（2次成功拦截）';
+      roundResult.message += '<br><br> 白队获得胜利！（2次成功拦截）';
     }
   } else if (blackInterception >= 2) {
     room.winner = 'black';
     room.status = GAME_PHASES.ENDED;
     if (roundResult) {
-      roundResult.message += '<br><br>🎉 黑队获得胜利！（2次成功拦截）';
+      roundResult.message += '<br><br> 黑队获得胜利！（2次成功拦截）';
     }
   } else if (whiteMiscommunication >= 2) {
     room.winner = 'black';
     room.status = GAME_PHASES.ENDED;
     if (roundResult) {
-      roundResult.message += '<br><br>🎉 黑队获得胜利！（白队2次失误）';
+      roundResult.message += '<br><br> 黑队获得胜利！（白队2次失误）';
     }
   } else if (blackMiscommunication >= 2) {
     room.winner = 'white';
     room.status = GAME_PHASES.ENDED;
     if (roundResult) {
-      roundResult.message += '<br><br>🎉 白队获得胜利！（黑队2次失误）';
+      roundResult.message += '<br><br> 白队获得胜利！（黑队2次失误）';
     }
   }
 
@@ -381,19 +532,23 @@ export function checkWinCondition(room, roundResult) {
 }
 
 export function nextRound(room) {
-  const currentEncryptorTeam = room.encryptorTeam;
-  room.teams[currentEncryptorTeam].encryptorIndex =
-    (room.teams[currentEncryptorTeam].encryptorIndex + 1) % room.teams[currentEncryptorTeam].players.length;
-
-  const nextTeam = currentEncryptorTeam === 'white' ? 'black' : 'white';
-  const nextEncryptorId = room.teams[nextTeam].players[room.teams[nextTeam].encryptorIndex];
-
+  // 移动到下一个轮换位置
+  room.rotationIndex = (room.rotationIndex + 1) % ROTATION_SEQUENCE.length;
+  const nextRotation = ROTATION_SEQUENCE[room.rotationIndex];
+  
+  room.encryptorTeam = nextRotation.team;
+  room.encryptor = room.teams[nextRotation.team].players[nextRotation.index];
+  
+  // 更新玩家角色
+  updateEncryptorRole(room);
+  
   room.currentRound++;
   room.phase = GAME_PHASES.ENCRYPTING;
-  room.encryptor = nextEncryptorId;
-  room.encryptorTeam = nextTeam;
   room.clues = [];
-  room.teammateGuess = null;
+  room.teamVotes = {
+    white: { player1Guess: null, player2Guess: null, finalGuess: null },
+    black: { player1Guess: null, player2Guess: null, finalGuess: null }
+  };
   room.opponentGuess = null;
   room.currentCode = generateCode();
   room.roundResult = null;
@@ -413,8 +568,15 @@ export function resetGame(room) {
   room.status = 'playing';
   room.currentRound = 1;
   room.phase = GAME_PHASES.ENCRYPTING;
-  room.encryptor = room.teams.white.players[0];
-  room.encryptorTeam = 'white';
+  
+  // 重置轮换
+  room.rotationIndex = 0;
+  const firstRotation = ROTATION_SEQUENCE[0];
+  room.encryptorTeam = firstRotation.team;
+  room.encryptor = room.teams[firstRotation.team].players[firstRotation.index];
+  
+  updateEncryptorRole(room);
+  
   room.teams.white.encryptorIndex = 0;
   room.teams.black.encryptorIndex = 0;
   room.teams.white.interceptionTokens = 0;
@@ -422,7 +584,10 @@ export function resetGame(room) {
   room.teams.white.miscommunicationTokens = 0;
   room.teams.black.miscommunicationTokens = 0;
   room.clues = [];
-  room.teammateGuess = null;
+  room.teamVotes = {
+    white: { player1Guess: null, player2Guess: null, finalGuess: null },
+    black: { player1Guess: null, player2Guess: null, finalGuess: null }
+  };
   room.opponentGuess = null;
   room.usedClues = [];
   room.notes = { white: [], black: [] };
@@ -432,4 +597,30 @@ export function resetGame(room) {
   room.updatedAt = Date.now();
 
   return room;
+}
+
+// 获取当前情报官信息
+export function getCurrentEncryptorInfo(room) {
+  const encryptor = room.players.find(p => p.id === room.encryptor);
+  return {
+    id: room.encryptor,
+    name: encryptor?.name || '未知',
+    team: room.encryptorTeam,
+    teamName: teamName(room.encryptorTeam)
+  };
+}
+
+// 获取轮换顺序中的下一个情报官
+export function getNextEncryptorInfo(room) {
+  const nextIndex = (room.rotationIndex + 1) % ROTATION_SEQUENCE.length;
+  const nextRotation = ROTATION_SEQUENCE[nextIndex];
+  const nextEncryptorId = room.teams[nextRotation.team].players[nextRotation.index];
+  const nextEncryptor = room.players.find(p => p.id === nextEncryptorId);
+  
+  return {
+    id: nextEncryptorId,
+    name: nextEncryptor?.name || '未知',
+    team: nextRotation.team,
+    teamName: teamName(nextRotation.team)
+  };
 }

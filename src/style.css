@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&family=Noto+Serif+SC:wght@400;600;700&display=swap');
+
 * {
   margin: 0;
   padding: 0;
@@ -5,32 +7,56 @@
 }
 
 :root {
-  --bg-dark: #0a0a0f;
-  --bg-card: #12121a;
-  --primary: #00ff88;
-  --secondary: #ff0066;
-  --accent: #00d4ff;
-  --white-team: #e8e8e8;
-  --black-team: #333333;
-  --text: #e0e0e0;
-  --glow-primary: 0 0 20px #00ff8866, 0 0 40px #00ff8833;
-  --glow-secondary: 0 0 20px #ff006666, 0 0 40px #ff006633;
+  --paper-bg: #f4f1e8;
+  --paper-dark: #e8e4d9;
+  --ink-black: #2c2416;
+  --ink-red: #8b2635;
+  --ink-blue: #2e4a62;
+  --ink-green: #3d5c3a;
+  --ink-brown: #6b4423;
+  --typewriter: 'Courier Prime', monospace;
+  --serif: 'Noto Serif SC', serif;
+  --telegram-border: #c4b8a0;
+  --stamp-red: #b83a3a;
 }
 
 body {
-  font-family: 'Noto Sans SC', sans-serif;
-  background: var(--bg-dark);
-  color: var(--text);
+  font-family: var(--serif);
+  background: #1a1612;
+  color: var(--ink-black);
   min-height: 100vh;
   overflow-x: hidden;
   background-image: 
-    linear-gradient(rgba(0, 255, 136, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 255, 136, 0.03) 1px, transparent 1px);
-  background-size: 50px 50px;
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
 }
 
 #app {
   min-height: 100vh;
+}
+
+/* 纸张纹理效果 */
+.paper-texture {
+  background: var(--paper-bg);
+  background-image: 
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 24px,
+      rgba(0,0,0,0.05) 24px,
+      rgba(0,0,0,0.05) 25px
+    ),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.08'/%3E%3C/svg%3E");
+  box-shadow: 
+    0 1px 3px rgba(0,0,0,0.3),
+    0 4px 12px rgba(0,0,0,0.2),
+    inset 0 0 60px rgba(139, 115, 85, 0.1);
+  border: 1px solid var(--telegram-border);
 }
 
 .screen {
@@ -47,107 +73,209 @@ body {
   padding: 20px;
 }
 
+/* 打字机标题 */
 h1 {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 3.5rem;
-  font-weight: 900;
-  background: linear-gradient(135deg, var(--primary), var(--accent));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  text-shadow: var(--glow-primary);
-  margin-bottom: 0.5rem;
+  font-family: var(--typewriter);
+  font-size: 2.8rem;
+  font-weight: 700;
+  color: var(--ink-black);
   text-align: center;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+  position: relative;
+}
+
+h1::after {
+  content: '';
+  display: block;
+  width: 80%;
+  height: 2px;
+  background: var(--ink-black);
+  margin: 0.5rem auto 0;
+  opacity: 0.3;
+}
+
+h2 {
+  font-family: var(--typewriter);
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--ink-black);
+  text-align: center;
+  letter-spacing: 0.1em;
+  margin-bottom: 1rem;
 }
 
 .subtitle {
-  font-size: 1.2rem;
-  color: var(--accent);
+  font-family: var(--typewriter);
+  font-size: 1rem;
+  color: var(--ink-brown);
   margin-bottom: 2rem;
   opacity: 0.8;
   text-align: center;
+  letter-spacing: 0.3em;
 }
 
+/* 卡片样式 - 电报纸张 */
 .card {
-  background: var(--bg-card);
-  border: 1px solid rgba(0, 255, 136, 0.2);
-  border-radius: 16px;
-  padding: 2rem;
-  box-shadow: var(--glow-primary);
+  background: var(--paper-bg);
+  background-image: 
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 24px,
+      rgba(0,0,0,0.04) 24px,
+      rgba(0,0,0,0.04) 25px
+    );
+  border: 2px solid var(--telegram-border);
+  padding: 2.5rem;
+  box-shadow: 
+    0 2px 8px rgba(0,0,0,0.15),
+    0 8px 24px rgba(0,0,0,0.1),
+    inset 0 0 80px rgba(139, 115, 85, 0.08);
   max-width: 600px;
   width: 100%;
+  position: relative;
 }
 
+.card::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  border: 1px solid rgba(196, 184, 160, 0.5);
+  pointer-events: none;
+}
+
+/* 输入框 - 复古风格 */
 .input-group {
   margin-bottom: 1.5rem;
 }
 
 label {
   display: block;
-  font-size: 0.9rem;
-  color: var(--accent);
+  font-family: var(--typewriter);
+  font-size: 0.8rem;
+  color: var(--ink-brown);
   margin-bottom: 0.5rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.1em;
+  font-weight: 700;
 }
 
 input {
   width: 100%;
   padding: 0.8rem 1rem;
-  font-family: 'Noto Sans SC', sans-serif;
+  font-family: var(--typewriter);
   font-size: 1rem;
-  background: rgba(0, 0, 0, 0.4);
-  border: 2px solid rgba(0, 255, 136, 0.3);
-  border-radius: 8px;
-  color: var(--text);
+  background: rgba(255, 255, 255, 0.6);
+  border: 2px solid var(--telegram-border);
+  color: var(--ink-black);
   outline: none;
   transition: all 0.3s ease;
 }
 
 input:focus {
-  border-color: var(--primary);
-  box-shadow: var(--glow-primary);
+  border-color: var(--ink-brown);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 3px rgba(107, 68, 35, 0.1);
 }
 
+input::placeholder {
+  color: rgba(44, 36, 22, 0.4);
+}
+
+/* 按钮 - 电报机风格 */
 .btn {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 0.9rem;
+  font-family: var(--typewriter);
+  font-size: 0.85rem;
   font-weight: 700;
   padding: 0.9rem 1.8rem;
-  border: none;
-  border-radius: 8px;
+  border: 2px solid var(--ink-black);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.15em;
+  background: var(--paper-bg);
+  color: var(--ink-black);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: var(--ink-black);
+  transition: left 0.3s ease;
+  z-index: 0;
+}
+
+.btn:hover::before {
+  left: 0;
+}
+
+.btn:hover {
+  color: var(--paper-bg);
+}
+
+.btn span, .btn {
+  position: relative;
+  z-index: 1;
 }
 
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
-.btn-primary {
-  background: linear-gradient(135deg, var(--primary), #00cc6a);
-  color: var(--bg-dark);
-  box-shadow: var(--glow-primary);
+.btn:disabled::before {
+  display: none;
 }
 
-.btn-primary:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 0 30px #00ff8888;
+.btn-primary {
+  border-color: var(--ink-black);
+  background: var(--ink-black);
+  color: var(--paper-bg);
+}
+
+.btn-primary::before {
+  background: var(--paper-bg);
+}
+
+.btn-primary:hover {
+  color: var(--ink-black);
 }
 
 .btn-secondary {
-  background: linear-gradient(135deg, var(--accent), #0099cc);
-  color: var(--bg-dark);
-  box-shadow: 0 0 20px #00d4ff66;
+  border-color: var(--ink-blue);
+  color: var(--ink-blue);
+}
+
+.btn-secondary::before {
+  background: var(--ink-blue);
+}
+
+.btn-secondary:hover {
+  color: var(--paper-bg);
 }
 
 .btn-danger {
-  background: linear-gradient(135deg, var(--secondary), #cc0055);
-  color: white;
-  box-shadow: var(--glow-secondary);
+  border-color: var(--ink-red);
+  color: var(--ink-red);
+}
+
+.btn-danger::before {
+  background: var(--ink-red);
+}
+
+.btn-danger:hover {
+  color: var(--paper-bg);
 }
 
 .btn-group {
@@ -157,18 +285,20 @@ input:focus {
   justify-content: center;
 }
 
+/* 分隔线 */
 .divider {
   display: flex;
   align-items: center;
   margin: 1.5rem 0;
-  color: rgba(255, 255, 255, 0.3);
+  color: var(--ink-brown);
+  font-family: var(--typewriter);
 }
 
 .divider::before, .divider::after {
   content: '';
   flex: 1;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(0, 255, 136, 0.3), transparent);
+  background: var(--telegram-border);
 }
 
 .divider span {
@@ -176,21 +306,33 @@ input:focus {
   font-size: 0.85rem;
 }
 
+/* 房间号 - 电报编码风格 */
 .room-code {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 2.5rem;
-  font-weight: 900;
-  color: var(--primary);
+  font-family: var(--typewriter);
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: var(--ink-black);
   text-align: center;
-  letter-spacing: 0.3em;
+  letter-spacing: 0.4em;
   padding: 1rem;
-  background: rgba(0, 255, 136, 0.1);
-  border: 2px solid var(--primary);
-  border-radius: 12px;
-  text-shadow: var(--glow-primary);
+  background: rgba(0, 0, 0, 0.05);
+  border: 2px solid var(--ink-black);
   margin-bottom: 1rem;
+  position: relative;
 }
 
+.room-code::before {
+  content: 'NO.';
+  position: absolute;
+  top: -10px;
+  left: 10px;
+  background: var(--paper-bg);
+  padding: 0 8px;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+}
+
+/* 玩家网格 */
 .players-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -198,42 +340,45 @@ input:focus {
   margin: 1.5rem 0;
 }
 
+/* 队伍卡片 */
 .team-card {
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 12px;
-  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.03);
   border: 2px solid;
+  padding: 1.5rem;
+  position: relative;
 }
 
 .team-card.white {
-  border-color: var(--white-team);
+  border-color: var(--ink-black);
 }
 
 .team-card.black {
-  border-color: #666;
+  border-color: var(--ink-brown);
 }
 
 .team-title {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 1.2rem;
+  font-family: var(--typewriter);
+  font-size: 1rem;
   font-weight: 700;
   margin-bottom: 1rem;
   text-align: center;
+  letter-spacing: 0.1em;
 }
 
 .team-card.white .team-title {
-  color: var(--white-team);
+  color: var(--ink-black);
 }
 
 .team-card.black .team-title {
-  color: #999;
+  color: var(--ink-brown);
 }
 
 .player-item {
   display: flex;
   align-items: center;
   padding: 0.5rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  font-family: var(--typewriter);
 }
 
 .player-item:last-child {
@@ -241,27 +386,32 @@ input:focus {
 }
 
 .player-item.you {
-  background: rgba(0, 212, 255, 0.1);
+  background: rgba(46, 74, 98, 0.1);
   padding: 0.5rem;
-  border-radius: 6px;
 }
 
 .player-name {
   flex: 1;
+  font-size: 0.9rem;
 }
 
+/* 角色标签 - 印章风格 */
 .role-tag {
-  font-size: 0.75rem;
+  font-family: var(--typewriter);
+  font-size: 0.65rem;
   padding: 0.2rem 0.6rem;
-  border-radius: 20px;
-  background: var(--accent);
-  color: var(--bg-dark);
+  border: 1px solid var(--stamp-red);
+  color: var(--stamp-red);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transform: rotate(-2deg);
 }
 
 .waiting-text {
   text-align: center;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--ink-brown);
   margin-top: 1rem;
+  font-family: var(--typewriter);
   animation: blink 1.5s ease-in-out infinite;
 }
 
@@ -270,6 +420,7 @@ input:focus {
   50% { opacity: 1; }
 }
 
+/* 游戏区域 */
 .game-container {
   width: 100%;
   max-width: 1200px;
@@ -285,112 +436,128 @@ input:focus {
   gap: 1rem;
 }
 
+/* 队伍信息 - 军牌风格 */
 .team-info {
   display: flex;
   align-items: center;
   gap: 1rem;
   padding: 0.8rem 1.2rem;
-  background: rgba(0, 0, 0, 0.4);
-  border-radius: 12px;
+  background: var(--paper-bg);
   border: 2px solid;
+  position: relative;
 }
 
 .team-info.white {
-  border-color: var(--white-team);
+  border-color: var(--ink-black);
 }
 
 .team-info.black {
-  border-color: #666;
+  border-color: var(--ink-brown);
 }
 
 .team-info .team-name {
-  font-family: 'Orbitron', sans-serif;
+  font-family: var(--typewriter);
   font-weight: 700;
+  letter-spacing: 0.1em;
 }
 
 .team-info.white .team-name {
-  color: var(--white-team);
+  color: var(--ink-black);
 }
 
 .team-info.black .team-name {
-  color: #999;
+  color: var(--ink-brown);
 }
 
+/* 标记 - 印章风格 */
 .tokens {
   display: flex;
   gap: 0.5rem;
 }
 
 .token {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
+  width: 24px;
+  height: 24px;
   border: 2px solid;
+  position: relative;
 }
 
 .token.white {
-  background: white;
-  border-color: white;
-  box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+  background: var(--paper-bg);
+  border-color: var(--ink-black);
 }
 
 .token.white.earned {
-  box-shadow: 0 0 15px rgba(255, 255, 255, 0.8);
+  background: var(--ink-black);
 }
 
 .token.black {
-  background: #222;
-  border-color: #444;
+  background: var(--paper-bg);
+  border-color: var(--ink-brown);
 }
 
 .token.black.earned {
-  background: var(--secondary);
-  border-color: var(--secondary);
-  box-shadow: 0 0 15px rgba(255, 0, 102, 0.8);
+  background: var(--ink-brown);
 }
 
-.token.empty {
-  opacity: 0.3;
-}
-
+/* 回合信息 */
 .round-info {
   text-align: center;
-  font-family: 'Orbitron', sans-serif;
+  font-family: var(--typewriter);
 }
 
 .round-number {
-  font-size: 1.5rem;
+  font-size: 1.3rem;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--ink-black);
+  letter-spacing: 0.1em;
 }
 
+/* 游戏区域网格 */
 .game-area {
   display: grid;
   grid-template-columns: 1fr;
   gap: 1.5rem;
 }
 
+/* 面板 - 文件夹风格 */
 .screen-panel {
-  background: linear-gradient(145deg, var(--bg-card), #0f0f15);
-  border: 2px solid rgba(0, 255, 136, 0.3);
-  border-radius: 16px;
+  background: var(--paper-bg);
+  border: 2px solid var(--telegram-border);
   padding: 1.5rem;
+  position: relative;
+  box-shadow: 2px 2px 8px rgba(0,0,0,0.1);
 }
 
 .screen-panel.our-team {
-  border-color: var(--primary);
-  box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
+  border-color: var(--ink-black);
+  border-width: 3px;
+}
+
+.screen-panel::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: 20px;
+  width: 60px;
+  height: 16px;
+  background: var(--paper-dark);
+  border: 2px solid var(--telegram-border);
+  border-bottom: none;
 }
 
 .screen-title {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 1.1rem;
+  font-family: var(--typewriter);
+  font-size: 1rem;
   font-weight: 700;
   margin-bottom: 1rem;
-  color: var(--accent);
+  color: var(--ink-black);
   text-align: center;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
+/* 关键词网格 */
 .keywords-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -399,58 +566,61 @@ input:focus {
 
 .keyword-card {
   aspect-ratio: 1;
-  background: rgba(0, 0, 0, 0.4);
-  border: 2px solid rgba(0, 255, 136, 0.3);
-  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.03);
+  border: 2px solid var(--telegram-border);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   transition: all 0.3s ease;
+  position: relative;
 }
 
 .keyword-card.visible {
-  background: rgba(0, 255, 136, 0.1);
-  border-color: var(--primary);
+  background: rgba(46, 74, 98, 0.08);
+  border-color: var(--ink-blue);
 }
 
 .keyword-number {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 1.5rem;
-  font-weight: 900;
-  color: var(--primary);
-  margin-bottom: 0.5rem;
+  font-family: var(--typewriter);
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--ink-black);
+  margin-bottom: 0.3rem;
 }
 
 .keyword-word {
-  font-size: 1rem;
-  font-weight: 700;
+  font-size: 0.9rem;
+  font-weight: 600;
   text-align: center;
   word-break: break-word;
   padding: 0 0.5rem;
+  font-family: var(--serif);
 }
 
 .keyword-word.hidden {
-  color: rgba(255, 255, 255, 0.2);
-  font-size: 0.9rem;
+  color: rgba(44, 36, 22, 0.3);
+  font-size: 0.8rem;
 }
 
+/* 阶段面板 */
 .phase-panel {
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.02);
+  border: 2px solid var(--telegram-border);
   padding: 1.5rem;
-  border: 1px solid rgba(0, 255, 136, 0.2);
 }
 
 .phase-title {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 1.3rem;
+  font-family: var(--typewriter);
+  font-size: 1.1rem;
   font-weight: 700;
-  color: var(--primary);
+  color: var(--ink-black);
   margin-bottom: 1rem;
   text-align: center;
+  letter-spacing: 0.1em;
 }
 
+/* 密码显示 */
 .code-display {
   display: flex;
   justify-content: center;
@@ -459,19 +629,17 @@ input:focus {
 }
 
 .code-digit {
-  width: 70px;
-  height: 70px;
-  background: rgba(0, 0, 0, 0.4);
-  border: 2px solid var(--accent);
-  border-radius: 12px;
+  width: 60px;
+  height: 60px;
+  background: rgba(0, 0, 0, 0.05);
+  border: 2px solid var(--ink-black);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Orbitron', sans-serif;
-  font-size: 2.5rem;
-  font-weight: 900;
-  color: var(--accent);
-  box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+  font-family: var(--typewriter);
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--ink-black);
 }
 
 .code-inputs {
@@ -482,15 +650,23 @@ input:focus {
 }
 
 .code-input {
-  width: 70px;
-  height: 70px;
+  width: 60px;
+  height: 60px;
   text-align: center;
-  font-family: 'Orbitron', sans-serif;
-  font-size: 2rem;
+  font-family: var(--typewriter);
+  font-size: 1.8rem;
   font-weight: 700;
-  border-radius: 12px;
+  border: 2px solid var(--telegram-border);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--ink-black);
 }
 
+.code-input:focus {
+  border-color: var(--ink-black);
+  outline: none;
+}
+
+/* 线索输入 */
 .clue-inputs {
   display: flex;
   flex-direction: column;
@@ -505,28 +681,28 @@ input:focus {
 }
 
 .clue-index {
-  width: 40px;
-  height: 40px;
-  background: rgba(0, 255, 136, 0.2);
-  border: 2px solid var(--primary);
-  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  background: var(--ink-black);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Orbitron', sans-serif;
+  font-family: var(--typewriter);
   font-weight: 700;
-  color: var(--primary);
+  color: var(--paper-bg);
   flex-shrink: 0;
+  font-size: 0.9rem;
 }
 
 .clue-input-field {
   flex: 1;
 }
 
+/* 线索展示 */
 .clue-display {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.8rem;
   margin: 1.5rem 0;
 }
 
@@ -534,20 +710,21 @@ input:focus {
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 1rem;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 8px;
-  border-left: 4px solid var(--primary);
+  padding: 0.8rem 1rem;
+  background: rgba(0, 0, 0, 0.03);
+  border-left: 4px solid var(--ink-black);
+  font-family: var(--serif);
 }
 
 .clue-text {
-  font-size: 1.2rem;
-  font-weight: 700;
+  font-size: 1.1rem;
+  font-weight: 600;
 }
 
+/* 笔记区域 */
 .note-sheet {
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 2px solid var(--telegram-border);
   padding: 1.5rem;
   max-height: 400px;
   overflow-y: auto;
@@ -562,69 +739,243 @@ input:focus {
 }
 
 .note-title {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 0.9rem;
-  color: var(--accent);
+  font-family: var(--typewriter);
+  font-size: 0.8rem;
+  color: var(--ink-brown);
   margin-bottom: 0.5rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
 }
 
 .note-round {
   padding: 0.5rem;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.03);
   margin-bottom: 0.5rem;
   font-size: 0.85rem;
+  border-left: 2px solid var(--telegram-border);
+  font-family: var(--typewriter);
 }
 
+/* 结果面板 */
 .result-panel {
   text-align: center;
   padding: 2rem;
 }
 
 .result-title {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 2.5rem;
-  font-weight: 900;
+  font-family: var(--typewriter);
+  font-size: 2rem;
+  font-weight: 700;
   margin-bottom: 1rem;
+  letter-spacing: 0.1em;
 }
 
 .result-title.win {
-  color: var(--primary);
-  text-shadow: var(--glow-primary);
+  color: var(--ink-green);
 }
 
 .result-title.lose {
-  color: var(--secondary);
-  text-shadow: var(--glow-secondary);
+  color: var(--ink-red);
 }
 
 .result-subtitle {
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   margin-bottom: 2rem;
-  opacity: 0.8;
+  color: var(--ink-brown);
+  font-family: var(--serif);
 }
 
 .result-details {
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.03);
+  border: 2px solid var(--telegram-border);
   padding: 1.5rem;
   margin-bottom: 1.5rem;
 }
 
+/* 规则文字 */
 .rules-text {
-  font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.8rem;
+  color: var(--ink-brown);
   line-height: 1.6;
   margin-top: 1rem;
+  font-family: var(--typewriter);
 }
 
+/* 电报机效果 */
+.telegram-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid var(--telegram-border);
+}
+
+.telegram-icon {
+  width: 40px;
+  height: 40px;
+  border: 2px solid var(--ink-black);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--typewriter);
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+/* 印章效果 */
+.stamp {
+  display: inline-block;
+  padding: 0.3rem 0.8rem;
+  border: 2px solid var(--stamp-red);
+  color: var(--stamp-red);
+  font-family: var(--typewriter);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  transform: rotate(-3deg);
+  margin: 0.5rem 0;
+}
+
+/* 打字机动画 */
+.typewriter {
+  overflow: hidden;
+  border-right: 2px solid var(--ink-black);
+  white-space: nowrap;
+  animation: typing 3s steps(40, end), blink-caret 0.75s step-end infinite;
+}
+
+@keyframes typing {
+  from { width: 0 }
+  to { width: 100% }
+}
+
+@keyframes blink-caret {
+  from, to { border-color: transparent }
+  50% { border-color: var(--ink-black); }
+}
+
+/* 摩斯电码装饰 */
+.morse-decoration {
+  font-family: var(--typewriter);
+  font-size: 0.7rem;
+  color: var(--ink-brown);
+  letter-spacing: 0.2em;
+  opacity: 0.5;
+  text-align: center;
+  margin: 0.5rem 0;
+}
+
+/* 响应式 */
 @media (max-width: 768px) {
-  h1 { font-size: 2rem; }
-  .card { padding: 1.2rem; }
+  h1 { font-size: 1.8rem; }
+  .card { padding: 1.5rem; }
   .players-grid { grid-template-columns: 1fr; }
   .keywords-grid { 
     grid-template-columns: repeat(2, 1fr);
     gap: 0.8rem;
   }
-  .code-digit, .code-input { width: 55px; height: 55px; font-size: 1.8rem; }
+  .code-digit, .code-input { width: 50px; height: 50px; font-size: 1.5rem; }
+  .game-header { flex-direction: column; }
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--paper-dark);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--telegram-border);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-brown);
+}
+
+/* 投票界面 */
+.vote-panel {
+  background: rgba(139, 38, 53, 0.05);
+  border: 2px solid var(--ink-red);
+  padding: 1.5rem;
+  margin: 1rem 0;
+}
+
+.vote-title {
+  font-family: var(--typewriter);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink-red);
+  text-align: center;
+  margin-bottom: 1rem;
+  letter-spacing: 0.1em;
+}
+
+.vote-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.vote-option {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8rem;
+  background: rgba(255, 255, 255, 0.5);
+  border: 2px solid var(--telegram-border);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.vote-option:hover {
+  border-color: var(--ink-black);
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.vote-option.selected {
+  border-color: var(--ink-black);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* 情报官标识 */
+.encryptor-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.8rem;
+  background: var(--ink-black);
+  color: var(--paper-bg);
+  font-family: var(--typewriter);
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+}
+
+/* 当前回合情报官信息 */
+.current-encryptor {
+  text-align: center;
+  padding: 1rem;
+  background: rgba(46, 74, 98, 0.08);
+  border: 2px solid var(--ink-blue);
+  margin-bottom: 1rem;
+}
+
+.current-encryptor-name {
+  font-family: var(--typewriter);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--ink-blue);
+}
+
+.current-encryptor-team {
+  font-family: var(--typewriter);
+  font-size: 0.8rem;
+  color: var(--ink-brown);
+  margin-top: 0.3rem;
 }

@@ -1,9 +1,20 @@
 <template>
   <div class="screen active">
     <div class="game-container">
+      <!-- 电报头部 -->
+      <div class="telegram-header">
+        <div class="telegram-icon">T</div>
+        <div>
+          <div style="font-family: var(--typewriter); font-size: 1.2rem; font-weight: 700;">TOP SECRET</div>
+          <div class="morse-decoration">- --- .--. / ... . -.-. .-. . -</div>
+        </div>
+        <div class="telegram-icon">M</div>
+      </div>
+
+      <!-- 游戏头部 -->
       <div class="game-header">
         <div class="team-info white">
-          <div class="team-name">⚪ 白队</div>
+          <div class="team-name">白队</div>
           <div class="tokens">
             <div 
               v-for="i in 2" 
@@ -21,10 +32,11 @@
           </div>
         </div>
         <div class="round-info">
-          <div class="round-number">第 <span>{{ gameState.room.currentRound }}</span> 回合</div>
+          <div class="round-number">第 {{ gameState.room.currentRound }} 回合</div>
+          <div class="morse-decoration" style="font-size: 0.6rem;">.-. --- ..- -. -..</div>
         </div>
         <div class="team-info black">
-          <div class="team-name">⚫ 黑队</div>
+          <div class="team-name">黑队</div>
           <div class="tokens">
             <div 
               v-for="i in 2" 
@@ -43,9 +55,20 @@
         </div>
       </div>
 
+      <!-- 当前情报官信息 -->
+      <div v-if="currentEncryptorInfo" class="current-encryptor">
+        <div class="current-encryptor-name">
+          情报官: {{ currentEncryptorInfo.name }}
+        </div>
+        <div class="current-encryptor-team">
+          {{ currentEncryptorInfo.teamName }} | 轮换顺序: {{ rotationOrder }}
+        </div>
+      </div>
+
       <div class="game-area">
+        <!-- 我方关键词 -->
         <div class="screen-panel our-team">
-          <div class="screen-title">{{ ourTeamLabel }} 的密码词</div>
+          <div class="screen-title">{{ ourTeamLabel }} 密码本</div>
           <div class="keywords-grid">
             <div 
               v-for="(word, index) in ourKeywords" 
@@ -58,11 +81,18 @@
           </div>
         </div>
 
+        <!-- 阶段面板 -->
         <div class="phase-panel">
+          <!-- 加密阶段 -->
           <template v-if="gameState.room.phase === 'encrypting'">
             <div v-if="gameState.isEncryptor" class="phase-content">
-              <div class="phase-title">🎯 你是情报官！</div>
-              <p style="text-align: center; margin-bottom: 1rem;">请查看密码并给出 3 个线索</p>
+              <div class="encryptor-badge" style="margin-bottom: 1rem;">
+                你是情报官
+              </div>
+              <div class="phase-title">破译密码</div>
+              <p style="text-align: center; margin-bottom: 1rem; font-family: var(--typewriter); font-size: 0.9rem;">
+                查看密码并给出 3 个线索
+              </p>
               <div class="code-display">
                 <div 
                   v-for="(digit, index) in gameState.room.currentCode" 
@@ -81,31 +111,45 @@
                     type="text" 
                     class="clue-input-field" 
                     v-model="clues[i - 1]"
-                    :placeholder="`输入第 ${i} 个线索...`"
+                    :placeholder="`第 ${i} 号线索`"
                   />
                 </div>
               </div>
               <p class="rules-text">
-                <strong>规则：</strong>线索不能包含关键词，不能用拼音、谐音、字数等暗示！
+                <strong>注意:</strong> 线索不能包含关键词，不能用拼音、谐音、字数等暗示！
               </p>
               <button class="btn btn-primary" @click="onCluesSubmit" style="width: 100%;">
-                提交线索
+                发送电报
               </button>
             </div>
             <div v-else-if="gameState.isTeammate" class="phase-content">
-              <div class="phase-title">⏳ 等待情报官...</div>
-              <p style="text-align: center;">{{ encryptorName }} 正在思考线索...</p>
+              <div class="phase-title">等待情报</div>
+              <p style="text-align: center; font-family: var(--typewriter);">
+                {{ encryptorName }} 正在加密情报...
+              </p>
+              <div class="morse-decoration" style="margin-top: 2rem;">
+                .-- .- .. - .. -. --.
+              </div>
             </div>
             <div v-else-if="gameState.isOpponent" class="phase-content">
-              <div class="phase-title">👂 敌方正在加密...</div>
-              <p style="text-align: center;">准备好拦截他们的密码！</p>
+              <div class="phase-title">敌方加密中</div>
+              <p style="text-align: center; font-family: var(--typewriter);">
+                准备拦截敌方密码！
+              </p>
+              <div class="morse-decoration" style="margin-top: 2rem;">
+                .-- .- - -.-. ....
+              </div>
             </div>
           </template>
 
-          <template v-else-if="gameState.room.phase === 'guessing'">
-            <div v-if="gameState.isTeammate && !gameState.hasTeammateGuess" class="phase-content">
-              <div class="phase-title">🤔 猜密码！</div>
-              <p style="text-align: center; margin-bottom: 1rem;">根据线索猜出密码</p>
+          <!-- 猜测阶段 -->
+          <template v-else-if="gameState.room.phase === 'guessing' || gameState.room.phase === 'team_voting'">
+            <!-- 队友猜测 -->
+            <div v-if="gameState.isTeammate && !hasSubmittedTeamGuess" class="phase-content">
+              <div class="phase-title">解码情报</div>
+              <p style="text-align: center; margin-bottom: 1rem; font-family: var(--typewriter);">
+                根据线索猜出密码
+              </p>
               <div class="clue-display">
                 <div 
                   v-for="(clue, index) in gameState.room.clues" 
@@ -129,12 +173,16 @@
                 />
               </div>
               <button class="btn btn-primary" @click="onTeammateGuessSubmit" style="width: 100%;">
-                提交猜测
+                提交解码
               </button>
             </div>
-            <div v-else-if="gameState.isOpponent && !gameState.hasOpponentGuess" class="phase-content">
-              <div class="phase-title">🕵️ 拦截密码！</div>
-              <p style="text-align: center; margin-bottom: 1rem;">尝试猜出敌方的密码</p>
+
+            <!-- 对方拦截 -->
+            <div v-else-if="gameState.isOpponent && !hasSubmittedOpponentGuess" class="phase-content">
+              <div class="phase-title">拦截密码</div>
+              <p style="text-align: center; margin-bottom: 1rem; font-family: var(--typewriter);">
+                尝试猜出敌方密码
+              </p>
               <div class="clue-display">
                 <div 
                   v-for="(clue, index) in gameState.room.clues" 
@@ -158,12 +206,41 @@
                 />
               </div>
               <button class="btn btn-primary" @click="onOpponentGuessSubmit" style="width: 100%;">
-                尝试拦截
+                发送拦截
               </button>
             </div>
+
+            <!-- 投票阶段 -->
+            <div v-else-if="gameState.room.phase === 'team_voting' && gameState.isTeammate && needTeamVote" class="phase-content">
+              <div class="vote-panel">
+                <div class="vote-title">队内投票</div>
+                <p style="text-align: center; margin-bottom: 1rem; font-family: var(--typewriter); font-size: 0.9rem;">
+                  队友意见不一致，请统一决定
+                </p>
+                <div class="vote-options">
+                  <div 
+                    v-for="(option, index) in voteOptions" 
+                    :key="index"
+                    class="vote-option"
+                    :class="{ selected: selectedVote === index }"
+                    @click="selectedVote = index"
+                  >
+                    <div class="clue-index">{{ index + 1 }}</div>
+                    <div>{{ option.playerName }}: {{ option.guess.join(' - ') }}</div>
+                  </div>
+                </div>
+                <button class="btn btn-primary" @click="onTeamVoteSubmit" style="width: 100%; margin-top: 1rem;">
+                  确认统一密码
+                </button>
+              </div>
+            </div>
+
+            <!-- 等待中 -->
             <div v-else class="phase-content">
-              <div class="phase-title">👀 等待猜测...</div>
-              <p style="text-align: center;">两队正在猜密码...</p>
+              <div class="phase-title">等待中...</div>
+              <p style="text-align: center; font-family: var(--typewriter);">
+                各方正在解码...
+              </p>
               <div class="clue-display">
                 <div 
                   v-for="(clue, index) in gameState.room.clues" 
@@ -174,22 +251,23 @@
                   <div class="clue-text">{{ clue }}</div>
                 </div>
               </div>
-              <p v-if="gameState.isEncryptor" style="text-align: center; margin-top: 1rem; font-family: Orbitron;">
+              <p v-if="gameState.isEncryptor" style="text-align: center; margin-top: 1rem; font-family: var(--typewriter);">
                 密码: {{ gameState.room.currentCode.join(' - ') }}
               </p>
             </div>
           </template>
 
+          <!-- 结果阶段 -->
           <template v-else-if="gameState.room.phase === 'result'">
             <div class="phase-content">
-              <div class="phase-title">📊 本回合结果</div>
+              <div class="phase-title">战报</div>
               <div style="text-align: center; margin: 1.5rem 0;">
-                <p style="font-size: 1.1rem; line-height: 1.8;" v-html="gameState.room.roundResult?.message"></p>
+                <p style="font-size: 1.1rem; line-height: 1.8; font-family: var(--serif);" v-html="gameState.room.roundResult?.message"></p>
               </div>
-              <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
-                <p><strong>正确密码:</strong> {{ gameState.room.roundResult?.correctCode?.join(' - ') }}</p>
-                <p v-if="gameState.room.roundResult?.teammateGuess">
-                  <strong>{{ isOurTeamEncrypting ? '我们的猜测' : '我们的拦截' }}:</strong> 
+              <div style="background: rgba(0,0,0,0.05); border: 2px solid var(--telegram-border); padding: 1rem; margin-bottom: 1rem;">
+                <p style="font-family: var(--typewriter);"><strong>正确密码:</strong> {{ gameState.room.roundResult?.correctCode?.join(' - ') }}</p>
+                <p v-if="gameState.room.roundResult?.teammateGuess" style="font-family: var(--typewriter);">
+                  <strong>{{ isOurTeamEncrypting ? '我方解码' : '我方拦截' }}:</strong> 
                   {{ gameState.room.roundResult?.teammateGuess?.join(' - ') }}
                 </p>
               </div>
@@ -201,7 +279,7 @@
                 >
                   <div class="clue-index">{{ index + 1 }}</div>
                   <div class="clue-text">{{ clue }}</div>
-                  <div style="margin-left: auto; color: var(--accent);">
+                  <div style="margin-left: auto; font-family: var(--typewriter); color: var(--ink-blue);">
                     → {{ gameState.room.roundResult?.correctCode?.[index] }}
                   </div>
                 </div>
@@ -212,14 +290,15 @@
                 @click="onNextRoundClick" 
                 style="width: 100%; margin-top: 1.5rem;"
               >
-                {{ gameState.room.status === 'ended' ? '再来一局' : '下一回合' }}
+                {{ gameState.room.status === 'ended' ? '新的任务' : '下一回合' }}
               </button>
             </div>
           </template>
         </div>
 
+        <!-- 敌方关键词 -->
         <div class="screen-panel">
-          <div class="screen-title">{{ enemyTeamLabel }} 的密码词</div>
+          <div class="screen-title">{{ enemyTeamLabel }} 密码本</div>
           <div class="keywords-grid">
             <div 
               v-for="(word, index) in enemyKeywords" 
@@ -232,10 +311,11 @@
           </div>
         </div>
 
+        <!-- 笔记区域 -->
         <div class="note-sheet">
           <div class="note-section">
-            <div class="note-title">📝 我们的线索记录</div>
-            <div v-if="ourNotes.length === 0" style="color: rgba(255,255,255,0.3); font-style: italic;">
+            <div class="note-title">我方情报记录</div>
+            <div v-if="ourNotes.length === 0" style="color: rgba(0,0,0,0.3); font-style: italic; font-family: var(--typewriter);">
               暂无记录
             </div>
             <div 
@@ -248,8 +328,8 @@
             </div>
           </div>
           <div class="note-section">
-            <div class="note-title">📝 敌方的线索记录</div>
-            <div v-if="enemyNotes.length === 0" style="color: rgba(255,255,255,0.3); font-style: italic;">
+            <div class="note-title">敌方情报记录</div>
+            <div v-if="enemyNotes.length === 0" style="color: rgba(0,0,0,0.3); font-style: italic; font-family: var(--typewriter);">
               暂无记录
             </div>
             <div 
@@ -268,19 +348,17 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import { gameState, handleSubmitClues, handleSubmitGuess, handleNextRound, handlePlayAgain, GUESS_TYPE, GAME_PHASES } from '../stores/gameStore';
+import { gameState, handleSubmitClues, handleSubmitTeamGuess, handleSubmitOpponentGuess, handleSubmitTeamVote, handleNextRound, handlePlayAgain, GAME_PHASES } from '../stores/gameStore';
 
 const clues = ref(['', '', '']);
 const teammateGuess = ref(['', '', '']);
 const opponentGuess = ref(['', '', '']);
+const selectedVote = ref(null);
 
 const whiteInterceptTokens = computed(() => gameState.room.teams?.white?.interceptTokens || 0);
 const whiteMissTokens = computed(() => gameState.room.teams?.white?.missTokens || 0);
 const blackInterceptTokens = computed(() => gameState.room.teams?.black?.interceptTokens || 0);
 const blackMissTokens = computed(() => gameState.room.teams?.black?.missTokens || 0);
-
-const hasTeammateGuess = computed(() => gameState.room.teammateGuess !== null);
-const hasOpponentGuess = computed(() => gameState.room.opponentGuess !== null);
 
 const isOurTeamEncrypting = computed(() => {
   return gameState.team === gameState.room.encryptorTeam;
@@ -299,16 +377,31 @@ const enemyKeywords = computed(() => {
 });
 
 const ourTeamLabel = computed(() => {
-  return gameState.team === 'white' ? '⚪ 白队' : '⚫ 黑队';
+  return gameState.team === 'white' ? '白队' : '黑队';
 });
 
 const enemyTeamLabel = computed(() => {
-  return gameState.team === 'white' ? '⚫ 黑队' : '⚪ 白队';
+  return gameState.team === 'white' ? '黑队' : '白队';
 });
 
 const encryptorName = computed(() => {
   const encryptor = gameState.room.players.find(p => p.id === gameState.room.encryptor);
   return encryptor?.name || '情报官';
+});
+
+const currentEncryptorInfo = computed(() => {
+  const encryptor = gameState.room.players.find(p => p.id === gameState.room.encryptor);
+  if (!encryptor) return null;
+  return {
+    name: encryptor.name,
+    team: gameState.room.encryptorTeam,
+    teamName: gameState.room.encryptorTeam === 'white' ? '白队' : '黑队'
+  };
+});
+
+const rotationOrder = computed(() => {
+  const order = ['黑A', '白A', '黑B', '白B'];
+  return order[gameState.room.rotationIndex || 0];
 });
 
 const ourNotes = computed(() => {
@@ -319,6 +412,64 @@ const ourNotes = computed(() => {
 const enemyNotes = computed(() => {
   const enemyTeam = gameState.team === 'white' ? 'black' : 'white';
   return gameState.room.notes?.[enemyTeam] || [];
+});
+
+// 检查是否已提交队友猜测
+const hasSubmittedTeamGuess = computed(() => {
+  if (!gameState.team) return false;
+  const teamVotes = gameState.room.teamVotes?.[gameState.team];
+  if (!teamVotes) return false;
+  
+  const teamPlayers = gameState.room.teams?.[gameState.team]?.players || [];
+  const playerIndex = teamPlayers.indexOf(gameState.playerId);
+  if (playerIndex === -1) return false;
+  
+  const voteKey = playerIndex === 0 ? 'player1Guess' : 'player2Guess';
+  return teamVotes[voteKey] !== null;
+});
+
+// 检查是否已提交对方拦截
+const hasSubmittedOpponentGuess = computed(() => {
+  return gameState.room.opponentGuess !== null;
+});
+
+// 检查是否需要队内投票
+const needTeamVote = computed(() => {
+  if (!gameState.team) return false;
+  const teamVotes = gameState.room.teamVotes?.[gameState.team];
+  if (!teamVotes) return false;
+  
+  return teamVotes.player1Guess !== null && 
+         teamVotes.player2Guess !== null && 
+         teamVotes.finalGuess === null;
+});
+
+// 投票选项
+const voteOptions = computed(() => {
+  if (!gameState.team) return [];
+  const teamVotes = gameState.room.teamVotes?.[gameState.team];
+  if (!teamVotes) return [];
+  
+  const teamPlayers = gameState.room.teams?.[gameState.team]?.players || [];
+  const options = [];
+  
+  if (teamVotes.player1Guess) {
+    const player = gameState.room.players.find(p => p.id === teamPlayers[0]);
+    options.push({
+      playerName: player?.name || '队友1',
+      guess: teamVotes.player1Guess
+    });
+  }
+  
+  if (teamVotes.player2Guess) {
+    const player = gameState.room.players.find(p => p.id === teamPlayers[1]);
+    options.push({
+      playerName: player?.name || '队友2',
+      guess: teamVotes.player2Guess
+    });
+  }
+  
+  return options;
 });
 
 async function onCluesSubmit() {
@@ -341,7 +492,7 @@ async function onTeammateGuessSubmit() {
     return;
   }
   
-  await handleSubmitGuess(GUESS_TYPE.TEAMMATE, validGuess);
+  await handleSubmitTeamGuess(validGuess);
   teammateGuess.value = ['', '', ''];
 }
 
@@ -352,8 +503,24 @@ async function onOpponentGuessSubmit() {
     return;
   }
   
-  await handleSubmitGuess(GUESS_TYPE.OPPONENT, validGuess);
+  await handleSubmitOpponentGuess(validGuess);
   opponentGuess.value = ['', '', ''];
+}
+
+async function onTeamVoteSubmit() {
+  if (selectedVote.value === null) {
+    alert('请选择一个密码！');
+    return;
+  }
+  
+  const selectedOption = voteOptions.value[selectedVote.value];
+  if (!selectedOption) {
+    alert('选择无效！');
+    return;
+  }
+  
+  await handleSubmitTeamVote(selectedOption.guess);
+  selectedVote.value = null;
 }
 
 async function onNextRoundClick() {

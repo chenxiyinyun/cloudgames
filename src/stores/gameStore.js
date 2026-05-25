@@ -4,8 +4,9 @@ import {
   GAME_PHASES, GUESS_TYPE,
   generatePlayerId, createInitialRoom,
   addPlayerToRoom, removePlayerFromRoom,
-  startGame, submitClues, submitGuess, processRound,
-  nextRound, resetGame
+  startGame, submitClues, submitTeamGuess, submitOpponentGuess, submitTeamFinalVote,
+  checkNeedTeamVoting, processRound,
+  nextRound, resetGame, getCurrentEncryptorInfo
 } from '../services/gameEngine';
 
 const MSG = {
@@ -14,7 +15,9 @@ const MSG = {
   JOIN_RESPONSE: 'JOIN_RESPONSE',
   START_GAME: 'START_GAME',
   SUBMIT_CLUES: 'SUBMIT_CLUES',
-  SUBMIT_GUESS: 'SUBMIT_GUESS',
+  SUBMIT_TEAM_GUESS: 'SUBMIT_TEAM_GUESS',
+  SUBMIT_OPPONENT_GUESS: 'SUBMIT_OPPONENT_GUESS',
+  SUBMIT_TEAM_VOTE: 'SUBMIT_TEAM_VOTE',
   NEXT_ROUND: 'NEXT_ROUND',
   PLAYER_LEFT: 'PLAYER_LEFT'
 };
@@ -47,12 +50,16 @@ export const gameState = reactive({
     encryptor: null,
     encryptorTeam: null,
     clues: [],
-    teammateGuess: null,
+    teamVotes: {
+      white: { player1Guess: null, player2Guess: null, finalGuess: null },
+      black: { player1Guess: null, player2Guess: null, finalGuess: null }
+    },
     opponentGuess: null,
     notes: { white: [], black: [] },
     roundResult: null,
     winner: null,
-    status: GAME_PHASES.WAITING
+    status: GAME_PHASES.WAITING,
+    rotationIndex: 0
   }
 });
 
@@ -205,8 +212,32 @@ function handleHostMessage(data, peerId) {
       break;
     }
 
-    case MSG.SUBMIT_GUESS: {
-      const result = submitGuess(cachedRoom, data.payload.playerId, data.payload.guessType, data.payload.guess);
+    case MSG.SUBMIT_TEAM_GUESS: {
+      const result = submitTeamGuess(cachedRoom, data.payload.playerId, data.payload.guess);
+      if (result.error) {
+        p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: result.error });
+        return;
+      }
+      // 检查是否需要进入投票阶段
+      if (checkNeedTeamVoting(cachedRoom)) {
+        cachedRoom.phase = GAME_PHASES.TEAM_VOTING;
+      }
+      broadcastState();
+      break;
+    }
+
+    case MSG.SUBMIT_OPPONENT_GUESS: {
+      const result = submitOpponentGuess(cachedRoom, data.payload.playerId, data.payload.guess);
+      if (result.error) {
+        p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: result.error });
+        return;
+      }
+      broadcastState();
+      break;
+    }
+
+    case MSG.SUBMIT_TEAM_VOTE: {
+      const result = submitTeamFinalVote(cachedRoom, data.payload.playerId, data.payload.guess);
       if (result.error) {
         p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: result.error });
         return;
@@ -288,12 +319,16 @@ function updateLocalState(room) {
     encryptor: room.encryptor,
     encryptorTeam: room.encryptorTeam,
     clues: room.clues ? [...room.clues] : [],
-    teammateGuess: room.teammateGuess ? [...room.teammateGuess] : null,
+    teamVotes: room.teamVotes ? structuredClone(room.teamVotes) : {
+      white: { player1Guess: null, player2Guess: null, finalGuess: null },
+      black: { player1Guess: null, player2Guess: null, finalGuess: null }
+    },
     opponentGuess: room.opponentGuess ? [...room.opponentGuess] : null,
     notes: structuredClone(room.notes) || { white: [], black: [] },
     roundResult: room.roundResult ? { ...room.roundResult } : null,
     winner: room.winner,
-    status: room.status || GAME_PHASES.WAITING
+    status: room.status || GAME_PHASES.WAITING,
+    rotationIndex: room.rotationIndex || 0
   };
 
   if (gameState.room.teams) {
@@ -336,13 +371,47 @@ export async function handleSubmitClues(clues) {
   return true;
 }
 
-export async function handleSubmitGuess(guessType, guess) {
-  p2p.broadcast(MSG.SUBMIT_GUESS, {
+// 提交队友猜测
+export async function handleSubmitTeamGuess(guess) {
+  p2p.broadcast(MSG.SUBMIT_TEAM_GUESS, {
     playerId: gameState.playerId,
-    guessType,
-    guess
+    guess: guess
   });
-  const result = submitGuess(cachedRoom, gameState.playerId, guessType, guess);
+  const result = submitTeamGuess(cachedRoom, gameState.playerId, guess);
+  if (result.error) {
+    alert(result.error);
+    return false;
+  }
+  // 检查是否需要进入投票阶段
+  if (checkNeedTeamVoting(cachedRoom)) {
+    cachedRoom.phase = GAME_PHASES.TEAM_VOTING;
+  }
+  broadcastState();
+  return true;
+}
+
+// 提交对方拦截
+export async function handleSubmitOpponentGuess(guess) {
+  p2p.broadcast(MSG.SUBMIT_OPPONENT_GUESS, {
+    playerId: gameState.playerId,
+    guess: guess
+  });
+  const result = submitOpponentGuess(cachedRoom, gameState.playerId, guess);
+  if (result.error) {
+    alert(result.error);
+    return false;
+  }
+  broadcastState();
+  return true;
+}
+
+// 提交队内最终投票
+export async function handleSubmitTeamVote(guess) {
+  p2p.broadcast(MSG.SUBMIT_TEAM_VOTE, {
+    playerId: gameState.playerId,
+    guess: guess
+  });
+  const result = submitTeamFinalVote(cachedRoom, gameState.playerId, guess);
   if (result.error) {
     alert(result.error);
     return false;
@@ -403,12 +472,16 @@ function cleanup() {
     encryptor: null,
     encryptorTeam: null,
     clues: [],
-    teammateGuess: null,
+    teamVotes: {
+      white: { player1Guess: null, player2Guess: null, finalGuess: null },
+      black: { player1Guess: null, player2Guess: null, finalGuess: null }
+    },
     opponentGuess: null,
     notes: { white: [], black: [] },
     roundResult: null,
     winner: null,
-    status: GAME_PHASES.WAITING
+    status: GAME_PHASES.WAITING,
+    rotationIndex: 0
   };
 }
 
