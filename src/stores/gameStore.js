@@ -23,7 +23,10 @@ const MSG = {
   NEXT_ROUND: 'NEXT_ROUND',
   PLAYER_LEFT: 'PLAYER_LEFT',
   PLAYER_RECONNECTED: 'PLAYER_RECONNECTED',
-  RESUME_GAME: 'RESUME_GAME'
+  RESUME_GAME: 'RESUME_GAME',
+  HOST_MIGRATION: 'HOST_MIGRATION',       // 房主迁移通知
+  PEER_LIST: 'PEER_LIST',                 // 发送已连接 peer 列表
+  CONNECT_TO_PEER: 'CONNECT_TO_PEER'      // 要求连接到指定 peer
 };
 
 export const gameState = reactive({
@@ -289,6 +292,11 @@ function setupHostHandlers() {
     if (cachedRoom) {
       setTimeout(() => {
         p2p.sendTo(conn.peer, MSG.ROOM_STATE, { room: cachedRoom });
+        // 发送当前已连接的 peer 列表，让访客互相连接
+        const otherPeers = p2p.getConnectedPeers().filter(id => id !== conn.peer);
+        if (otherPeers.length > 0) {
+          p2p.sendTo(conn.peer, MSG.PEER_LIST, { peers: otherPeers });
+        }
       }, 500);
     }
   };
@@ -315,10 +323,14 @@ function setupHostHandlers() {
 
 function setupGuestHandlers() {
   p2p.onPlayerDisconnected = (peerId) => {
-    setConnectionStatus('error', '与房主断开连接');
-    gameState.error = '与房主断开连接';
-    // 不立即清理，允许重连
-    gameState.connected = false;
+    console.log('Guest disconnected from peer:', peerId);
+
+    // 检查断开的是否是房主
+    const hostPeerId = `codenames-${gameState.roomCode}`;
+    if (peerId === hostPeerId) {
+      console.log('Host disconnected! Attempting migration...');
+      handleHostDisconnect();
+    }
   };
 
   p2p.onMessage = (data, peerId) => {
@@ -332,12 +344,92 @@ function setupGuestHandlers() {
   };
 }
 
+// 处理房主断开 - 访客托管机制
+async function handleHostDisconnect() {
+  if (!cachedRoom) return;
+
+  const otherPlayers = cachedRoom.players.filter(p =>
+    p.id !== gameState.playerId && p.isOnline !== false
+  );
+
+  if (otherPlayers.length === 0) {
+    // 没有其他玩家了，游戏结束
+    setConnectionStatus('error', '房主已断开，房间关闭');
+    gameState.error = '房主已断开，房间关闭';
+    gameState.connected = false;
+    return;
+  }
+
+  // 选举新房主：按加入顺序（order）最小的在线玩家
+  const candidates = cachedRoom.players
+    .filter(p => p.isOnline !== false)
+    .sort((a, b) => a.order - b.order);
+
+  const newHost = candidates[0];
+
+  if (newHost.id === gameState.playerId) {
+    // 我成为新房主
+    console.log('I am the new host!');
+    becomeNewHost();
+  } else {
+    // 等待新房主连接我
+    console.log('Waiting for new host:', newHost.name);
+    setConnectionStatus('reconnecting', '房主已断开，正在重新组织连接...');
+
+    // 尝试连接到新房主
+    const newHostPeerId = newHost._peerId || `codenames-guest-${newHost.id}`;
+    try {
+      await p2p.connectToPeer(newHostPeerId);
+      setConnectionStatus('connected', '已连接到新房主');
+    } catch (err) {
+      console.error('Failed to connect to new host:', err);
+      // 如果连接失败，尝试自己成为房主
+      becomeNewHost();
+    }
+  }
+}
+
+// 成为新房主
+async function becomeNewHost() {
+  if (!cachedRoom) return;
+
+  // 更新房间状态
+  cachedRoom.hostId = gameState.playerId;
+  gameState.isHost = true;
+
+  // 更新玩家状态
+  const me = cachedRoom.players.find(p => p.id === gameState.playerId);
+  if (me) {
+    me.isHost = true;
+    me._peerId = p2p.getMyPeerId();
+  }
+
+  // 移除旧房主的连接
+  const oldHostPeerId = `codenames-${gameState.roomCode}`;
+  p2p.connections = p2p.connections.filter(c => c.peer !== oldHostPeerId);
+
+  setConnectionStatus('connected', '你已成为新房主');
+  gameState.connected = true;
+
+  // 广播房主变更
+  p2p.broadcast(MSG.HOST_MIGRATION, {
+    newHostId: gameState.playerId,
+    newHostPeerId: p2p.getMyPeerId(),
+    room: cachedRoom
+  });
+
+  // 切换到房主处理器
+  setupHostHandlers();
+
+  broadcastState();
+}
+
 function handleHostMessage(data, peerId) {
   switch (data.type) {
     case MSG.JOIN_REQUEST: {
       const { playerId, playerName, originalPeerId, isReconnect } = data.payload;
       console.log('Join request from:', playerName, isReconnect ? '(reconnect)' : '');
-      
+
       // 检查是否是断线重连
       const existingPlayer = cachedRoom?.players.find(p => p.id === playerId);
       if (existingPlayer && !existingPlayer.isOnline) {
@@ -347,17 +439,17 @@ function handleHostMessage(data, peerId) {
         if (cachedRoom.disconnectedPlayers) {
           cachedRoom.disconnectedPlayers = cachedRoom.disconnectedPlayers.filter(p => p.id !== playerId);
         }
-        
+
         // 检查是否可以恢复游戏
         if (canResumeGame(cachedRoom)) {
           resumeGame(cachedRoom);
         }
-        
+
         broadcastState();
         p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: true, reconnected: true });
         return;
       }
-      
+
       const result = addPlayerToRoom(cachedRoom, playerName, playerId);
       if (result.error) {
         p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: false, error: result.error });
@@ -368,6 +460,13 @@ function handleHostMessage(data, peerId) {
         player._peerId = originalPeerId || peerId;
       }
       broadcastState();
+
+      // 通知其他访客连接到新玩家
+      const otherPeers = p2p.getConnectedPeers().filter(id => id !== peerId);
+      otherPeers.forEach(otherPeerId => {
+        p2p.sendTo(otherPeerId, MSG.CONNECT_TO_PEER, { peerId: originalPeerId || peerId });
+      });
+
       break;
     }
 
@@ -462,6 +561,56 @@ function handleGuestMessage(data, peerId) {
       } else if (data.payload.reconnected) {
         setConnectionStatus('connected', '重连成功');
       }
+      break;
+    }
+
+    case MSG.PEER_LIST: {
+      // 收到 peer 列表，尝试连接到其他访客
+      const { peers } = data.payload;
+      console.log('Received peer list:', peers);
+      if (peers && peers.length > 0) {
+        peers.forEach(async (peerId) => {
+          try {
+            await p2p.connectToPeer(peerId);
+            console.log('Connected to peer:', peerId);
+          } catch (err) {
+            console.error('Failed to connect to peer:', peerId, err);
+          }
+        });
+      }
+      break;
+    }
+
+    case MSG.HOST_MIGRATION: {
+      // 房主迁移通知
+      const { newHostId, newHostPeerId, room } = data.payload;
+      console.log('Host migration to:', newHostId);
+
+      if (newHostId === gameState.playerId) {
+        // 我已经是新房主了，不需要处理
+        break;
+      }
+
+      // 更新房间状态
+      cachedRoom = room;
+      updateLocalState(cachedRoom);
+
+      // 连接到新房主（异步处理，不阻塞消息处理）
+      p2p.connectToPeer(newHostPeerId).then(() => {
+        setConnectionStatus('connected', '已连接到新房主');
+        gameState.connected = true;
+      }).catch((err) => {
+        console.error('Failed to connect to new host:', err);
+      });
+      break;
+    }
+
+    case MSG.CONNECT_TO_PEER: {
+      // 被要求连接到指定 peer
+      const { peerId: targetPeerId } = data.payload;
+      p2p.connectToPeer(targetPeerId).catch((err) => {
+        console.error('Failed to connect to peer:', targetPeerId, err);
+      });
       break;
     }
   }
