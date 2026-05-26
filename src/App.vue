@@ -2,17 +2,35 @@
   <div id="app">
     <ToastNotification />
     <!-- 断线恢复提示弹窗 -->
-    <div v-if="showReconnectDialog" class="reconnect-overlay">
+    <div
+      v-if="showReconnectDialog"
+      class="reconnect-overlay"
+    >
       <div class="reconnect-dialog">
-        <div class="telegram-header" style="margin-bottom: 1rem;">
-          <div class="telegram-icon">!</div>
-          <div>
-            <div style="font-family: var(--typewriter); font-size: 0.9rem; font-weight: 700;">CONNECTION LOST</div>
-            <div class="morse-decoration">-.-. --- -. -. . -.-. - .. --- -. / .-.. --- ... -</div>
+        <div
+          class="telegram-header"
+          style="margin-bottom: 1rem;"
+        >
+          <div class="telegram-icon">
+            !
           </div>
-          <div class="telegram-icon">!</div>
+          <div>
+            <div
+              style="font-family: var(--typewriter); font-size: 0.9rem; font-weight: 700;"
+            >
+              CONNECTION LOST
+            </div>
+            <div class="morse-decoration">
+              -.-. --- -. -. . -.-. - .. --- -. / .-.. --- ... -
+            </div>
+          </div>
+          <div class="telegram-icon">
+            !
+          </div>
         </div>
-        <h3 style="text-align: center; margin-bottom: 1rem;">连接中断</h3>
+        <h3 style="text-align: center; margin-bottom: 1rem;">
+          连接中断
+        </h3>
         <p style="text-align: center; margin-bottom: 1.5rem; font-family: var(--typewriter); font-size: 0.85rem;">
           检测到之前的游戏会话，是否重新连接？
         </p>
@@ -30,11 +48,22 @@
             <span class="info-value">{{ cachedIsHost ? '队长' : '队员' }}</span>
           </div>
         </div>
-        <div class="btn-group" style="margin-top: 1.5rem;">
-          <button class="btn btn-primary" @click="handleReconnect" :disabled="isReconnecting">
+        <div
+          class="btn-group"
+          style="margin-top: 1.5rem;"
+        >
+          <button
+            class="btn btn-primary"
+            :disabled="isReconnecting"
+            @click="handleReconnect"
+          >
             {{ isReconnecting ? '连接中...' : '重新连接' }}
           </button>
-          <button class="btn btn-secondary" @click="handleNewGame" :disabled="isReconnecting">
+          <button
+            class="btn btn-secondary"
+            :disabled="isReconnecting"
+            @click="handleNewGame"
+          >
             新游戏
           </button>
         </div>

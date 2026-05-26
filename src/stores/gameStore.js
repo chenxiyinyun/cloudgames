@@ -630,6 +630,7 @@ function handleHostMessage(data, peerId) {
         break;
       } catch (err) {
         log.error('handleHostMessage:JOIN_REQUEST error', { type: data?.type, peerId, error: err });
+        break;
       }
     }
 
@@ -648,6 +649,7 @@ function handleHostMessage(data, peerId) {
         break;
       } catch (err) {
         log.error('handleHostMessage:START_GAME error', { type: data?.type, peerId, error: err });
+        break;
       }
     }
 
@@ -669,6 +671,7 @@ function handleHostMessage(data, peerId) {
         break;
       } catch (err) {
         log.error('handleHostMessage:SUBMIT_CLUES error', { type: data?.type, peerId, error: err });
+        break;
       }
     }
 
@@ -694,6 +697,7 @@ function handleHostMessage(data, peerId) {
         break;
       } catch (err) {
         log.error('handleHostMessage:SUBMIT_TEAM_GUESS error', { type: data?.type, peerId, error: err });
+        break;
       }
     }
 
@@ -715,6 +719,7 @@ function handleHostMessage(data, peerId) {
         break;
       } catch (err) {
         log.error('handleHostMessage:SUBMIT_OPPONENT_GUESS error', { type: data?.type, peerId, error: err });
+        break;
       }
     }
 
@@ -736,6 +741,7 @@ function handleHostMessage(data, peerId) {
         break;
       } catch (err) {
         log.error('handleHostMessage:SUBMIT_TEAM_VOTE error', { type: data?.type, peerId, error: err });
+        break;
       }
     }
 
@@ -758,6 +764,7 @@ function handleHostMessage(data, peerId) {
         break;
       } catch (err) {
         log.error('handleHostMessage:NEXT_ROUND error', { type: data?.type, peerId, error: err });
+        break;
       }
     }
   }
@@ -804,6 +811,7 @@ function handleGuestMessage(data, peerId) {
         break;
       } catch (err) {
         log.error('handleGuestMessage:ROOM_STATE error', { type: data?.type, peerId, error: err });
+        break;
       }
     }
 
@@ -820,6 +828,7 @@ function handleGuestMessage(data, peerId) {
         break;
       } catch (err) {
         log.error('handleGuestMessage:JOIN_RESPONSE error', { type: data?.type, peerId, error: err });
+        break;
       }
     }
 
@@ -841,6 +850,7 @@ function handleGuestMessage(data, peerId) {
         break;
       } catch (err) {
         log.error('handleGuestMessage:PEER_LIST error', { type: data?.type, peerId, error: err });
+        break;
       }
     }
 
@@ -873,6 +883,7 @@ function handleGuestMessage(data, peerId) {
         break;
       } catch (err) {
         log.error('handleGuestMessage:HOST_MIGRATION error', { type: data?.type, peerId, error: err });
+        break;
       }
     }
 
@@ -886,6 +897,7 @@ function handleGuestMessage(data, peerId) {
         break;
       } catch (err) {
         log.error('handleGuestMessage:CONNECT_TO_PEER error', { type: data?.type, peerId, error: err });
+        break;
       }
     }
   }
