@@ -3,18 +3,28 @@
     <div class="game-container">
       <!-- 电报头部 -->
       <div class="telegram-header">
-        <div class="telegram-icon">T</div>
-        <div>
-          <div style="font-family: var(--typewriter); font-size: 1.2rem; font-weight: 700;">TOP SECRET</div>
-          <div class="morse-decoration">- --- .--. / ... . -.-. .-. . -</div>
+        <div class="telegram-icon">
+          T
         </div>
-        <div class="telegram-icon">M</div>
+        <div>
+          <div style="font-family: var(--typewriter); font-size: 1.2rem; font-weight: 700;">
+            TOP SECRET
+          </div>
+          <div class="morse-decoration">
+            - --- .--. / ... . -.-. .-. . -
+          </div>
+        </div>
+        <div class="telegram-icon">
+          M
+        </div>
       </div>
 
       <!-- 游戏头部 -->
       <div class="game-header">
         <div class="team-info white">
-          <div class="team-name">白队</div>
+          <div class="team-name">
+            白队
+          </div>
           <div class="tokens">
             <div 
               v-for="i in 2" 
@@ -36,7 +46,9 @@
           <div class="morse-decoration" style="font-size: 0.6rem;">.-. --- ..- -. -..</div>
         </div>
         <div class="team-info black">
-          <div class="team-name">黑队</div>
+          <div class="team-name">
+            黑队
+          </div>
           <div class="tokens">
             <div 
               v-for="i in 2" 

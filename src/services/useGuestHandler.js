@@ -32,7 +32,7 @@ export function setupGuestHandlers(cachedRoom, updateLocalState, gameState, setC
   };
 
   p2p.onMessage = (data, peerId) => {
-    handleGuestMessage(data, peerId, cachedRoom, updateLocalState, gameState, setConnectionStatus, broadcastState);
+    handleGuestMessage(data, peerId, cachedRoom, updateLocalState, gameState, setConnectionStatus);
   };
 
   p2p.onError = (err) => {
@@ -75,7 +75,7 @@ async function triggerHostMigration(cachedRoom, gameState, setConnectionStatus, 
   }
 }
 
-function handleGuestMessage(data, peerId, cachedRoom, updateLocalState, gameState, setConnectionStatus, broadcastState) {
+function handleGuestMessage(data, peerId, cachedRoom, updateLocalState, gameState, setConnectionStatus) {
   try {
     switch (data.type) {
     case 'ROOM_STATE': {
@@ -93,8 +93,10 @@ function handleGuestMessage(data, peerId, cachedRoom, updateLocalState, gameStat
           });
           updateLocalState(cachedRoom);
           if (data.payload.error) {
-            const { showToast } = await import('../components/ToastNotification.vue');
-            showToast(data.payload.error, 'warning');
+            // showToast via dynamic import in non-async context
+            import('../components/ToastNotification.vue').then(m => {
+              m.showToast(data.payload.error, 'warning');
+            });
           }
           if (!gameState.connected) {
             gameState.connected = true;

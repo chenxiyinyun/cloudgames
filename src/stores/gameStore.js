@@ -6,9 +6,9 @@ import {
   generatePlayerId, createInitialRoom,
   addPlayerToRoom, removePlayerFromRoom,
   startGame, submitClues, submitTeamGuess, submitOpponentGuess, submitOpponentFinalVote, submitTeamFinalVote,
-  checkNeedTeamVoting, processRound,
-  nextRound, resetGame, getCurrentEncryptorInfo,
-  resumeGame, canResumeGame, getOnlinePlayerCount, getDisconnectedPlayers
+  checkNeedTeamVoting,
+  nextRound, resetGame,
+  resumeGame, canResumeGame
 } from '../services/gameEngine';
 import { saveStateToCache, loadStateFromCache, clearStateCache, hasCachedState, flushStateCache, cancelPendingSave } from '../services/stateCache';
 import { sanitizePlayerName, sanitizeRoomCode, sanitizeClues } from '../services/sanitize';
@@ -180,14 +180,6 @@ watch(() => ({
 window.addEventListener('beforeunload', () => {
   flushStateCache(gameState);
 });
-
-function getEncryptorTeamName() {
-  return gameState.room.encryptorTeam === 'white' ? '白队' : '黑队';
-}
-
-function getInterceptTeamName() {
-  return gameState.room.encryptorTeam === 'white' ? '黑队' : '白队';
-}
 
 function setConnectionStatus(status, message = '') {
   gameState.connectionStatus = status;

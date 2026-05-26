@@ -20,11 +20,10 @@ export function resetMigrationMutex() {
  * 处理房主断开 — 访客端调用
  * @param {object} cachedRoom - 当前房间状态引用
  * @param {object} gameState - 游戏全局状态
- * @param {function} updateLocalState - 更新本地状态
  * @param {function} broadcastState - 广播状态
  * @param {function} setupHostHandlers - 设置房主处理函数
  */
-export async function handleHostDisconnect(cachedRoom, gameState, { updateLocalState, broadcastState, setupHostHandlers }) {
+export async function handleHostDisconnect(cachedRoom, gameState, { broadcastState, setupHostHandlers }) {
   if (!cachedRoom) return;
 
   // 互斥锁：防止多个访客同时触发迁移

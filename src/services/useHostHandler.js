@@ -3,7 +3,7 @@
  */
 import p2p from './p2p';
 import { createLogger } from './logger';
-import { generateOpKey, isDuplicateOp, cleanupOps } from './useIdempotency';
+import { generateOpKey, isDuplicateOp } from './useIdempotency';
 import {
   GAME_PHASES,
   startGame, submitClues, submitTeamGuess, submitOpponentGuess, submitTeamFinalVote,
@@ -55,7 +55,7 @@ export function setupHostHandlers(cachedRoom, broadcastState, gameState, setConn
   };
 
   p2p.onMessage = (data, peerId) => {
-    handleHostMessage(data, peerId, cachedRoom, broadcastState, gameState);
+    handleHostMessage(data, peerId, cachedRoom, broadcastState);
   };
 
   p2p.onError = (err) => {
@@ -81,7 +81,7 @@ export function setupHostHandlers(cachedRoom, broadcastState, gameState, setConn
   };
 }
 
-function handleHostMessage(data, peerId, cachedRoom, broadcastState, gameState) {
+function handleHostMessage(data, peerId, cachedRoom, broadcastState) {
   try {
     switch (data.type) {
     case MSG.JOIN_REQUEST: {
