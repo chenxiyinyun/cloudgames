@@ -605,7 +605,7 @@ input::placeholder {
 
 /* 阶段面板 */
 .phase-panel {
-  background: rgba(0, 0, 0, 0.02);
+  background: var(--paper-bg);
   border: 2px solid var(--telegram-border);
   padding: 1.5rem;
 }
@@ -664,6 +664,16 @@ input::placeholder {
 .code-input:focus {
   border-color: var(--ink-black);
   outline: none;
+}
+
+.code-input::-webkit-outer-spin-button,
+.code-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.code-input[type="number"] {
+  -moz-appearance: textfield;
 }
 
 /* 线索输入 */
@@ -978,4 +988,136 @@ input::placeholder {
   font-size: 0.8rem;
   color: var(--ink-brown);
   margin-top: 0.3rem;
+}
+
+/* 笔记增强样式 */
+.note-clues {
+  display: inline-flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.note-clue-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.note-clue-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--ink-black);
+  color: var(--paper-bg);
+  font-size: 0.65rem;
+  font-family: var(--typewriter);
+}
+
+.note-clue-text.keyword-highlight {
+  background: rgba(139, 38, 53, 0.15);
+  border-bottom: 2px solid var(--ink-red);
+  padding: 0 2px;
+}
+
+.note-code {
+  font-family: var(--typewriter);
+  font-weight: 700;
+  color: var(--ink-blue);
+}
+
+.note-result {
+  margin-left: 0.3rem;
+  font-weight: 700;
+}
+
+.note-result.success {
+  color: var(--ink-green);
+}
+
+.note-result.fail {
+  color: var(--ink-red);
+}
+
+/* 关键词推理面板 */
+.keyword-panel {
+  border-top: 2px dashed var(--telegram-border);
+  padding-top: 1rem;
+  margin-top: 0.5rem;
+}
+
+.keyword-mark-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.keyword-mark-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+}
+
+.keyword-mark-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--ink-black);
+  font-family: var(--typewriter);
+  font-weight: 700;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.keyword-mark-word {
+  font-family: var(--serif);
+  font-weight: 600;
+  min-width: 60px;
+  flex-shrink: 0;
+}
+
+.keyword-mark-input {
+  flex: 1;
+  border: none;
+  border-bottom: 1px dashed var(--telegram-border);
+  background: transparent;
+  font-family: var(--typewriter);
+  font-size: 0.8rem;
+  color: var(--ink-brown);
+  padding: 0.2rem 0.3rem;
+  outline: none;
+}
+
+.keyword-mark-input:focus {
+  border-bottom-color: var(--ink-blue);
+}
+
+.keyword-mark-input::placeholder {
+  color: rgba(0, 0, 0, 0.25);
+  font-style: italic;
+}
+
+/* 敌方关键词样式 */
+.keyword-card.enemy {
+  border-color: var(--ink-red);
+}
+
+.keyword-card.enemy .keyword-number {
+  background: var(--ink-red);
+}
+
+/* 自定义投票选项 */
+.custom-option {
+  border-style: dashed !important;
+}
+
+.custom-code-input {
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px dashed var(--telegram-border);
 }

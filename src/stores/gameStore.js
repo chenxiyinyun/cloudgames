@@ -5,7 +5,7 @@ import {
   GAME_PHASES, GUESS_TYPE,
   generatePlayerId, createInitialRoom,
   addPlayerToRoom, removePlayerFromRoom,
-  startGame, submitClues, submitTeamGuess, submitOpponentGuess, submitTeamFinalVote,
+  startGame, submitClues, submitTeamGuess, submitOpponentGuess, submitOpponentFinalVote, submitTeamFinalVote,
   checkNeedTeamVoting, processRound,
   nextRound, resetGame, getCurrentEncryptorInfo,
   resumeGame, canResumeGame, getOnlinePlayerCount, getDisconnectedPlayers
@@ -24,14 +24,15 @@ const MSG = {
   SUBMIT_CLUES: 'SUBMIT_CLUES',
   SUBMIT_TEAM_GUESS: 'SUBMIT_TEAM_GUESS',
   SUBMIT_OPPONENT_GUESS: 'SUBMIT_OPPONENT_GUESS',
+  SUBMIT_OPPONENT_VOTE: 'SUBMIT_OPPONENT_VOTE',
   SUBMIT_TEAM_VOTE: 'SUBMIT_TEAM_VOTE',
   NEXT_ROUND: 'NEXT_ROUND',
   PLAYER_LEFT: 'PLAYER_LEFT',
   PLAYER_RECONNECTED: 'PLAYER_RECONNECTED',
   RESUME_GAME: 'RESUME_GAME',
-  HOST_MIGRATION: 'HOST_MIGRATION',       // 房主迁移通知
-  PEER_LIST: 'PEER_LIST',                 // 发送已连接 peer 列表
-  CONNECT_TO_PEER: 'CONNECT_TO_PEER'      // 要求连接到指定 peer
+  HOST_MIGRATION: 'HOST_MIGRATION',
+  PEER_LIST: 'PEER_LIST',
+  CONNECT_TO_PEER: 'CONNECT_TO_PEER'
 };
 
 // ── Idempotency Layer ──
@@ -101,8 +102,8 @@ export const gameState = reactive({
   room: {
     players: [],
     teams: {
-      white: { players: [], interceptTokens: 0, missTokens: 0, encryptorIndex: 0 },
-      black: { players: [], interceptTokens: 0, missTokens: 0, encryptorIndex: 0 }
+      white: { players: [], interceptionTokens: 0, miscommunicationTokens: 0, encryptorIndex: 0 },
+      black: { players: [], interceptionTokens: 0, miscommunicationTokens: 0, encryptorIndex: 0 }
     },
     whiteKeywords: [],
     blackKeywords: [],
@@ -116,7 +117,11 @@ export const gameState = reactive({
       white: { player1Guess: null, player2Guess: null, finalGuess: null },
       black: { player1Guess: null, player2Guess: null, finalGuess: null }
     },
-    opponentGuess: null,
+    opponentVotes: {
+      player1Guess: null,
+      player2Guess: null,
+      finalGuess: null
+    },
     notes: { white: [], black: [] },
     roundResult: null,
     winner: null,
@@ -715,10 +720,34 @@ function handleHostMessage(data, peerId) {
           p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: result.error });
           return;
         }
+        if (checkNeedTeamVoting(cachedRoom)) {
+          cachedRoom.phase = GAME_PHASES.TEAM_VOTING;
+        }
         broadcastState();
         break;
       } catch (err) {
         log.error('handleHostMessage:SUBMIT_OPPONENT_GUESS error', { type: data?.type, peerId, error: err });
+        break;
+      }
+    }
+
+    case MSG.SUBMIT_OPPONENT_VOTE: {
+      try {
+        const oppVoteKey = generateOpKey(MSG.SUBMIT_OPPONENT_VOTE, { playerId: data.payload.playerId, roomCode: cachedRoom?.code, guess: data.payload.guess });
+        if (isDuplicateOp(oppVoteKey)) {
+          log.debug('Duplicate SUBMIT_OPPONENT_VOTE ignored', { key: oppVoteKey });
+          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: '请勿重复提交投票' });
+          return;
+        }
+        const result = submitOpponentFinalVote(cachedRoom, data.payload.playerId, data.payload.guess);
+        if (result.error) {
+          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: result.error });
+          return;
+        }
+        broadcastState();
+        break;
+      } catch (err) {
+        log.error('handleHostMessage:SUBMIT_OPPONENT_VOTE error', { type: data?.type, peerId, error: err });
         break;
       }
     }
@@ -966,8 +995,8 @@ function updateLocalState(room) {
   gameState.room = {
     players: room.players?.map(p => ({ ...p })) || [],
     teams: deepClone(room.teams) || {
-      white: { players: [], interceptTokens: 0, missTokens: 0, encryptorIndex: 0 },
-      black: { players: [], interceptTokens: 0, missTokens: 0, encryptorIndex: 0 }
+      white: { players: [], interceptionTokens: 0, miscommunicationTokens: 0, encryptorIndex: 0 },
+      black: { players: [], interceptionTokens: 0, miscommunicationTokens: 0, encryptorIndex: 0 }
     },
     whiteKeywords: room.whiteKeywords ? [...room.whiteKeywords] : [],
     blackKeywords: room.blackKeywords ? [...room.blackKeywords] : [],
@@ -981,7 +1010,11 @@ function updateLocalState(room) {
       white: { player1Guess: null, player2Guess: null, finalGuess: null },
       black: { player1Guess: null, player2Guess: null, finalGuess: null }
     },
-    opponentGuess: room.opponentGuess ? [...room.opponentGuess] : null,
+    opponentVotes: room.opponentVotes ? deepClone(room.opponentVotes) : {
+      player1Guess: null,
+      player2Guess: null,
+      finalGuess: null
+    },
     notes: deepClone(room.notes) || { white: [], black: [] },
     roundResult: room.roundResult ? { ...room.roundResult } : null,
     winner: room.winner,
@@ -991,18 +1024,11 @@ function updateLocalState(room) {
     savedPhase: room.savedPhase || null
   };
 
-  if (gameState.room.teams) {
-    gameState.room.teams.white.interceptTokens = room.teams?.white?.interceptionTokens || 0;
-    gameState.room.teams.white.missTokens = room.teams?.white?.miscommunicationTokens || 0;
-    gameState.room.teams.black.interceptTokens = room.teams?.black?.interceptionTokens || 0;
-    gameState.room.teams.black.missTokens = room.teams?.black?.miscommunicationTokens || 0;
-  }
-
   syncScreenToPhase(room);
 }
 
 function syncScreenToPhase(room) {
-  if (room.status === 'playing' && gameState.screen === 'lobby') {
+  if (room.status === GAME_PHASES.PLAYING && gameState.screen === 'lobby') {
     gameState.screen = 'game';
   }
   if (room.status === GAME_PHASES.ENDED && gameState.screen !== 'result') {
@@ -1012,9 +1038,11 @@ function syncScreenToPhase(room) {
 
 export function handleStartGame() {
   if (!gameState.isHost) return;
-  p2p.broadcast(MSG.START_GAME, { playerId: gameState.playerId });
+  // 先执行本地逻辑，成功后再广播
   startGame(cachedRoom);
   broadcastState();
+  // 广播命令让访客也执行 startGame
+  p2p.broadcast(MSG.START_GAME, { playerId: gameState.playerId });
 }
 
 export async function handleSubmitClues(clues) {
@@ -1024,25 +1052,23 @@ export async function handleSubmitClues(clues) {
     return false;
   }
 
-  p2p.broadcast(MSG.SUBMIT_CLUES, {
-    playerId: gameState.playerId,
-    clues: sanitizedClues
-  });
+  // 先执行本地逻辑，成功后再广播
   const result = submitClues(cachedRoom, gameState.playerId, sanitizedClues);
   if (result.error) {
     showToast(result.error, 'warning');
     return false;
   }
   broadcastState();
+  p2p.broadcast(MSG.SUBMIT_CLUES, {
+    playerId: gameState.playerId,
+    clues: sanitizedClues
+  });
   return true;
 }
 
 // 提交队友猜测
 export async function handleSubmitTeamGuess(guess) {
-  p2p.broadcast(MSG.SUBMIT_TEAM_GUESS, {
-    playerId: gameState.playerId,
-    guess: guess
-  });
+  // 先执行本地逻辑，成功后再广播
   const result = submitTeamGuess(cachedRoom, gameState.playerId, guess);
   if (result.error) {
     showToast(result.error, 'warning');
@@ -1053,55 +1079,83 @@ export async function handleSubmitTeamGuess(guess) {
     cachedRoom.phase = GAME_PHASES.TEAM_VOTING;
   }
   broadcastState();
+  p2p.broadcast(MSG.SUBMIT_TEAM_GUESS, {
+    playerId: gameState.playerId,
+    guess: guess
+  });
   return true;
 }
 
 // 提交对方拦截
 export async function handleSubmitOpponentGuess(guess) {
-  p2p.broadcast(MSG.SUBMIT_OPPONENT_GUESS, {
-    playerId: gameState.playerId,
-    guess: guess
-  });
+  // 先执行本地逻辑，成功后再广播
   const result = submitOpponentGuess(cachedRoom, gameState.playerId, guess);
   if (result.error) {
     showToast(result.error, 'warning');
     return false;
   }
+  // 检查是否需要进入投票阶段
+  if (checkNeedTeamVoting(cachedRoom)) {
+    cachedRoom.phase = GAME_PHASES.TEAM_VOTING;
+  }
   broadcastState();
+  p2p.broadcast(MSG.SUBMIT_OPPONENT_GUESS, {
+    playerId: gameState.playerId,
+    guess: guess
+  });
+  return true;
+}
+
+// 提交对方拦截最终投票
+export async function handleSubmitOpponentVote(guess) {
+  // 先执行本地逻辑，成功后再广播
+  const result = submitOpponentFinalVote(cachedRoom, gameState.playerId, guess);
+  if (result.error) {
+    showToast(result.error, 'warning');
+    return false;
+  }
+  broadcastState();
+  p2p.broadcast(MSG.SUBMIT_OPPONENT_VOTE, {
+    playerId: gameState.playerId,
+    guess: guess
+  });
   return true;
 }
 
 // 提交队内最终投票
 export async function handleSubmitTeamVote(guess) {
-  p2p.broadcast(MSG.SUBMIT_TEAM_VOTE, {
-    playerId: gameState.playerId,
-    guess: guess
-  });
+  // 先执行本地逻辑，成功后再广播
   const result = submitTeamFinalVote(cachedRoom, gameState.playerId, guess);
   if (result.error) {
     showToast(result.error, 'warning');
     return false;
   }
   broadcastState();
+  p2p.broadcast(MSG.SUBMIT_TEAM_VOTE, {
+    playerId: gameState.playerId,
+    guess: guess
+  });
   return true;
 }
 
 export function handleNextRound() {
   if (!gameState.isHost) return;
-  p2p.broadcast(MSG.NEXT_ROUND, { playerId: gameState.playerId });
+  // 先执行本地逻辑，成功后再广播
   if (cachedRoom.status === GAME_PHASES.ENDED) {
     resetGame(cachedRoom);
   } else {
     nextRound(cachedRoom);
   }
   broadcastState();
+  p2p.broadcast(MSG.NEXT_ROUND, { playerId: gameState.playerId });
 }
 
 export function handlePlayAgain() {
   if (!gameState.isHost) return;
-  p2p.broadcast(MSG.NEXT_ROUND, { playerId: gameState.playerId });
+  // 先执行本地逻辑，成功后再广播
   resetGame(cachedRoom);
   broadcastState();
+  p2p.broadcast(MSG.NEXT_ROUND, { playerId: gameState.playerId });
 }
 
 export async function leaveRoom() {
@@ -1133,8 +1187,8 @@ function cleanup() {
   gameState.room = {
     players: [],
     teams: {
-      white: { players: [], interceptTokens: 0, missTokens: 0, encryptorIndex: 0 },
-      black: { players: [], interceptTokens: 0, missTokens: 0, encryptorIndex: 0 }
+      white: { players: [], interceptionTokens: 0, miscommunicationTokens: 0, encryptorIndex: 0 },
+      black: { players: [], interceptionTokens: 0, miscommunicationTokens: 0, encryptorIndex: 0 }
     },
     whiteKeywords: [],
     blackKeywords: [],
@@ -1148,7 +1202,11 @@ function cleanup() {
       white: { player1Guess: null, player2Guess: null, finalGuess: null },
       black: { player1Guess: null, player2Guess: null, finalGuess: null }
     },
-    opponentGuess: null,
+    opponentVotes: {
+      player1Guess: null,
+      player2Guess: null,
+      finalGuess: null
+    },
     notes: { white: [], black: [] },
     roundResult: null,
     winner: null,

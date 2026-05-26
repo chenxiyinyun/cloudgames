@@ -27,7 +27,7 @@
               v-for="i in 2" 
               :key="'white-error-' + i"
               class="token black"
-              :class="{ 'earned': whiteMissTokens >= i }"
+              :class="{ 'earned': whiteMiscommunicationTokens >= i }"
             ></div>
           </div>
         </div>
@@ -49,7 +49,7 @@
               v-for="i in 2" 
               :key="'black-error-' + i"
               class="token black"
-              :class="{ 'earned': blackMissTokens >= i }"
+              :class="{ 'earned': blackMiscommunicationTokens >= i }"
             ></div>
           </div>
         </div>
@@ -264,6 +264,55 @@
               </button>
             </div>
 
+            <!-- 拦截方投票 -->
+            <div v-else-if="gameState.room.phase === 'team_voting' && gameState.isOpponent && needOpponentVote" class="phase-content">
+              <div class="vote-panel">
+                <div class="vote-title">拦截方投票</div>
+                <p style="text-align: center; margin-bottom: 1rem; font-family: var(--typewriter); font-size: 0.9rem;">
+                  拦截意见不一致，请统一决定
+                </p>
+                <div class="vote-options">
+                  <div 
+                    v-for="(option, index) in opponentVoteOptions" 
+                    :key="'opp-' + index"
+                    class="vote-option"
+                    :class="{ selected: selectedOpponentVote === index }"
+                    @click="selectOpponentVoteOption(index)"
+                  >
+                    <div class="clue-index">{{ index + 1 }}</div>
+                    <div>{{ option.playerName }}: {{ option.guess.join(' - ') }}</div>
+                  </div>
+                  <!-- 自由输入选项 -->
+                  <div 
+                    class="vote-option custom-option"
+                    :class="{ selected: selectedOpponentVote === opponentVoteOptions.length }"
+                    @click="selectedOpponentVote = opponentVoteOptions.length"
+                  >
+                    <div class="clue-index">✎</div>
+                    <div>自定义密码</div>
+                  </div>
+                </div>
+                <!-- 自定义密码输入 -->
+                <div v-if="selectedOpponentVote === opponentVoteOptions.length" class="custom-code-input" style="margin-top: 1rem;">
+                  <div class="code-inputs">
+                    <input 
+                      v-for="i in 3" 
+                      :key="'opp-custom-' + i"
+                      type="number" 
+                      class="code-input" 
+                      v-model="customOpponentVoteGuess[i - 1]"
+                      min="1" 
+                      max="4" 
+                      placeholder="?"
+                    />
+                  </div>
+                </div>
+                <button class="btn btn-primary" @click="onOpponentVoteSubmit" style="width: 100%; margin-top: 1rem;">
+                  确认统一密码
+                </button>
+              </div>
+            </div>
+
             <!-- 投票阶段 -->
             <div v-else-if="gameState.room.phase === 'team_voting' && gameState.isTeammate && needTeamVote" class="phase-content">
               <div class="vote-panel">
@@ -277,10 +326,34 @@
                     :key="index"
                     class="vote-option"
                     :class="{ selected: selectedVote === index }"
-                    @click="selectedVote = index"
+                    @click="selectVoteOption(index)"
                   >
                     <div class="clue-index">{{ index + 1 }}</div>
                     <div>{{ option.playerName }}: {{ option.guess.join(' - ') }}</div>
+                  </div>
+                  <!-- 自由输入选项 -->
+                  <div 
+                    class="vote-option custom-option"
+                    :class="{ selected: selectedVote === voteOptions.length }"
+                    @click="selectedVote = voteOptions.length"
+                  >
+                    <div class="clue-index">✎</div>
+                    <div>自定义密码</div>
+                  </div>
+                </div>
+                <!-- 自定义密码输入 -->
+                <div v-if="selectedVote === voteOptions.length" class="custom-code-input" style="margin-top: 1rem;">
+                  <div class="code-inputs">
+                    <input 
+                      v-for="i in 3" 
+                      :key="'custom-' + i"
+                      type="number" 
+                      class="code-input" 
+                      v-model="customVoteGuess[i - 1]"
+                      min="1" 
+                      max="4" 
+                      placeholder="?"
+                    />
                   </div>
                 </div>
                 <button class="btn btn-primary" @click="onTeamVoteSubmit" style="width: 100%; margin-top: 1rem;">
@@ -339,12 +412,12 @@
                 </div>
               </div>
               <button 
-                v-if="gameState.isHost || gameState.room.status === 'ended'" 
+                v-if="gameState.isHost || gameState.room.status === GAME_PHASES.ENDED" 
                 class="btn btn-primary" 
                 @click="onNextRoundClick" 
                 style="width: 100%; margin-top: 1.5rem;"
               >
-                {{ gameState.room.status === 'ended' ? '新的任务' : '下一回合' }}
+                {{ gameState.room.status === GAME_PHASES.ENDED ? '新的任务' : '下一回合' }}
               </button>
             </div>
           </template>
@@ -357,10 +430,10 @@
             <div 
               v-for="(word, index) in enemyKeywords" 
               :key="index"
-              class="keyword-card"
+              class="keyword-card visible enemy"
             >
               <div class="keyword-number">{{ index + 1 }}</div>
-              <div class="keyword-word hidden">???</div>
+              <div class="keyword-word">{{ word }}</div>
             </div>
           </div>
         </div>
@@ -374,11 +447,19 @@
             </div>
             <div 
               v-for="(note, index) in ourNotes" 
-              :key="index"
+              :key="'our-' + index"
               class="note-round"
             >
-              <strong>第{{ note.round }}回合:</strong> {{ note.clues.join(' / ') }}
-              <span v-if="note.code"> → {{ note.code.join('-') }}</span>
+              <strong>第{{ note.round }}回合:</strong> 
+              <div class="note-clues">
+                <span v-for="(clue, ci) in note.clues" :key="ci" class="note-clue-item">
+                  <span class="note-clue-num">{{ ci + 1 }}</span>{{ clue }}
+                </span>
+              </div>
+              <span v-if="note.code" class="note-code"> → {{ note.code.join('-') }}</span>
+              <span class="note-result" :class="{ success: note.success, fail: !note.success }">
+                {{ note.success ? '✓' : '✗' }}
+              </span>
             </div>
           </div>
           <div class="note-section">
@@ -388,10 +469,44 @@
             </div>
             <div 
               v-for="(note, index) in enemyNotes" 
-              :key="index"
+              :key="'enemy-' + index"
               class="note-round"
             >
-              <strong>第{{ note.round }}回合:</strong> {{ note.clues.join(' / ') }}
+              <strong>第{{ note.round }}回合:</strong> 
+              <div class="note-clues">
+                <span v-for="(clue, ci) in note.clues" :key="ci" class="note-clue-item">
+                  <span class="note-clue-num">{{ ci + 1 }}</span>
+                  <span 
+                    class="note-clue-text" 
+                    :class="{ 'keyword-highlight': isEnemyKeyword(clue) }"
+                  >{{ clue }}</span>
+                </span>
+              </div>
+              <span class="note-result" :class="{ success: note.success, fail: !note.success }">
+                {{ note.success ? '拦截✓' : '拦截✗' }}
+              </span>
+            </div>
+          </div>
+          <!-- 关键词标记面板 -->
+          <div class="note-section keyword-panel">
+            <div class="note-title">敌方密码推理</div>
+            <div class="keyword-mark-grid">
+              <div 
+                v-for="(word, index) in enemyKeywords" 
+                :key="'km-' + index"
+                class="keyword-mark-item"
+              >
+                <span class="keyword-mark-num">{{ index + 1 }}</span>
+                <span class="keyword-mark-word">{{ word }}</span>
+                <span class="keyword-mark-notes">
+                  <input 
+                    type="text" 
+                    class="keyword-mark-input"
+                    v-model="keywordNotes[index]"
+                    placeholder="推理笔记..."
+                  />
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -402,7 +517,7 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import { gameState, handleSubmitClues, handleSubmitTeamGuess, handleSubmitOpponentGuess, handleSubmitTeamVote, handleNextRound, handlePlayAgain, reconnectRoom, GAME_PHASES } from '../stores/gameStore';
+import { gameState, handleSubmitClues, handleSubmitTeamGuess, handleSubmitOpponentGuess, handleSubmitOpponentVote, handleSubmitTeamVote, handleNextRound, handlePlayAgain, reconnectRoom, GAME_PHASES } from '../stores/gameStore';
 import { showToast } from './ToastNotification.vue';
 import { sanitizeClues } from '../services/sanitize';
 
@@ -410,12 +525,16 @@ const clues = ref(['', '', '']);
 const teammateGuess = ref(['', '', '']);
 const opponentGuess = ref(['', '', '']);
 const selectedVote = ref(null);
+const customVoteGuess = ref(['', '', '']);
+const selectedOpponentVote = ref(null);
+const customOpponentVoteGuess = ref(['', '', '']);
+const keywordNotes = ref(['', '', '', '']);
 const isReconnecting = ref(false);
 
-const whiteInterceptTokens = computed(() => gameState.room.teams?.white?.interceptTokens || 0);
-const whiteMissTokens = computed(() => gameState.room.teams?.white?.missTokens || 0);
-const blackInterceptTokens = computed(() => gameState.room.teams?.black?.interceptTokens || 0);
-const blackMissTokens = computed(() => gameState.room.teams?.black?.missTokens || 0);
+const whiteInterceptTokens = computed(() => gameState.room.teams?.white?.interceptionTokens || 0);
+const whiteMiscommunicationTokens = computed(() => gameState.room.teams?.white?.miscommunicationTokens || 0);
+const blackInterceptTokens = computed(() => gameState.room.teams?.black?.interceptionTokens || 0);
+const blackMiscommunicationTokens = computed(() => gameState.room.teams?.black?.miscommunicationTokens || 0);
 
 const connectionStatus = computed(() => gameState.connectionStatus);
 const connectionMessage = computed(() => gameState.connectionMessage);
@@ -511,7 +630,60 @@ const hasSubmittedTeamGuess = computed(() => {
 
 // 检查是否已提交对方拦截
 const hasSubmittedOpponentGuess = computed(() => {
-  return gameState.room.opponentGuess !== null;
+  if (!gameState.team) return false;
+  const opponentVotes = gameState.room.opponentVotes;
+  if (!opponentVotes) return false;
+  
+  const interceptTeam = gameState.room.encryptorTeam === 'white' ? 'black' : 'white';
+  if (gameState.team !== interceptTeam) return false;
+  
+  const teamPlayers = gameState.room.teams?.[interceptTeam]?.players || [];
+  const playerIndex = teamPlayers.indexOf(gameState.playerId);
+  if (playerIndex === -1) return false;
+  
+  const voteKey = playerIndex === 0 ? 'player1Guess' : 'player2Guess';
+  return opponentVotes[voteKey] !== null;
+});
+
+// 检查拦截方是否需要投票
+const needOpponentVote = computed(() => {
+  const opponentVotes = gameState.room.opponentVotes;
+  if (!opponentVotes) return false;
+  
+  const interceptTeam = gameState.room.encryptorTeam === 'white' ? 'black' : 'white';
+  if (gameState.team !== interceptTeam) return false;
+  
+  return opponentVotes.player1Guess !== null && 
+         opponentVotes.player2Guess !== null && 
+         opponentVotes.finalGuess === null;
+});
+
+// 拦截方投票选项
+const opponentVoteOptions = computed(() => {
+  const opponentVotes = gameState.room.opponentVotes;
+  if (!opponentVotes) return [];
+  
+  const interceptTeam = gameState.room.encryptorTeam === 'white' ? 'black' : 'white';
+  const teamPlayers = gameState.room.teams?.[interceptTeam]?.players || [];
+  const options = [];
+  
+  if (opponentVotes.player1Guess) {
+    const player = gameState.room.players.find(p => p.id === teamPlayers[0]);
+    options.push({
+      playerName: player?.name || '队友1',
+      guess: opponentVotes.player1Guess
+    });
+  }
+  
+  if (opponentVotes.player2Guess) {
+    const player = gameState.room.players.find(p => p.id === teamPlayers[1]);
+    options.push({
+      playerName: player?.name || '队友2',
+      guess: opponentVotes.player2Guess
+    });
+  }
+  
+  return options;
 });
 
 // 检查是否需要队内投票
@@ -601,20 +773,82 @@ async function onOpponentGuessSubmit() {
   opponentGuess.value = ['', '', ''];
 }
 
+function selectOpponentVoteOption(index) {
+  selectedOpponentVote.value = index;
+  if (index < opponentVoteOptions.value.length) {
+    customOpponentVoteGuess.value = ['', '', ''];
+  }
+}
+
+async function onOpponentVoteSubmit() {
+  if (selectedOpponentVote.value === null) {
+    showToast('请选择一个密码！', 'warning');
+    return;
+  }
+  
+  let guessToSubmit;
+  
+  if (selectedOpponentVote.value === opponentVoteOptions.value.length) {
+    guessToSubmit = customOpponentVoteGuess.value.map(g => parseInt(g));
+    if (guessToSubmit.some(g => isNaN(g) || g < 1 || g > 4)) {
+      showToast('请输入有效的数字（1-4）！', 'warning');
+      return;
+    }
+  } else {
+    const selectedOption = opponentVoteOptions.value[selectedOpponentVote.value];
+    if (!selectedOption) {
+      showToast('选择无效！', 'error');
+      return;
+    }
+    guessToSubmit = selectedOption.guess;
+  }
+  
+  await handleSubmitOpponentVote(guessToSubmit);
+  selectedOpponentVote.value = null;
+  customOpponentVoteGuess.value = ['', '', ''];
+}
+
+// 检查线索文本是否与敌方关键词相关（高亮标记用）
+function isEnemyKeyword(clue) {
+  if (!enemyKeywords.value) return false;
+  return enemyKeywords.value.some(kw => clue.includes(kw) || kw.includes(clue));
+}
+
+function selectVoteOption(index) {
+  selectedVote.value = index;
+  // 选择已有选项时清除自定义输入
+  if (index < voteOptions.value.length) {
+    customVoteGuess.value = ['', '', ''];
+  }
+}
+
 async function onTeamVoteSubmit() {
   if (selectedVote.value === null) {
     showToast('请选择一个密码！', 'warning');
     return;
   }
   
-  const selectedOption = voteOptions.value[selectedVote.value];
-  if (!selectedOption) {
-    showToast('选择无效！', 'error');
-    return;
+  let guessToSubmit;
+  
+  if (selectedVote.value === voteOptions.value.length) {
+    // 自定义输入
+    guessToSubmit = customVoteGuess.value.map(g => parseInt(g));
+    if (guessToSubmit.some(g => isNaN(g) || g < 1 || g > 4)) {
+      showToast('请输入有效的数字（1-4）！', 'warning');
+      return;
+    }
+  } else {
+    const selectedOption = voteOptions.value[selectedVote.value];
+    if (!selectedOption) {
+      showToast('选择无效！', 'error');
+      return;
+    }
+    guessToSubmit = selectedOption.guess;
   }
   
-  await handleSubmitTeamVote(selectedOption.guess);
+  await handleSubmitTeamVote(guessToSubmit);
   selectedVote.value = null;
+  customVoteGuess.value = ['', '', ''];
 }
 
 async function onNextRoundClick() {

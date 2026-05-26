@@ -53,10 +53,10 @@
 import { computed } from 'vue';
 import { gameState, handlePlayAgain, leaveRoom } from '../stores/gameStore';
 
-const whiteInterception = computed(() => gameState.room.teams?.white?.interceptTokens || 0);
-const whiteMiscommunication = computed(() => gameState.room.teams?.white?.missTokens || 0);
-const blackInterception = computed(() => gameState.room.teams?.black?.interceptTokens || 0);
-const blackMiscommunication = computed(() => gameState.room.teams?.black?.missTokens || 0);
+const whiteInterception = computed(() => gameState.room.teams?.white?.interceptionTokens || 0);
+const whiteMiscommunication = computed(() => gameState.room.teams?.white?.miscommunicationTokens || 0);
+const blackInterception = computed(() => gameState.room.teams?.black?.interceptionTokens || 0);
+const blackMiscommunication = computed(() => gameState.room.teams?.black?.miscommunicationTokens || 0);
 
 const winnerTeam = computed(() => {
   return gameState.room.winner || 'white';
