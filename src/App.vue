@@ -1,5 +1,6 @@
 <template>
   <div id="app">
+    <ToastNotification />
     <!-- 断线恢复提示弹窗 -->
     <div v-if="showReconnectDialog" class="reconnect-overlay">
       <div class="reconnect-dialog">
@@ -48,18 +49,36 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import MenuScreen from './components/MenuScreen.vue';
 import LobbyScreen from './components/LobbyScreen.vue';
 import GameScreen from './components/GameScreen.vue';
 import ResultScreen from './components/ResultScreen.vue';
 import { gameState, restoreFromCache, reconnectRoom, hasRestoreableState } from './stores/gameStore';
+import { createLogger } from './services/logger';
+import ToastNotification, { showToast } from './components/ToastNotification.vue';
+
+const log = createLogger('App')
 
 const showReconnectDialog = ref(false);
 const isReconnecting = ref(false);
 const cachedRoomCode = ref('');
 const cachedPlayerName = ref('');
 const cachedIsHost = ref(false);
+
+const onWindowError = (event) => {
+  log.error('Unhandled JS error:', event.error)
+  gameState.error = event.error instanceof Error ? event.error.message : String(event.error)
+  return false
+}
+
+const onUnhandledRejection = (event) => {
+  log.error('Unhandled promise rejection:', event.reason)
+  gameState.error = event.reason instanceof Error ? event.reason.message : String(event.reason)
+}
+
+window.addEventListener('error', onWindowError)
+window.addEventListener('unhandledrejection', onUnhandledRejection)
 
 onMounted(() => {
   // 检查是否有可恢复的状态
@@ -75,6 +94,11 @@ onMounted(() => {
   }
 });
 
+onUnmounted(() => {
+  window.removeEventListener('error', onWindowError)
+  window.removeEventListener('unhandledrejection', onUnhandledRejection)
+})
+
 async function handleReconnect() {
   isReconnecting.value = true;
 
@@ -87,7 +111,7 @@ async function handleReconnect() {
   if (success) {
     showReconnectDialog.value = false;
   } else {
-    alert('重连失败，请检查网络或创建新游戏');
+    showToast('重连失败，请检查网络或创建新游戏', 'error');
   }
 
   isReconnecting.value = false;

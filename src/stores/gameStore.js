@@ -1,5 +1,6 @@
 import { reactive, watch } from 'vue';
 import p2p from '../services/p2p';
+import { createLogger } from '../services/logger';
 import {
   GAME_PHASES, GUESS_TYPE,
   generatePlayerId, createInitialRoom,
@@ -9,7 +10,11 @@ import {
   nextRound, resetGame, getCurrentEncryptorInfo,
   resumeGame, canResumeGame, getOnlinePlayerCount, getDisconnectedPlayers
 } from '../services/gameEngine';
-import { saveStateToCache, loadStateFromCache, clearStateCache, hasCachedState } from '../services/stateCache';
+import { saveStateToCache, loadStateFromCache, clearStateCache, hasCachedState, flushStateCache, cancelPendingSave } from '../services/stateCache';
+import { sanitizePlayerName, sanitizeRoomCode, sanitizeClues } from '../services/sanitize';
+import { showToast } from '../components/ToastNotification.vue';
+
+const log = createLogger('GameStore');
 
 const MSG = {
   ROOM_STATE: 'ROOM_STATE',
@@ -28,6 +33,54 @@ const MSG = {
   PEER_LIST: 'PEER_LIST',                 // 发送已连接 peer 列表
   CONNECT_TO_PEER: 'CONNECT_TO_PEER'      // 要求连接到指定 peer
 };
+
+// ── Idempotency Layer ──
+// Prevent duplicate processing of game actions caused by P2P broadcast:
+// host processes locally + relays via ROOM_STATE → guest may see same action twice.
+const _processedOps = new Map();
+
+function generateOpKey(type, payload) {
+  const roomCode = payload.roomCode || cachedRoom?.code;
+  const playerId = payload.playerId || '';
+
+  switch (type) {
+    case MSG.SUBMIT_CLUES:
+      return `${type}_${roomCode}_${playerId}_${(payload.clues || []).join(',')}`;
+    case MSG.SUBMIT_TEAM_GUESS:
+    case MSG.SUBMIT_OPPONENT_GUESS:
+    case MSG.SUBMIT_TEAM_VOTE:
+      return `${type}_${roomCode}_${playerId}_${(payload.guess || []).join(',')}`;
+    case MSG.START_GAME:
+      return `${type}_${roomCode}_${playerId}`;
+    case MSG.NEXT_ROUND:
+      return `${type}_${roomCode}_${playerId}`;
+    case MSG.JOIN_REQUEST:
+      return `${type}_${roomCode}_${playerId}_${payload.isReconnect ? 'reconnect' : 'new'}`;
+    case MSG.ROOM_STATE:
+      return `${type}_${roomCode}_${payload.detail || ''}`;
+    default:
+      return `${type}_${roomCode}_${playerId}`;
+  }
+}
+
+function isDuplicateOp(key, ttlMs = 10000) {
+  const now = Date.now();
+  const prev = _processedOps.get(key);
+  if (prev && (now - prev) < ttlMs) {
+    return true;
+  }
+  _processedOps.set(key, now);
+  return false;
+}
+
+function cleanupOps() {
+  const now = Date.now();
+  for (const [key, ts] of _processedOps) {
+    if (now - ts > 30000) {
+      _processedOps.delete(key);
+    }
+  }
+}
 
 export const gameState = reactive({
   screen: 'menu',
@@ -75,6 +128,8 @@ export const gameState = reactive({
 });
 
 let cachedRoom = null;
+let _migrationInProgress = false;
+let _lastBroadcastState = null;
 
 // 安全的深拷贝函数，避免 structuredClone 的兼容性问题
 function deepClone(obj) {
@@ -105,11 +160,21 @@ watch(() => ({
   connectionStatus: gameState.connectionStatus,
   room: gameState.room
 }), (newState) => {
+  // 回到菜单：取消任何待保存的定时器，不缓存菜单状态
+  if (newState.screen === 'menu') {
+    cancelPendingSave();
+    return;
+  }
   // 只在非菜单页面且已连接时保存
-  if (newState.screen !== 'menu' && newState.playerId) {
+  if (newState.playerId) {
     saveStateToCache(newState);
   }
 }, { deep: true });
+
+// Flush cached state on tab close
+window.addEventListener('beforeunload', () => {
+  flushStateCache(gameState);
+});
 
 function getEncryptorTeamName() {
   return gameState.room.encryptorTeam === 'white' ? '白队' : '黑队';
@@ -172,22 +237,28 @@ export function hasRestoreableState() {
 
 export async function createRoom(name) {
   try {
+    const { value: sanitizedName, error: nameError } = sanitizePlayerName(name);
+    if (nameError) {
+      showToast(nameError, 'warning');
+      return false;
+    }
+
     setConnectionStatus('connecting', '正在创建任务...');
     gameState.connecting = true;
     const playerId = generatePlayerId();
     const roomCode = p2p.generateRoomCode();
 
     gameState.playerId = playerId;
-    gameState.playerName = name;
+    gameState.playerName = sanitizedName;
     gameState.roomCode = roomCode;
     gameState.isHost = true;
 
-    cachedRoom = createInitialRoom(playerId, name, roomCode);
+    cachedRoom = createInitialRoom(playerId, sanitizedName, roomCode);
     // 设置房主peerId
     const hostPlayer = cachedRoom.players.find(p => p.id === playerId);
     if (hostPlayer) hostPlayer._peerId = `codenames-${roomCode}`;
 
-    await p2p.createHost(roomCode, name);
+    await p2p.createHost(roomCode, sanitizedName);
 
     setupHostHandlers();
 
@@ -210,22 +281,33 @@ export async function createRoom(name) {
 
 export async function joinRoom(name, code) {
   try {
+    const { value: sanitizedName, error: nameError } = sanitizePlayerName(name);
+    if (nameError) {
+      showToast(nameError, 'warning');
+      return false;
+    }
+    const { value: sanitizedCode, error: codeError } = sanitizeRoomCode(code);
+    if (codeError) {
+      showToast(codeError, 'warning');
+      return false;
+    }
+
     setConnectionStatus('connecting', '正在连接任务...');
     gameState.connecting = true;
     const playerId = generatePlayerId();
 
     gameState.playerId = playerId;
-    gameState.playerName = name;
-    gameState.roomCode = code;
+    gameState.playerName = sanitizedName;
+    gameState.roomCode = sanitizedCode;
     gameState.isHost = false;
 
-    await p2p.joinRoom(code, name);
+    await p2p.joinRoom(sanitizedCode, sanitizedName);
 
     setupGuestHandlers();
 
     p2p.sendTo(p2p.getConnectedPeers()[0], MSG.JOIN_REQUEST, {
       playerId,
-      playerName: name,
+      playerName: sanitizedName,
       originalPeerId: p2p.peer?.id
     });
 
@@ -319,6 +401,23 @@ function setupHostHandlers() {
     gameState.error = err.message;
     setConnectionStatus('error', err.message);
   };
+
+  // Heartbeat: detect and clean up dead P2P connections
+  p2p.startHeartbeat(10000);
+  p2p.onDeadPeer = (peerId) => {
+    log.warn('Host detected dead peer', { peerId });
+    const playerToMark = cachedRoom?.players.find(p => p._peerId === peerId);
+    if (playerToMark && cachedRoom) {
+      playerToMark.isOnline = false;
+      if (!cachedRoom.disconnectedPlayers) {
+        cachedRoom.disconnectedPlayers = [];
+      }
+      if (!cachedRoom.disconnectedPlayers.find(p => p.id === playerToMark.id)) {
+        cachedRoom.disconnectedPlayers.push(playerToMark);
+      }
+      broadcastState();
+    }
+  };
 }
 
 function setupGuestHandlers() {
@@ -328,6 +427,10 @@ function setupGuestHandlers() {
     // 检查断开的是否是房主
     const hostPeerId = `codenames-${gameState.roomCode}`;
     if (peerId === hostPeerId) {
+      if (_migrationInProgress) {
+        log.info('onPlayerDisconnected: migration already in progress, skipping');
+        return;
+      }
       console.log('Host disconnected! Attempting migration...');
       handleHostDisconnect();
     }
@@ -342,11 +445,42 @@ function setupGuestHandlers() {
     gameState.error = err.message;
     setConnectionStatus('error', err.message);
   };
+
+  // Heartbeat: detect dead connections; trigger migration if host is dead
+  p2p.startHeartbeat(10000);
+  p2p.onDeadPeer = (peerId) => {
+    log.warn('Guest detected dead peer', { peerId });
+    const hostPeerId = `codenames-${gameState.roomCode}`;
+    if (peerId === hostPeerId) {
+      if (_migrationInProgress) {
+        log.info('onDeadPeer: migration already in progress, skipping');
+        return;
+      }
+      log.warn('Host is dead, triggering migration');
+      handleHostDisconnect();
+    }
+    // For non-host dead peers, just log; host will handle cleanup
+  };
 }
 
 // 处理房主断开 - 访客托管机制
 async function handleHostDisconnect() {
   if (!cachedRoom) return;
+
+  // Mutex: prevent duplicate migration when multiple guests detect host disconnect simultaneously
+  if (_migrationInProgress) {
+    log.info('Host migration already in progress, skipping');
+    return;
+  }
+  _migrationInProgress = true;
+
+  // Safety valve: reset mutex after 5 seconds in case migration hangs
+  const safetyTimer = setTimeout(() => {
+    if (_migrationInProgress) {
+      log.warn('Host migration safety timeout triggered, resetting mutex');
+      _migrationInProgress = false;
+    }
+  }, 5000);
 
   const otherPlayers = cachedRoom.players.filter(p =>
     p.id !== gameState.playerId && p.isOnline !== false
@@ -354,6 +488,8 @@ async function handleHostDisconnect() {
 
   if (otherPlayers.length === 0) {
     // 没有其他玩家了，游戏结束
+    clearTimeout(safetyTimer);
+    _migrationInProgress = false;
     setConnectionStatus('error', '房主已断开，房间关闭');
     gameState.error = '房主已断开，房间关闭';
     gameState.connected = false;
@@ -370,7 +506,8 @@ async function handleHostDisconnect() {
   if (newHost.id === gameState.playerId) {
     // 我成为新房主
     console.log('I am the new host!');
-    becomeNewHost();
+    await becomeNewHost();
+    clearTimeout(safetyTimer);
   } else {
     // 等待新房主连接我
     console.log('Waiting for new host:', newHost.name);
@@ -381,8 +518,12 @@ async function handleHostDisconnect() {
     try {
       await p2p.connectToPeer(newHostPeerId);
       setConnectionStatus('connected', '已连接到新房主');
+      clearTimeout(safetyTimer);
+      _migrationInProgress = false;
     } catch (err) {
       console.error('Failed to connect to new host:', err);
+      clearTimeout(safetyTimer);
+      _migrationInProgress = false;
       // 如果连接失败，尝试自己成为房主
       becomeNewHost();
     }
@@ -412,213 +553,389 @@ async function becomeNewHost() {
   gameState.connected = true;
 
   // 广播房主变更
-  p2p.broadcast(MSG.HOST_MIGRATION, {
-    newHostId: gameState.playerId,
-    newHostPeerId: p2p.getMyPeerId(),
-    room: cachedRoom
-  });
+  try {
+    p2p.broadcast(MSG.HOST_MIGRATION, {
+      newHostId: gameState.playerId,
+      newHostPeerId: p2p.getMyPeerId(),
+      room: cachedRoom
+    });
+  } catch (err) {
+    log.error('Failed to broadcast HOST_MIGRATION', { error: err });
+  }
 
-  // 切换到房主处理器
+  // Migration resolved — clear the mutex
+  _migrationInProgress = false;
+
+  // Restart heartbeat with host-side handler
+  p2p.stopHeartbeat();
   setupHostHandlers();
+  // Note: setupHostHandlers already calls startHeartbeat(10000) with host-side onDeadPeer
 
   broadcastState();
 }
 
 function handleHostMessage(data, peerId) {
-  switch (data.type) {
+  try {
+    switch (data.type) {
     case MSG.JOIN_REQUEST: {
-      const { playerId, playerName, originalPeerId, isReconnect } = data.payload;
-      console.log('Join request from:', playerName, isReconnect ? '(reconnect)' : '');
+      try {
+        const { playerId, playerName, originalPeerId, isReconnect } = data.payload;
+        console.log('Join request from:', playerName, isReconnect ? '(reconnect)' : '');
 
-      // 检查是否是断线重连
-      const existingPlayer = cachedRoom?.players.find(p => p.id === playerId);
-      if (existingPlayer && !existingPlayer.isOnline) {
-        // 断线重连
-        existingPlayer.isOnline = true;
-        existingPlayer._peerId = originalPeerId || peerId;
-        if (cachedRoom.disconnectedPlayers) {
-          cachedRoom.disconnectedPlayers = cachedRoom.disconnectedPlayers.filter(p => p.id !== playerId);
+        // Idempotency: skip duplicate join requests
+        const joinKey = generateOpKey(MSG.JOIN_REQUEST, { playerId, roomCode: cachedRoom?.code, isReconnect });
+        if (isDuplicateOp(joinKey)) {
+          log.debug('Duplicate JOIN_REQUEST ignored', { key: joinKey });
+          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom });
+          return;
         }
 
-        // 检查是否可以恢复游戏
-        if (canResumeGame(cachedRoom)) {
-          resumeGame(cachedRoom);
+        // 检查是否是断线重连
+        const existingPlayer = cachedRoom?.players.find(p => p.id === playerId);
+        if (existingPlayer && !existingPlayer.isOnline) {
+          // 断线重连
+          existingPlayer.isOnline = true;
+          existingPlayer._peerId = originalPeerId || peerId;
+          if (cachedRoom.disconnectedPlayers) {
+            cachedRoom.disconnectedPlayers = cachedRoom.disconnectedPlayers.filter(p => p.id !== playerId);
+          }
+
+          // 检查是否可以恢复游戏
+          if (canResumeGame(cachedRoom)) {
+            resumeGame(cachedRoom);
+          }
+
+          broadcastState();
+          p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: true, reconnected: true });
+          return;
         }
 
+        const result = addPlayerToRoom(cachedRoom, playerName, playerId);
+        if (result.error) {
+          p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: false, error: result.error });
+          return;
+        }
+        const player = cachedRoom.players.find(p => p.id === playerId);
+        if (player) {
+          player._peerId = originalPeerId || peerId;
+        }
         broadcastState();
-        p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: true, reconnected: true });
-        return;
-      }
 
-      const result = addPlayerToRoom(cachedRoom, playerName, playerId);
-      if (result.error) {
-        p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: false, error: result.error });
-        return;
-      }
-      const player = cachedRoom.players.find(p => p.id === playerId);
-      if (player) {
-        player._peerId = originalPeerId || peerId;
-      }
-      broadcastState();
+        // 通知其他访客连接到新玩家
+        const otherPeers = p2p.getConnectedPeers().filter(id => id !== peerId);
+        otherPeers.forEach(otherPeerId => {
+          p2p.sendTo(otherPeerId, MSG.CONNECT_TO_PEER, { peerId: originalPeerId || peerId });
+        });
 
-      // 通知其他访客连接到新玩家
-      const otherPeers = p2p.getConnectedPeers().filter(id => id !== peerId);
-      otherPeers.forEach(otherPeerId => {
-        p2p.sendTo(otherPeerId, MSG.CONNECT_TO_PEER, { peerId: originalPeerId || peerId });
-      });
-
-      break;
+        break;
+      } catch (err) {
+        log.error('handleHostMessage:JOIN_REQUEST error', { type: data?.type, peerId, error: err });
+      }
     }
 
     case MSG.START_GAME: {
-      if (data.payload.playerId !== cachedRoom.hostId) return;
-      startGame(cachedRoom);
-      broadcastState();
-      break;
+      try {
+        if (data.payload.playerId !== cachedRoom.hostId) return;
+        // Idempotency: skip duplicate start game
+        const startKey = generateOpKey(MSG.START_GAME, { playerId: data.payload.playerId, roomCode: cachedRoom?.code });
+        if (isDuplicateOp(startKey)) {
+          log.debug('Duplicate START_GAME ignored', { key: startKey });
+          broadcastState();
+          return;
+        }
+        startGame(cachedRoom);
+        broadcastState();
+        break;
+      } catch (err) {
+        log.error('handleHostMessage:START_GAME error', { type: data?.type, peerId, error: err });
+      }
     }
 
     case MSG.SUBMIT_CLUES: {
-      const result = submitClues(cachedRoom, data.payload.playerId, data.payload.clues);
-      if (result.error) {
-        p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: result.error });
-        return;
+      try {
+        // Idempotency: skip duplicate clue submission
+        const cluesKey = generateOpKey(MSG.SUBMIT_CLUES, { playerId: data.payload.playerId, roomCode: cachedRoom?.code, clues: data.payload.clues });
+        if (isDuplicateOp(cluesKey)) {
+          log.debug('Duplicate SUBMIT_CLUES ignored', { key: cluesKey });
+          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: '请勿重复提交线索' });
+          return;
+        }
+        const result = submitClues(cachedRoom, data.payload.playerId, data.payload.clues);
+        if (result.error) {
+          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: result.error });
+          return;
+        }
+        broadcastState();
+        break;
+      } catch (err) {
+        log.error('handleHostMessage:SUBMIT_CLUES error', { type: data?.type, peerId, error: err });
       }
-      broadcastState();
-      break;
     }
 
     case MSG.SUBMIT_TEAM_GUESS: {
-      const result = submitTeamGuess(cachedRoom, data.payload.playerId, data.payload.guess);
-      if (result.error) {
-        p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: result.error });
-        return;
+      try {
+        // Idempotency: skip duplicate team guess
+        const teamGuessKey = generateOpKey(MSG.SUBMIT_TEAM_GUESS, { playerId: data.payload.playerId, roomCode: cachedRoom?.code, guess: data.payload.guess });
+        if (isDuplicateOp(teamGuessKey)) {
+          log.debug('Duplicate SUBMIT_TEAM_GUESS ignored', { key: teamGuessKey });
+          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: '请勿重复提交猜测' });
+          return;
+        }
+        const result = submitTeamGuess(cachedRoom, data.payload.playerId, data.payload.guess);
+        if (result.error) {
+          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: result.error });
+          return;
+        }
+        // 检查是否需要进入投票阶段
+        if (checkNeedTeamVoting(cachedRoom)) {
+          cachedRoom.phase = GAME_PHASES.TEAM_VOTING;
+        }
+        broadcastState();
+        break;
+      } catch (err) {
+        log.error('handleHostMessage:SUBMIT_TEAM_GUESS error', { type: data?.type, peerId, error: err });
       }
-      // 检查是否需要进入投票阶段
-      if (checkNeedTeamVoting(cachedRoom)) {
-        cachedRoom.phase = GAME_PHASES.TEAM_VOTING;
-      }
-      broadcastState();
-      break;
     }
 
     case MSG.SUBMIT_OPPONENT_GUESS: {
-      const result = submitOpponentGuess(cachedRoom, data.payload.playerId, data.payload.guess);
-      if (result.error) {
-        p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: result.error });
-        return;
+      try {
+        // Idempotency: skip duplicate opponent guess
+        const oppGuessKey = generateOpKey(MSG.SUBMIT_OPPONENT_GUESS, { playerId: data.payload.playerId, roomCode: cachedRoom?.code, guess: data.payload.guess });
+        if (isDuplicateOp(oppGuessKey)) {
+          log.debug('Duplicate SUBMIT_OPPONENT_GUESS ignored', { key: oppGuessKey });
+          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: '请勿重复提交拦截' });
+          return;
+        }
+        const result = submitOpponentGuess(cachedRoom, data.payload.playerId, data.payload.guess);
+        if (result.error) {
+          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: result.error });
+          return;
+        }
+        broadcastState();
+        break;
+      } catch (err) {
+        log.error('handleHostMessage:SUBMIT_OPPONENT_GUESS error', { type: data?.type, peerId, error: err });
       }
-      broadcastState();
-      break;
     }
 
     case MSG.SUBMIT_TEAM_VOTE: {
-      const result = submitTeamFinalVote(cachedRoom, data.payload.playerId, data.payload.guess);
-      if (result.error) {
-        p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: result.error });
-        return;
+      try {
+        // Idempotency: skip duplicate team vote
+        const voteKey = generateOpKey(MSG.SUBMIT_TEAM_VOTE, { playerId: data.payload.playerId, roomCode: cachedRoom?.code, guess: data.payload.guess });
+        if (isDuplicateOp(voteKey)) {
+          log.debug('Duplicate SUBMIT_TEAM_VOTE ignored', { key: voteKey });
+          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: '请勿重复提交投票' });
+          return;
+        }
+        const result = submitTeamFinalVote(cachedRoom, data.payload.playerId, data.payload.guess);
+        if (result.error) {
+          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: result.error });
+          return;
+        }
+        broadcastState();
+        break;
+      } catch (err) {
+        log.error('handleHostMessage:SUBMIT_TEAM_VOTE error', { type: data?.type, peerId, error: err });
       }
-      broadcastState();
-      break;
     }
 
     case MSG.NEXT_ROUND: {
-      if (data.payload.playerId !== cachedRoom.hostId) return;
-      if (cachedRoom.status === GAME_PHASES.ENDED) {
-        resetGame(cachedRoom);
-      } else {
-        nextRound(cachedRoom);
+      try {
+        if (data.payload.playerId !== cachedRoom.hostId) return;
+        // Idempotency: skip duplicate next round
+        const nextRoundKey = generateOpKey(MSG.NEXT_ROUND, { playerId: data.payload.playerId, roomCode: cachedRoom?.code });
+        if (isDuplicateOp(nextRoundKey)) {
+          log.debug('Duplicate NEXT_ROUND ignored', { key: nextRoundKey });
+          broadcastState();
+          return;
+        }
+        if (cachedRoom.status === GAME_PHASES.ENDED) {
+          resetGame(cachedRoom);
+        } else {
+          nextRound(cachedRoom);
+        }
+        broadcastState();
+        break;
+      } catch (err) {
+        log.error('handleHostMessage:NEXT_ROUND error', { type: data?.type, peerId, error: err });
       }
-      broadcastState();
-      break;
     }
+  }
+  } catch (err) {
+    log.error('handleHostMessage error', { type: data?.type, peerId, error: err });
   }
 }
 
 function handleGuestMessage(data, peerId) {
-  switch (data.type) {
+  try {
+    switch (data.type) {
     case MSG.ROOM_STATE: {
-      if (data.payload.room) {
-        cachedRoom = data.payload.room;
-        updateLocalState(cachedRoom);
-        if (data.payload.error) {
-          alert(data.payload.error);
+      try {
+        if (data.payload.room) {
+          // Idempotency: skip duplicate room state updates
+          const room = data.payload.room;
+          const roomStateKey = generateOpKey(MSG.ROOM_STATE, { roomCode: room.code, detail: `${room.currentRound}_${room.phase}` });
+          if (isDuplicateOp(roomStateKey)) {
+            log.debug('Duplicate ROOM_STATE ignored', { key: roomStateKey });
+            break;
+          }
+          cachedRoom = data.payload.room;
+          updateLocalState(cachedRoom);
+          if (data.payload.error) {
+            showToast(data.payload.error, 'warning');
+          }
+          if (!gameState.connected) {
+            gameState.connected = true;
+            setConnectionStatus('connected', '已连接');
+            gameState.screen = 'lobby';
+          }
+        } else if (data.payload.delta) {
+          // Merge delta into local cachedRoom
+          const delta = data.payload.delta;
+          if (!cachedRoom) {
+            log.warn('Delta received but no cachedRoom', { peerId });
+            break;
+          }
+          Object.keys(delta).forEach(key => {
+            cachedRoom[key] = delta[key];
+          });
+          updateLocalState(cachedRoom);
         }
-        if (!gameState.connected) {
-          gameState.connected = true;
-          setConnectionStatus('connected', '已连接');
-          gameState.screen = 'lobby';
-        }
+        break;
+      } catch (err) {
+        log.error('handleGuestMessage:ROOM_STATE error', { type: data?.type, peerId, error: err });
       }
-      break;
     }
 
     case MSG.JOIN_RESPONSE: {
-      if (data.payload.success === false) {
-        gameState.error = data.payload.error || '加入房间失败';
-        setConnectionStatus('error', data.payload.error || '加入房间失败');
-        cleanup();
-        gameState.screen = 'menu';
-      } else if (data.payload.reconnected) {
-        setConnectionStatus('connected', '重连成功');
+      try {
+        if (data.payload.success === false) {
+          gameState.error = data.payload.error || '加入房间失败';
+          setConnectionStatus('error', data.payload.error || '加入房间失败');
+          cleanup();
+          gameState.screen = 'menu';
+        } else if (data.payload.reconnected) {
+          setConnectionStatus('connected', '重连成功');
+        }
+        break;
+      } catch (err) {
+        log.error('handleGuestMessage:JOIN_RESPONSE error', { type: data?.type, peerId, error: err });
       }
-      break;
     }
 
     case MSG.PEER_LIST: {
-      // 收到 peer 列表，尝试连接到其他访客
-      const { peers } = data.payload;
-      console.log('Received peer list:', peers);
-      if (peers && peers.length > 0) {
-        peers.forEach(async (peerId) => {
-          try {
-            await p2p.connectToPeer(peerId);
-            console.log('Connected to peer:', peerId);
-          } catch (err) {
-            console.error('Failed to connect to peer:', peerId, err);
-          }
-        });
+      try {
+        // 收到 peer 列表，尝试连接到其他访客
+        const { peers } = data.payload;
+        console.log('Received peer list:', peers);
+        if (peers && peers.length > 0) {
+          peers.forEach(async (peerId) => {
+            try {
+              await p2p.connectToPeer(peerId);
+              console.log('Connected to peer:', peerId);
+            } catch (err) {
+              console.error('Failed to connect to peer:', peerId, err);
+            }
+          });
+        }
+        break;
+      } catch (err) {
+        log.error('handleGuestMessage:PEER_LIST error', { type: data?.type, peerId, error: err });
       }
-      break;
     }
 
     case MSG.HOST_MIGRATION: {
-      // 房主迁移通知
-      const { newHostId, newHostPeerId, room } = data.payload;
-      console.log('Host migration to:', newHostId);
+      try {
+        // 房主迁移通知
+        const { newHostId, newHostPeerId, room } = data.payload;
+        console.log('Host migration to:', newHostId);
 
-      if (newHostId === gameState.playerId) {
-        // 我已经是新房主了，不需要处理
+        if (newHostId === gameState.playerId) {
+          // 我已经是新房主了，不需要处理
+          break;
+        }
+
+        // Migration resolved by peer — clear the mutex
+        _migrationInProgress = false;
+        log.info('Host migration resolved by peer', { newHostId });
+
+        // 更新房间状态
+        cachedRoom = room;
+        updateLocalState(cachedRoom);
+
+        // 连接到新房主（异步处理，不阻塞消息处理）
+        p2p.connectToPeer(newHostPeerId).then(() => {
+          setConnectionStatus('connected', '已连接到新房主');
+          gameState.connected = true;
+        }).catch((err) => {
+          console.error('Failed to connect to new host:', err);
+        });
         break;
+      } catch (err) {
+        log.error('handleGuestMessage:HOST_MIGRATION error', { type: data?.type, peerId, error: err });
       }
-
-      // 更新房间状态
-      cachedRoom = room;
-      updateLocalState(cachedRoom);
-
-      // 连接到新房主（异步处理，不阻塞消息处理）
-      p2p.connectToPeer(newHostPeerId).then(() => {
-        setConnectionStatus('connected', '已连接到新房主');
-        gameState.connected = true;
-      }).catch((err) => {
-        console.error('Failed to connect to new host:', err);
-      });
-      break;
     }
 
     case MSG.CONNECT_TO_PEER: {
-      // 被要求连接到指定 peer
-      const { peerId: targetPeerId } = data.payload;
-      p2p.connectToPeer(targetPeerId).catch((err) => {
-        console.error('Failed to connect to peer:', targetPeerId, err);
-      });
-      break;
+      try {
+        // 被要求连接到指定 peer
+        const { peerId: targetPeerId } = data.payload;
+        p2p.connectToPeer(targetPeerId).catch((err) => {
+          console.error('Failed to connect to peer:', targetPeerId, err);
+        });
+        break;
+      } catch (err) {
+        log.error('handleGuestMessage:CONNECT_TO_PEER error', { type: data?.type, peerId, error: err });
+      }
     }
   }
+  } catch (err) {
+    log.error('handleGuestMessage error', { type: data?.type, peerId, error: err });
+  }
+}
+
+function computeRoomDiff(oldRoom, newRoom) {
+  const diff = {};
+  let changedCount = 0;
+  const keys = Object.keys(newRoom);
+
+  for (const key of keys) {
+    if (key.startsWith('__v_') || key === '_rawValue' || key === '_value') continue;
+
+    const oldVal = oldRoom ? oldRoom[key] : undefined;
+    const newVal = newRoom[key];
+
+    if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+      diff[key] = newVal;
+      changedCount++;
+    }
+  }
+
+  return { diff, changedCount, totalFields: keys.length };
 }
 
 function broadcastState() {
   if (!cachedRoom) return;
-  p2p.broadcast(MSG.ROOM_STATE, { room: cachedRoom });
+  cleanupOps();
+
+  const { diff, changedCount, totalFields } = computeRoomDiff(_lastBroadcastState, cachedRoom);
+
+  // Full broadcast if: first time, >50% changed, or too few fields (<3)
+  const shouldSendFull = !_lastBroadcastState ||
+                         changedCount > totalFields * 0.5 ||
+                         totalFields < 3;
+
+  if (shouldSendFull) {
+    p2p.broadcast(MSG.ROOM_STATE, { room: cachedRoom });
+  } else {
+    p2p.broadcast(MSG.ROOM_STATE, {
+      delta: diff,
+      round: cachedRoom.currentRound,
+      phase: cachedRoom.phase
+    });
+  }
+
+  _lastBroadcastState = deepClone(cachedRoom);
   updateLocalState(cachedRoom);
 }
 
@@ -689,13 +1006,19 @@ export function handleStartGame() {
 }
 
 export async function handleSubmitClues(clues) {
+  const { value: sanitizedClues, error: clueError } = sanitizeClues(clues);
+  if (clueError) {
+    showToast(clueError, 'warning');
+    return false;
+  }
+
   p2p.broadcast(MSG.SUBMIT_CLUES, {
     playerId: gameState.playerId,
-    clues: clues
+    clues: sanitizedClues
   });
-  const result = submitClues(cachedRoom, gameState.playerId, clues);
+  const result = submitClues(cachedRoom, gameState.playerId, sanitizedClues);
   if (result.error) {
-    alert(result.error);
+    showToast(result.error, 'warning');
     return false;
   }
   broadcastState();
@@ -710,7 +1033,7 @@ export async function handleSubmitTeamGuess(guess) {
   });
   const result = submitTeamGuess(cachedRoom, gameState.playerId, guess);
   if (result.error) {
-    alert(result.error);
+    showToast(result.error, 'warning');
     return false;
   }
   // 检查是否需要进入投票阶段
@@ -729,7 +1052,7 @@ export async function handleSubmitOpponentGuess(guess) {
   });
   const result = submitOpponentGuess(cachedRoom, gameState.playerId, guess);
   if (result.error) {
-    alert(result.error);
+    showToast(result.error, 'warning');
     return false;
   }
   broadcastState();
@@ -744,7 +1067,7 @@ export async function handleSubmitTeamVote(guess) {
   });
   const result = submitTeamFinalVote(cachedRoom, gameState.playerId, guess);
   if (result.error) {
-    alert(result.error);
+    showToast(result.error, 'warning');
     return false;
   }
   broadcastState();
@@ -775,8 +1098,13 @@ export async function leaveRoom() {
 }
 
 function cleanup() {
+  // Flush any pending debounced save immediately before tearing down state
+  flushStateCache(gameState);
+  p2p.stopHeartbeat();
   p2p.disconnect();
+  _migrationInProgress = false;
   cachedRoom = null;
+  _lastBroadcastState = null;
   gameState.connected = false;
   gameState.connecting = false;
   gameState.error = null;

@@ -1,4 +1,7 @@
 import Peer from 'peerjs';
+import { createLogger } from './logger';
+
+const log = createLogger('P2P');
 
 const PEER_SERVER = {
   host: '0.peerjs.com',
@@ -14,9 +17,22 @@ class P2PService {
     this.onPlayerConnected = null;
     this.onPlayerDisconnected = null;
     this.onError = null;
+    this.onDeadPeer = null;
     this.isHost = false;
     this.roomCode = null;
     this.playerName = null;
+
+    // Heartbeat
+    this._heartbeatInterval = null;
+    this._peerLastSeen = new Map();
+    this._missedHeartbeats = new Map();
+
+    // Prevent duplicate disconnect callbacks from close+error
+    this._disconnectedPeers = new Set();
+
+    // Retry queue for transient send failures
+    this._retryQueue = [];
+    this._retryTimer = null;
   }
 
   generateRoomCode() {
@@ -162,6 +178,11 @@ class P2PService {
     if (this.connections.find(c => c.peer === conn.peer)) return;
 
     conn.on('data', (data) => {
+      // Intercept internal P2P protocol messages BEFORE game message handler
+      if (data.type === 'HEARTBEAT' || data.type === 'HEARTBEAT_ACK') {
+        this.handleHeartbeat(data, conn.peer);
+        return;
+      }
       console.log('Received message:', data.type, 'from:', conn.peer);
       if (this.onMessage) {
         this.onMessage(data, conn.peer);
@@ -170,6 +191,9 @@ class P2PService {
 
     conn.on('close', () => {
       console.log('Connection closed:', conn.peer);
+      this._disconnectedPeers.add(conn.peer);
+      this._missedHeartbeats.delete(conn.peer);
+      this._peerLastSeen.delete(conn.peer);
       this.connections = this.connections.filter(c => c.peer !== conn.peer);
       if (this.onPlayerDisconnected) {
         this.onPlayerDisconnected(conn.peer);
@@ -178,6 +202,11 @@ class P2PService {
 
     conn.on('error', (err) => {
       console.error('Connection error:', err);
+      // Avoid duplicate callback if close event already fired
+      if (this._disconnectedPeers.has(conn.peer)) return;
+      this._disconnectedPeers.add(conn.peer);
+      this._missedHeartbeats.delete(conn.peer);
+      this._peerLastSeen.delete(conn.peer);
       this.connections = this.connections.filter(c => c.peer !== conn.peer);
       if (this.onPlayerDisconnected) {
         this.onPlayerDisconnected(conn.peer);
@@ -187,11 +216,125 @@ class P2PService {
     this.connections.push(conn);
   }
 
+  startHeartbeat(intervalMs = 10000) {
+    this.stopHeartbeat();
+    this._heartbeatInterval = setInterval(() => {
+      this.broadcast('HEARTBEAT', { timestamp: Date.now() });
+      this.checkDeadPeers();
+    }, intervalMs);
+    log.info('Heartbeat started', { intervalMs });
+  }
+
+  stopHeartbeat() {
+    if (this._heartbeatInterval) {
+      clearInterval(this._heartbeatInterval);
+      this._heartbeatInterval = null;
+      log.info('Heartbeat stopped');
+    }
+  }
+
+  handleHeartbeat(data, peerId) {
+    if (data.type === 'HEARTBEAT') {
+      // Respond with acknowledgment
+      this.sendTo(peerId, 'HEARTBEAT_ACK', { timestamp: data.payload.timestamp });
+    } else if (data.type === 'HEARTBEAT_ACK') {
+      // Peer acknowledged our heartbeat — reset missed count
+      this._peerLastSeen.set(peerId, Date.now());
+      this._missedHeartbeats.set(peerId, 0);
+    }
+  }
+
+  checkDeadPeers(threshold = 30000, maxMissed = 3) {
+    for (const conn of this.connections) {
+      if (!conn.open) continue;
+      const peerId = conn.peer;
+      const missed = (this._missedHeartbeats.get(peerId) || 0) + 1;
+      this._missedHeartbeats.set(peerId, missed);
+      if (missed > maxMissed) {
+        log.warn('Dead peer detected', { peerId, missed, maxMissed });
+        if (this.onDeadPeer) {
+          this.onDeadPeer(peerId);
+        }
+        // Clean up dead connection tracking
+        this._missedHeartbeats.delete(peerId);
+        this._peerLastSeen.delete(peerId);
+        try { conn.close(); } catch (e) { /* ignore close error */ }
+        this.connections = this.connections.filter(c => c.peer !== peerId);
+        // Clean up retry queue for the dead peer
+        this._retryQueue = this._retryQueue.filter(e => e.peerId !== peerId);
+        if (this._retryQueue.length === 0) {
+          this._stopRetryTimer();
+        }
+      }
+    }
+  }
+
+  // ── Retry queue ──────────────────────────────────────────────────
+  _enqueueRetry(peerId, type, payload) {
+    this._retryQueue.push({
+      peerId,
+      type,
+      payload,
+      attempts: 0,
+      nextRetry: Date.now()
+    });
+    this._ensureRetryTimer();
+  }
+
+  _ensureRetryTimer() {
+    if (this._retryTimer) return;
+    this._retryTimer = setInterval(() => this._processRetryQueue(), 1000);
+  }
+
+  _stopRetryTimer() {
+    if (this._retryTimer) {
+      clearInterval(this._retryTimer);
+      this._retryTimer = null;
+    }
+  }
+
+  _processRetryQueue() {
+    const now = Date.now();
+    const remaining = [];
+    for (const entry of this._retryQueue) {
+      if (now < entry.nextRetry) {
+        remaining.push(entry);
+        continue;
+      }
+      entry.attempts++;
+      const conn = this.connections.find(c => c.peer === entry.peerId);
+      if (conn && conn.open) {
+        try {
+          conn.send({ type: entry.type, payload: entry.payload, timestamp: Date.now() });
+          // Success — remove from queue
+          continue;
+        } catch (e) {
+          log.warn('Retry send failed', { peerId: entry.peerId, type: entry.type, attempt: entry.attempts });
+        }
+      }
+      if (entry.attempts >= 3) {
+        log.warn('Max retries exceeded, dropping message', { peerId: entry.peerId, type: entry.type });
+        continue;
+      }
+      entry.nextRetry = now + Math.min(1000 * Math.pow(2, entry.attempts - 1), 8000);
+      remaining.push(entry);
+    }
+    this._retryQueue = remaining;
+    if (this._retryQueue.length === 0) {
+      this._stopRetryTimer();
+    }
+  }
+
   broadcast(type, payload) {
     const message = { type, payload, timestamp: Date.now() };
     this.connections.forEach(conn => {
       if (conn.open) {
-        conn.send(message);
+        try {
+          conn.send(message);
+        } catch (e) {
+          log.warn('broadcast send failed, enqueuing for retry', { peerId: conn.peer, type });
+          this._enqueueRetry(conn.peer, type, payload);
+        }
       }
     });
   }
@@ -200,7 +343,12 @@ class P2PService {
     const message = { type, payload, timestamp: Date.now() };
     const conn = this.connections.find(c => c.peer === peerId);
     if (conn && conn.open) {
-      conn.send(message);
+      try {
+        conn.send(message);
+      } catch (e) {
+        log.warn('sendTo failed, enqueuing for retry', { peerId, type });
+        this._enqueueRetry(peerId, type, payload);
+      }
     }
   }
 
@@ -213,8 +361,14 @@ class P2PService {
   }
 
   disconnect() {
+    this.stopHeartbeat();
+    this._stopRetryTimer();
+    this._retryQueue = [];
     this.connections.forEach(conn => conn.close());
     this.connections = [];
+    this._missedHeartbeats.clear();
+    this._peerLastSeen.clear();
+    this._disconnectedPeers.clear();
     if (this.peer) {
       this.peer.destroy();
       this.peer = null;

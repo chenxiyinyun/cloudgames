@@ -403,6 +403,8 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { gameState, handleSubmitClues, handleSubmitTeamGuess, handleSubmitOpponentGuess, handleSubmitTeamVote, handleNextRound, handlePlayAgain, reconnectRoom, GAME_PHASES } from '../stores/gameStore';
+import { showToast } from './ToastNotification.vue';
+import { sanitizeClues } from '../services/sanitize';
 
 const clues = ref(['', '', '']);
 const teammateGuess = ref(['', '', '']);
@@ -561,9 +563,13 @@ async function handleReconnect() {
 }
 
 async function onCluesSubmit() {
-  const validClues = clues.value.map(c => c.trim());
-  if (validClues.some(c => !c)) {
-    alert('请输入所有 3 个线索！');
+  const { value: validClues, error } = sanitizeClues(clues.value);
+  if (error) {
+    showToast(error, 'warning');
+    return;
+  }
+  if (validClues.length !== 3) {
+    showToast('请输入所有 3 个线索！', 'warning');
     return;
   }
   
@@ -576,7 +582,7 @@ async function onCluesSubmit() {
 async function onTeammateGuessSubmit() {
   const validGuess = teammateGuess.value.map(g => parseInt(g));
   if (validGuess.some(g => isNaN(g) || g < 1 || g > 4)) {
-    alert('请输入有效的数字（1-4）！');
+    showToast('请输入有效的数字（1-4）！', 'warning');
     return;
   }
   
@@ -587,7 +593,7 @@ async function onTeammateGuessSubmit() {
 async function onOpponentGuessSubmit() {
   const validGuess = opponentGuess.value.map(g => parseInt(g));
   if (validGuess.some(g => isNaN(g) || g < 1 || g > 4)) {
-    alert('请输入有效的数字（1-4）！');
+    showToast('请输入有效的数字（1-4）！', 'warning');
     return;
   }
   
@@ -597,13 +603,13 @@ async function onOpponentGuessSubmit() {
 
 async function onTeamVoteSubmit() {
   if (selectedVote.value === null) {
-    alert('请选择一个密码！');
+    showToast('请选择一个密码！', 'warning');
     return;
   }
   
   const selectedOption = voteOptions.value[selectedVote.value];
   if (!selectedOption) {
-    alert('选择无效！');
+    showToast('选择无效！', 'error');
     return;
   }
   

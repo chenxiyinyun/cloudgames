@@ -2,6 +2,17 @@
 const CACHE_KEY = 'codenames_state_cache';
 const CACHE_VERSION = '1';
 
+// Debounce: avoid serializing on every reactive tick
+let saveTimer = null;
+const SAVE_DEBOUNCE_MS = 2000; // 2 second debounce
+
+function debouncedSave(state) {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    doSaveStateToCache(state);
+  }, SAVE_DEBOUNCE_MS);
+}
+
 // 需要缓存的状态字段
 const CACHE_FIELDS = [
   'playerId',
@@ -54,7 +65,7 @@ function toPlainObject(obj) {
   return plain;
 }
 
-export function saveStateToCache(state) {
+function doSaveStateToCache(state) {
   try {
     const cache = {
       version: CACHE_VERSION,
@@ -83,6 +94,28 @@ export function saveStateToCache(state) {
     console.log('[StateCache] State saved to cache');
   } catch (err) {
     console.error('[StateCache] Failed to save state:', err);
+  }
+}
+
+// Debounced wrapper — call this from Vue watchers
+export function saveStateToCache(state) {
+  debouncedSave(state);
+}
+
+// Flush immediately (before leaveRoom / page unload)
+export function flushStateCache(state) {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  doSaveStateToCache(state);
+}
+
+// Cancel any pending debounced save (e.g. when navigating back to menu)
+export function cancelPendingSave() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
   }
 }
 

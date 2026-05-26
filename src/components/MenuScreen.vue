@@ -66,6 +66,8 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { createRoom, joinRoom, gameState } from '../stores/gameStore';
+import { showToast } from './ToastNotification.vue';
+import { sanitizePlayerName, sanitizeRoomCode } from '../services/sanitize';
 
 const playerName = ref('');
 const roomCode = ref('');
@@ -75,23 +77,38 @@ const connectionStatus = computed(() => gameState.connectionStatus);
 const connectionMessage = computed(() => gameState.connectionMessage);
 
 async function handleCreate() {
-  if (!playerName.value.trim()) {
-    alert('请输入你的代号');
+  const { value: name, error } = sanitizePlayerName(playerName.value);
+  if (error) {
+    showToast(error, 'warning');
     return;
   }
-  await createRoom(playerName.value.trim());
+  if (!name) {
+    showToast('请输入你的代号', 'warning');
+    return;
+  }
+  await createRoom(name);
 }
 
 async function handleJoin() {
-  if (!playerName.value.trim()) {
-    alert('请输入你的代号');
+  const { value: name, error: nameError } = sanitizePlayerName(playerName.value);
+  if (nameError) {
+    showToast(nameError, 'warning');
     return;
   }
-  if (!roomCode.value.trim()) {
-    alert('请输入任务编号');
+  if (!name) {
+    showToast('请输入你的代号', 'warning');
     return;
   }
-  await joinRoom(playerName.value.trim(), roomCode.value.trim().toUpperCase());
+  const { value: code, error: codeError } = sanitizeRoomCode(roomCode.value);
+  if (codeError) {
+    showToast(codeError, 'warning');
+    return;
+  }
+  if (!code) {
+    showToast('请输入任务编号', 'warning');
+    return;
+  }
+  await joinRoom(name, code);
 }
 </script>
 
