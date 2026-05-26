@@ -225,7 +225,7 @@ function reconstructTeams(room) {
 export function assignTeams(room) {
   const shuffled = [...room.players].sort(() => Math.random() - 0.5);
 
-  room.players.forEach((player, index) => {
+  shuffled.forEach((player, index) => {
     player.team = index < 2 ? 'white' : 'black';
     player.isEncryptor = false; // 初始时不设置情报官，游戏开始后再设置
     player.order = index;
@@ -597,7 +597,7 @@ export function processRound(room) {
   const teammateCorrect = teammateGuess.every((g, i) => g === correctCode[i]);
   const opponentCorrect = opponentGuess.every((g, i) => g === correctCode[i]);
 
-  let message = '';
+  let message;
   const roundResult = {
     round: room.currentRound,
     encryptorTeam,

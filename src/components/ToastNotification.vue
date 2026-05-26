@@ -1,5 +1,8 @@
 <template>
-  <div class="toast-container" v-if="toasts.length > 0">
+  <div
+    v-if="toasts.length > 0"
+    class="toast-container"
+  >
     <div
       v-for="toast in toasts"
       :key="toast.id"

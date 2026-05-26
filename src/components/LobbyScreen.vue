@@ -1,27 +1,42 @@
 <template>
   <div class="screen active">
     <div class="card">
-      <div class="telegram-header" style="margin-bottom: 1.5rem;">
-        <div class="telegram-icon">T</div>
-        <div>
-          <div style="font-family: var(--typewriter); font-size: 1rem; font-weight: 700;">BRIEFING ROOM</div>
-          <div class="morse-decoration">-... .-. .. . ..-. .. -. --.</div>
+      <div
+        class="telegram-header"
+        style="margin-bottom: 1.5rem;"
+      >
+        <div class="telegram-icon">
+          T
         </div>
-        <div class="telegram-icon">R</div>
+        <div>
+          <div style="font-family: var(--typewriter); font-size: 1rem; font-weight: 700;">
+            BRIEFING ROOM
+          </div>
+          <div class="morse-decoration">
+            -... .-. .. . ..-. .. -. --.
+          </div>
+        </div>
+        <div class="telegram-icon">
+          R
+        </div>
       </div>
       
       <h2>作战室</h2>
       
-      <div class="room-code">{{ gameState.roomCode }}</div>
+      <div class="room-code">
+        {{ gameState.roomCode }}
+      </div>
       
       <p style="text-align: center; margin-bottom: 1rem; font-family: var(--typewriter); font-size: 0.9rem;">
         分享任务编号给其他特工
       </p>
 
       <!-- 连接状态提示 -->
-      <div v-if="connectionMessage" 
-           class="connection-status" 
-           :class="connectionStatus">
+      <div
+        v-if="connectionMessage" 
+        class="connection-status" 
+        :class="connectionStatus"
+      >
         {{ connectionMessage }}
       </div>
 
@@ -33,48 +48,96 @@
 
       <!-- 所有玩家列表（不按队伍分组） -->
       <div class="all-players-list">
-        <div class="section-title">任务成员</div>
-        <div v-for="(player, index) in allPlayers" :key="player.id" 
-             class="player-row" 
-             :class="{ 
-               you: player.id === gameState.playerId,
-               offline: !player.isOnline,
-               host: player.isHost
-             }">
-          <div class="player-number">{{ index + 1 }}</div>
+        <div class="section-title">
+          任务成员
+        </div>
+        <div
+          v-for="(player, index) in allPlayers"
+          :key="player.id" 
+          class="player-row" 
+          :class="{ 
+            you: player.id === gameState.playerId,
+            offline: !player.isOnline,
+            host: player.isHost
+          }"
+        >
+          <div class="player-number">
+            {{ index + 1 }}
+          </div>
           <div class="player-info">
             <span class="player-name">{{ player.name }}</span>
-            <span v-if="player.id === gameState.playerId" class="you-badge">你</span>
-            <span v-if="player.isHost" class="host-badge">队长</span>
-            <span v-if="!player.isOnline" class="offline-badge">断线</span>
+            <span
+              v-if="player.id === gameState.playerId"
+              class="you-badge"
+            >你</span>
+            <span
+              v-if="player.isHost"
+              class="host-badge"
+            >队长</span>
+            <span
+              v-if="!player.isOnline"
+              class="offline-badge"
+            >断线</span>
           </div>
           <div class="player-status">
-            <span v-if="player.isOnline" class="status-online">在线</span>
-            <span v-else class="status-offline">离线</span>
+            <span
+              v-if="player.isOnline"
+              class="status-online"
+            >在线</span>
+            <span
+              v-else
+              class="status-offline"
+            >离线</span>
           </div>
         </div>
       </div>
 
       <div class="players-grid">
         <div class="team-card white">
-          <div class="team-title">白队</div>
-          <div v-if="getTeamPlayers('white').length === 0" style="color: rgba(0,0,0,0.3); text-align: center; padding: 1rem; font-family: var(--typewriter);">
+          <div class="team-title">
+            白队
+          </div>
+          <div
+            v-if="getTeamPlayers('white').length === 0"
+            style="color: rgba(0,0,0,0.3); text-align: center; padding: 1rem; font-family: var(--typewriter);"
+          >
             等待特工加入...
           </div>
-          <div v-for="player in getTeamPlayers('white')" :key="player.id" class="player-item" :class="{ you: player.id === gameState.playerId, offline: !player.isOnline }">
+          <div
+            v-for="player in getTeamPlayers('white')"
+            :key="player.id"
+            class="player-item"
+            :class="{ you: player.id === gameState.playerId, offline: !player.isOnline }"
+          >
             <span class="player-name">{{ player.name }}</span>
-            <span v-if="!player.isOnline" class="offline-badge">断线</span>
+            <span
+              v-if="!player.isOnline"
+              class="offline-badge"
+            >断线</span>
           </div>
         </div>
 
         <div class="team-card black">
-          <div class="team-title">黑队</div>
-          <div v-if="getTeamPlayers('black').length === 0" style="color: rgba(0,0,0,0.3); text-align: center; padding: 1rem; font-family: var(--typewriter);">
+          <div class="team-title">
+            黑队
+          </div>
+          <div
+            v-if="getTeamPlayers('black').length === 0"
+            style="color: rgba(0,0,0,0.3); text-align: center; padding: 1rem; font-family: var(--typewriter);"
+          >
             等待特工加入...
           </div>
-          <div v-for="player in getTeamPlayers('black')" :key="player.id" class="player-item" :class="{ you: player.id === gameState.playerId, offline: !player.isOnline }">
+          <div
+            v-for="player in getTeamPlayers('black')"
+            :key="player.id"
+            class="player-item"
+            :class="{ you: player.id === gameState.playerId, offline: !player.isOnline }"
+          >
             <span class="player-name">{{ player.name }}</span>
-            <span v-if="!player.isOnline" class="offline-badge">断线</span>
+            <span
+              v-if="!player.isOnline"
+              class="offline-badge"
+            >断线</span>
           </div>
         </div>
       </div>
@@ -91,20 +154,29 @@
         </template>
       </div>
 
-      <div class="btn-group" style="margin-top: 1.5rem;">
+      <div
+        class="btn-group"
+        style="margin-top: 1.5rem;"
+      >
         <button 
           class="btn btn-primary" 
-          @click="handleStart"
           :disabled="!gameState.isHost || gameState.room.players.length < 4"
+          @click="handleStart"
         >
           开始任务
         </button>
-        <button class="btn btn-danger" @click="handleLeave">
+        <button
+          class="btn btn-danger"
+          @click="handleLeave"
+        >
           撤离
         </button>
       </div>
       
-      <div class="morse-decoration" style="margin-top: 1.5rem;">
+      <div
+        class="morse-decoration"
+        style="margin-top: 1.5rem;"
+      >
         .-- .- .. - .. -. --. / ..-. --- .-. / --- .--. . .-. .- - .. --- -. ...
       </div>
     </div>

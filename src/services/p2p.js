@@ -244,7 +244,7 @@ class P2PService {
     }
   }
 
-  checkDeadPeers(threshold = 30000, maxMissed = 3) {
+  checkDeadPeers(maxMissed = 3) {
     for (const conn of this.connections) {
       if (!conn.open) continue;
       const peerId = conn.peer;
@@ -258,7 +258,7 @@ class P2PService {
         // Clean up dead connection tracking
         this._missedHeartbeats.delete(peerId);
         this._peerLastSeen.delete(peerId);
-        try { conn.close(); } catch (e) { /* ignore close error */ }
+        try { conn.close(); } catch { /* ignore close error */ }
         this.connections = this.connections.filter(c => c.peer !== peerId);
         // Clean up retry queue for the dead peer
         this._retryQueue = this._retryQueue.filter(e => e.peerId !== peerId);
@@ -308,7 +308,7 @@ class P2PService {
           conn.send({ type: entry.type, payload: entry.payload, timestamp: Date.now() });
           // Success — remove from queue
           continue;
-        } catch (e) {
+        } catch {
           log.warn('Retry send failed', { peerId: entry.peerId, type: entry.type, attempt: entry.attempts });
         }
       }
@@ -331,7 +331,7 @@ class P2PService {
       if (conn.open) {
         try {
           conn.send(message);
-        } catch (e) {
+        } catch {
           log.warn('broadcast send failed, enqueuing for retry', { peerId: conn.peer, type });
           this._enqueueRetry(conn.peer, type, payload);
         }
@@ -345,7 +345,7 @@ class P2PService {
     if (conn && conn.open) {
       try {
         conn.send(message);
-      } catch (e) {
+      } catch {
         log.warn('sendTo failed, enqueuing for retry', { peerId, type });
         this._enqueueRetry(peerId, type, payload);
       }

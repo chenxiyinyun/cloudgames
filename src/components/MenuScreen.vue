@@ -1,62 +1,95 @@
 <template>
   <div class="screen active">
     <div class="card">
-      <div class="telegram-header" style="margin-bottom: 1.5rem;">
-        <div class="telegram-icon">T</div>
-        <div>
-          <div style="font-family: var(--typewriter); font-size: 1rem; font-weight: 700;">TELEGRAPH</div>
-          <div class="morse-decoration">- . .-.. . --. .-. .- .--.</div>
+      <div
+        class="telegram-header"
+        style="margin-bottom: 1.5rem;"
+      >
+        <div class="telegram-icon">
+          T
         </div>
-        <div class="telegram-icon">M</div>
+        <div>
+          <div style="font-family: var(--typewriter); font-size: 1rem; font-weight: 700;">
+            TELEGRAPH
+          </div>
+          <div class="morse-decoration">
+            - . .-.. . --. .-. .- .--.
+          </div>
+        </div>
+        <div class="telegram-icon">
+          M
+        </div>
       </div>
       
       <h1>截码战</h1>
-      <p class="subtitle">CODENAMES</p>
+      <p class="subtitle">
+        CODENAMES
+      </p>
       
-      <div class="morse-decoration" style="margin-bottom: 2rem;">
+      <div
+        class="morse-decoration"
+        style="margin-bottom: 2rem;"
+      >
         -.-. --- -.. . -. .- -- . ...
       </div>
 
       <!-- 连接状态提示 -->
-      <div v-if="connectionStatus !== 'disconnected' && connectionMessage" 
-           class="connection-status" 
-           :class="connectionStatus">
+      <div
+        v-if="connectionStatus !== 'disconnected' && connectionMessage" 
+        class="connection-status" 
+        :class="connectionStatus"
+      >
         {{ connectionMessage }}
       </div>
 
       <div class="input-group">
         <label>特工代号</label>
         <input 
-          type="text" 
           v-model="playerName" 
+          type="text" 
           placeholder="输入你的代号"
-          @keyup.enter="handleCreate"
           :disabled="isConnecting"
-        />
+          @keyup.enter="handleCreate"
+        >
       </div>
 
-      <button class="btn btn-primary" @click="handleCreate" style="width: 100%; margin-bottom: 1rem;" :disabled="isConnecting">
+      <button
+        class="btn btn-primary"
+        style="width: 100%; margin-bottom: 1rem;"
+        :disabled="isConnecting"
+        @click="handleCreate"
+      >
         {{ isConnecting ? '连接中...' : '创建任务' }}
       </button>
 
-      <div class="divider"><span>或</span></div>
+      <div class="divider">
+        <span>或</span>
+      </div>
 
       <div class="input-group">
         <label>任务编号</label>
         <input 
-          type="text" 
           v-model="roomCode" 
+          type="text" 
           placeholder="输入任务编号"
-          @keyup.enter="handleJoin"
           :disabled="isConnecting"
-        />
+          @keyup.enter="handleJoin"
+        >
       </div>
 
-      <button class="btn btn-secondary" @click="handleJoin" style="width: 100%;" :disabled="isConnecting">
+      <button
+        class="btn btn-secondary"
+        style="width: 100%;"
+        :disabled="isConnecting"
+        @click="handleJoin"
+      >
         {{ isConnecting ? '连接中...' : '加入任务' }}
       </button>
       
-      <div class="morse-decoration" style="margin-top: 1.5rem;">
+      <div
+        class="morse-decoration"
+        style="margin-top: 1.5rem;"
+      >
         .-- .- .-. / .. ... / .... . .-.
       </div>
     </div>
