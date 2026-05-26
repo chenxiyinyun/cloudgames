@@ -289,11 +289,13 @@ function updateEncryptorRole(room) {
 }
 
 export function generateCode() {
-  return [
-    Math.floor(Math.random() * 4) + 1,
-    Math.floor(Math.random() * 4) + 1,
-    Math.floor(Math.random() * 4) + 1
-  ];
+  const pool = [1, 2, 3, 4];
+  // Fisher-Yates shuffle, pick first 3 → guarantees uniqueness
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, 3);
 }
 
 export function submitClues(room, playerId, clues) {

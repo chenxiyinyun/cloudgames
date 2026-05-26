@@ -89,6 +89,14 @@ describe('generateCode', () => {
       })
     }
   })
+
+  it('all 3 numbers are unique (no duplicates)', () => {
+    for (let i = 0; i < 100; i++) {
+      const code = generateCode()
+      const unique = new Set(code)
+      expect(unique.size).toBe(3)
+    }
+  })
 })
 
 // ════════════════════════════════════════════════════════════
