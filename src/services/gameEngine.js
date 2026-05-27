@@ -299,8 +299,7 @@ function updateEncryptorRole(room) {
 }
 
 export function generateCode() {
-  // 原版 Decrypto 规则：允许重复数字（如 1-1-3）
-  return [1, 2, 3, 4].map(() => Math.floor(Math.random() * 4) + 1);
+  return [1, 2, 3].map(() => Math.floor(Math.random() * 4) + 1);
 }
 
 export function submitClues(room, playerId, clues) {

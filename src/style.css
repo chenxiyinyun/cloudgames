@@ -1111,6 +1111,25 @@ input::placeholder {
   background: var(--ink-red);
 }
 
+/* 隐藏关键词样式 */
+.keyword-card.hidden {
+  background: rgba(139, 38, 53, 0.05);
+  border-color: rgba(139, 38, 53, 0.3);
+  border-style: dashed;
+}
+
+.keyword-card.hidden .keyword-number {
+  background: rgba(139, 38, 53, 0.15);
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.keyword-word.unknown {
+  font-family: var(--typewriter);
+  color: rgba(0, 0, 0, 0.25);
+  font-size: 1.1rem;
+  letter-spacing: 0.15em;
+}
+
 /* 自定义投票选项 */
 .custom-option {
   border-style: dashed !important;

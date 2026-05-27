@@ -612,22 +612,22 @@
           </template>
         </div>
 
-        <!-- 敌方关键词 -->
+        <!-- 敌方关键词（隐藏，仅显示编号） -->
         <div class="screen-panel">
           <div class="screen-title">
             {{ enemyTeamLabel }} 密码本
           </div>
           <div class="keywords-grid">
             <div 
-              v-for="(word, index) in enemyKeywords" 
-              :key="index"
-              class="keyword-card visible enemy"
+              v-for="i in 4" 
+              :key="i"
+              class="keyword-card hidden enemy"
             >
               <div class="keyword-number">
-                {{ index + 1 }}
+                {{ i }}
               </div>
-              <div class="keyword-word">
-                {{ word }}
+              <div class="keyword-word unknown">
+                ???
               </div>
             </div>
           </div>
@@ -695,10 +695,7 @@
                   class="note-clue-item"
                 >
                   <span class="note-clue-num">{{ ci + 1 }}</span>
-                  <span 
-                    class="note-clue-text" 
-                    :class="{ 'keyword-highlight': isEnemyKeyword(clue) }"
-                  >{{ clue }}</span>
+                  <span class="note-clue-text">{{ clue }}</span>
                 </span>
               </div>
               <span
@@ -1030,12 +1027,6 @@ async function onOpponentVoteSubmit() {
   await handleSubmitOpponentVote(guessToSubmit);
   selectedOpponentVote.value = null;
   customOpponentVoteGuess.value = ['', '', ''];
-}
-
-// 检查线索文本是否与敌方关键词相关（高亮标记用）
-function isEnemyKeyword(clue) {
-  if (!enemyKeywords.value) return false;
-  return enemyKeywords.value.some(kw => clue.includes(kw) || kw.includes(clue));
 }
 
 function selectVoteOption(index) {

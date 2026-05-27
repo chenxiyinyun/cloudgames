@@ -990,8 +990,8 @@ function updateLocalState(room) {
       white: { players: [], interceptionTokens: 0, miscommunicationTokens: 0, encryptorIndex: 0 },
       black: { players: [], interceptionTokens: 0, miscommunicationTokens: 0, encryptorIndex: 0 }
     },
-    whiteKeywords: room.whiteKeywords ? [...room.whiteKeywords] : [],
-    blackKeywords: room.blackKeywords ? [...room.blackKeywords] : [],
+    whiteKeywords: player?.team === 'white' ? (room.whiteKeywords ? [...room.whiteKeywords] : []) : [],
+    blackKeywords: player?.team === 'black' ? (room.blackKeywords ? [...room.blackKeywords] : []) : [],
     currentCode: room.currentCode ? [...room.currentCode] : [],
     currentRound: room.currentRound || 0,
     phase: room.phase || GAME_PHASES.WAITING,
