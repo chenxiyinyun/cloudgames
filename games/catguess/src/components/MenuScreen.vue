@@ -88,7 +88,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { gameState, createRoom, joinRoom, restoreFromCache, hasRestoreableState } from '../stores/gameStore'
+import { gameState, createRoom, joinRoom, restoreFromCache, reconnectRoom, hasRestoreableState } from '../stores/gameStore'
 import { showToast } from './ToastNotification.vue'
 import { sanitizePlayerName, sanitizeRoomCode } from '../services/sanitize'
 
@@ -141,7 +141,18 @@ async function handleJoin() {
   }
 }
 
-function handleRestore() {
-  restoreFromCache()
+async function handleRestore() {
+  // 先把缓存里的房间/玩家信息恢复到内存，再真正重建 P2P 连接。
+  // 只调 restoreFromCache 会让界面"假活着"——状态有了但没有任何连接。
+  if (!restoreFromCache()) {
+    showToast('没有可恢复的对局', 'warning')
+    return
+  }
+  const ok = await reconnectRoom()
+  if (!ok) {
+    showToast('重连失败，请检查网络或重新加入房间', 'error')
+    // 回到菜单，让用户可以重试或重新加入
+    gameState.screen = 'menu'
+  }
 }
 </script>

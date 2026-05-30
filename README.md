@@ -30,6 +30,25 @@ npm run build
 npm run preview
 ```
 
+## P2P Reliability
+
+The games use PeerJS/WebRTC for multiplayer. By default the shared P2P layer gives the browser both STUN and TURN candidates, so ICE will prefer a direct peer-to-peer path when it works and automatically fall back to a relay candidate when needed.
+
+For reliable relay fallback, configure Metered TURN in the Vite environment:
+
+```bash
+VITE_METERED_TURN_USERNAME=<metered-username>
+VITE_METERED_TURN_CREDENTIAL=<metered-credential>
+```
+
+If a network is especially strict and direct ICE candidates keep failing, force all WebRTC traffic through TURN:
+
+```bash
+VITE_P2P_ICE_TRANSPORT_POLICY=relay
+```
+
+Use relay-only as an operational fallback, not the default, because it is more reliable across difficult NAT/firewall environments but adds latency and consumes TURN bandwidth.
+
 ## Adding a New Game
 
 1. Create `games/<game-name>/` with `index.html` and `src/` directory

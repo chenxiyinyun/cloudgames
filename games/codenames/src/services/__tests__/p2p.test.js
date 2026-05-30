@@ -91,6 +91,20 @@ describe('P2PService', () => {
   // ════════════════════════════════════════════════════════
   //  Constructor / Initial State
   // ════════════════════════════════════════════════════════
+  describe('peer id namespace', () => {
+    beforeEach(() => {
+      resetP2PState()
+    })
+
+    it('uses the codenames prefix for host peers', () => {
+      expect(p2p.getHostPeerId('ABCDEF')).toBe('codenames-ABCDEF')
+    })
+
+    it('uses the codenames guest prefix for guest peers', () => {
+      expect(p2p.getGuestPeerId()).toMatch(/^codenames-guest-\d+-[a-z0-9]{6}$/)
+    })
+  })
+
   describe('initial state', () => {
     beforeEach(() => {
       resetP2PState()

@@ -135,6 +135,39 @@ export const gameState = reactive({
 let cachedRoom = null;
 let _migrationInProgress = false;
 let _lastBroadcastState = null;
+let _joinRetryInterval = null;
+let _joinTimeout = null;
+
+function stopJoinRetry() {
+  if (_joinRetryInterval) {
+    clearInterval(_joinRetryInterval);
+    _joinRetryInterval = null;
+  }
+  if (_joinTimeout) {
+    clearTimeout(_joinTimeout);
+    _joinTimeout = null;
+  }
+}
+
+// 向房主发送加入/重连请求。数据通道刚就绪时首条消息可能丢失，
+// 因此外层会配合定时器重发，直到收到 ROOM_STATE / JOIN_RESPONSE。
+function sendJoinRequest(playerId, playerName, isReconnect = false) {
+  const hostPeerId = `codenames-${gameState.roomCode}`;
+  const connectedPeers = p2p.getConnectedPeers();
+  const targetPeerId = connectedPeers.includes(hostPeerId) ? hostPeerId : connectedPeers[0];
+
+  if (!targetPeerId) {
+    log.warn('JOIN_REQUEST skipped: no connected host peer yet', { hostPeerId });
+    return false;
+  }
+
+  return p2p.sendTo(targetPeerId, MSG.JOIN_REQUEST, {
+    playerId,
+    playerName,
+    originalPeerId: p2p.peer?.id,
+    isReconnect
+  });
+}
 
 // 安全的深拷贝函数，避免 structuredClone 的兼容性问题
 function deepClone(obj) {
@@ -302,11 +335,28 @@ export async function joinRoom(name, code) {
 
     setupGuestHandlers();
 
-    p2p.sendTo(p2p.getConnectedPeers()[0], MSG.JOIN_REQUEST, {
-      playerId,
-      playerName: sanitizedName,
-      originalPeerId: p2p.peer?.id
-    });
+    sendJoinRequest(playerId, sanitizedName);
+    _joinRetryInterval = setInterval(() => {
+      if (gameState.connected || gameState.screen !== 'menu') {
+        stopJoinRetry();
+        return;
+      }
+      sendJoinRequest(playerId, sanitizedName);
+    }, 2000);
+
+    // 兜底：15s 内没收到房主的 ROOM_STATE / JOIN_RESPONSE 就报错
+    _joinTimeout = setTimeout(() => {
+      if (!gameState.connected || gameState.screen === 'menu') {
+        const errMsg = '连接超时：房主未响应，请确认房间号正确或重试';
+        log.warn('Join timeout: no response from host');
+        gameState.error = errMsg;
+        setConnectionStatus('error', errMsg);
+        showToast(errMsg, 'error');
+        stopJoinRetry();
+        cleanup();
+        gameState.screen = 'menu';
+      }
+    }, 15000);
 
     gameState.connecting = false;
     setConnectionStatus('connected', '已加入任务');
@@ -331,32 +381,54 @@ export async function reconnectRoom() {
   try {
     setConnectionStatus('reconnecting', '正在重新连接...');
     gameState.connecting = true;
+    // 连接已被拆除，重置为未连接，确保重发循环/超时在会话内重连时也生效
+    gameState.connected = false;
 
     // 清理旧连接
     p2p.disconnect();
 
     if (gameState.isHost) {
-      // 房主重连
+      // 房主用同一 peerId 重新注册，createHost 成功即重连完成
       await p2p.createHost(gameState.roomCode, gameState.playerName);
       setupHostHandlers();
-    } else {
-      // 访客重连
-      await p2p.joinRoom(gameState.roomCode, gameState.playerName);
-      setupGuestHandlers();
-
-      p2p.sendTo(p2p.getConnectedPeers()[0], MSG.JOIN_REQUEST, {
-        playerId: gameState.playerId,
-        playerName: gameState.playerName,
-        originalPeerId: p2p.peer?.id,
-        isReconnect: true
-      });
+      gameState.connected = true;
+      gameState.connecting = false;
+      setConnectionStatus('connected', '重连成功');
+      return true;
     }
 
+    // 访客：建连后反复发送重连请求，由 ROOM_STATE / JOIN_RESPONSE 确认成功
+    await p2p.joinRoom(gameState.roomCode, gameState.playerName);
+    setupGuestHandlers();
+
+    sendJoinRequest(gameState.playerId, gameState.playerName, true);
+    _joinRetryInterval = setInterval(() => {
+      if (gameState.connected) {
+        stopJoinRetry();
+        return;
+      }
+      sendJoinRequest(gameState.playerId, gameState.playerName, true);
+    }, 2000);
+
+    // 总超时兜底：避免房主已离线时无限重试、永远停在"重连中"
+    _joinTimeout = setTimeout(() => {
+      if (!gameState.connected) {
+        const errMsg = '重连超时：房主可能已离线，请稍后重试或重新加入任务';
+        log.warn('Reconnect timeout: no response from host');
+        stopJoinRetry();
+        gameState.error = errMsg;
+        gameState.connecting = false;
+        setConnectionStatus('error', errMsg);
+        showToast(errMsg, 'error');
+      }
+    }, 25000);
+
+    // 连接尚未确认，保持"重连中"状态，成功由消息处理回调切换
     gameState.connecting = false;
-    setConnectionStatus('connected', '重连成功');
     return true;
   } catch (error) {
     console.error('Reconnect error:', error);
+    stopJoinRetry();
     gameState.error = error.message || '重连失败';
     gameState.connecting = false;
     setConnectionStatus('error', error.message || '重连失败');
@@ -809,6 +881,8 @@ function handleGuestMessage(data, peerId) {
           }
           cachedRoom = data.payload.room;
           updateLocalState(cachedRoom);
+          // 房主已响应，停止加入重发循环与超时兜底
+          stopJoinRetry();
           if (data.payload.error) {
             showToast(data.payload.error, 'warning');
           }
@@ -839,11 +913,14 @@ function handleGuestMessage(data, peerId) {
     case MSG.JOIN_RESPONSE: {
       try {
         if (data.payload.success === false) {
+          stopJoinRetry();
           gameState.error = data.payload.error || '加入房间失败';
           setConnectionStatus('error', data.payload.error || '加入房间失败');
           cleanup();
           gameState.screen = 'menu';
         } else if (data.payload.reconnected) {
+          stopJoinRetry();
+          gameState.connected = true;
           setConnectionStatus('connected', '重连成功');
         }
         break;
@@ -1160,6 +1237,7 @@ function cleanup() {
   flushStateCache(gameState);
   p2p.stopHeartbeat();
   p2p.disconnect();
+  stopJoinRetry();
   _migrationInProgress = false;
   cachedRoom = null;
   _lastBroadcastState = null;

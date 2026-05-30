@@ -186,6 +186,10 @@ function stopJoinRetry() {
     clearInterval(_joinRetryInterval);
     _joinRetryInterval = null;
   }
+  if (_joinTimeout) {
+    clearTimeout(_joinTimeout);
+    _joinTimeout = null;
+  }
 }
 
 function sendJoinRequest(playerId, playerName, isReconnect = false) {
@@ -364,31 +368,53 @@ export async function reconnectRoom() {
   try {
     setConnectionStatus('reconnecting', '正在重新连接...');
     gameState.connecting = true;
+    // 连接已被拆除，重置为未连接，确保重发循环/超时在会话内重连时也生效
+    gameState.connected = false;
 
     p2p.disconnect();
 
     if (gameState.isHost) {
+      // 房主用同一 peerId 重新注册，createHost 成功即重连完成
       await p2p.createHost(gameState.roomCode, gameState.playerName);
       setupHostHandlers();
-    } else {
-      await p2p.joinRoom(gameState.roomCode, gameState.playerName);
-      setupGuestHandlers();
-
-      sendJoinRequest(gameState.playerId, gameState.playerName, true);
-      _joinRetryInterval = setInterval(() => {
-        if (gameState.connected) {
-          stopJoinRetry();
-          return;
-        }
-        sendJoinRequest(gameState.playerId, gameState.playerName, true);
-      }, 2000);
+      gameState.connected = true;
+      gameState.connecting = false;
+      setConnectionStatus('connected', '重连成功');
+      return true;
     }
 
+    // 访客：建连后反复发送重连请求，由 ROOM_STATE / JOIN_RESPONSE 确认成功
+    await p2p.joinRoom(gameState.roomCode, gameState.playerName);
+    setupGuestHandlers();
+
+    sendJoinRequest(gameState.playerId, gameState.playerName, true);
+    _joinRetryInterval = setInterval(() => {
+      if (gameState.connected) {
+        stopJoinRetry();
+        return;
+      }
+      sendJoinRequest(gameState.playerId, gameState.playerName, true);
+    }, 2000);
+
+    // 总超时兜底：避免房主已离线时无限重试、永远停在"重连中"
+    _joinTimeout = setTimeout(() => {
+      if (!gameState.connected) {
+        const errMsg = '重连超时：房主可能已离线，请稍后重试或重新加入房间';
+        log.warn('Reconnect timeout: no response from host');
+        stopJoinRetry();
+        gameState.error = errMsg;
+        gameState.connecting = false;
+        setConnectionStatus('error', errMsg);
+        showToast(errMsg, 'error');
+      }
+    }, 25000);
+
+    // 连接尚未确认，保持"重连中"状态，成功由消息处理回调切换
     gameState.connecting = false;
-    setConnectionStatus('connected', '重连成功');
     return true;
   } catch (error) {
     console.error('Reconnect error:', error);
+    stopJoinRetry();
     gameState.error = error.message || '重连失败';
     gameState.connecting = false;
     setConnectionStatus('error', error.message || '重连失败');
@@ -792,6 +818,7 @@ function handleGuestMessage(data, peerId) {
           gameState.screen = 'menu';
         } else if (data.payload.reconnected) {
           stopJoinRetry();
+          gameState.connected = true;
           setConnectionStatus('connected', '重连成功');
         }
         break;
