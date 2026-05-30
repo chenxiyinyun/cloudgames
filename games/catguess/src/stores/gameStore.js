@@ -136,6 +136,7 @@ let cachedRoom = null;
 let _migrationInProgress = false;
 let _lastBroadcastState = null;
 let _joinTimeout = null;
+let _joinRetryInterval = null;
 
 function deepClone(obj) {
   if (obj === null || obj === undefined) return obj;
@@ -178,6 +179,31 @@ window.addEventListener('beforeunload', () => {
 function setConnectionStatus(status, message = '') {
   gameState.connectionStatus = status;
   gameState.connectionMessage = message;
+}
+
+function stopJoinRetry() {
+  if (_joinRetryInterval) {
+    clearInterval(_joinRetryInterval);
+    _joinRetryInterval = null;
+  }
+}
+
+function sendJoinRequest(playerId, playerName, isReconnect = false) {
+  const hostPeerId = `catguess-${gameState.roomCode}`;
+  const connectedPeers = p2p.getConnectedPeers();
+  const targetPeerId = connectedPeers.includes(hostPeerId) ? hostPeerId : connectedPeers[0];
+
+  if (!targetPeerId) {
+    log.warn('JOIN_REQUEST skipped: no connected host peer yet', { hostPeerId });
+    return false;
+  }
+
+  return p2p.sendTo(targetPeerId, MSG.JOIN_REQUEST, {
+    playerId,
+    playerName,
+    originalPeerId: p2p.peer?.id,
+    isReconnect
+  });
 }
 
 export function restoreFromCache() {
@@ -292,11 +318,14 @@ export async function joinRoom(name, code) {
 
     setupGuestHandlers();
 
-    p2p.sendTo(p2p.getConnectedPeers()[0], MSG.JOIN_REQUEST, {
-      playerId,
-      playerName: sanitizedName,
-      originalPeerId: p2p.peer?.id
-    });
+    sendJoinRequest(playerId, sanitizedName);
+    _joinRetryInterval = setInterval(() => {
+      if (gameState.connected || gameState.screen !== 'menu') {
+        stopJoinRetry();
+        return;
+      }
+      sendJoinRequest(playerId, sanitizedName);
+    }, 2000);
 
     // Set a timeout — if no ROOM_STATE or JOIN_RESPONSE arrives within 15s, show error
     _joinTimeout = setTimeout(() => {
@@ -306,6 +335,7 @@ export async function joinRoom(name, code) {
         gameState.error = errMsg;
         setConnectionStatus('error', errMsg);
         showToast(errMsg, 'error');
+        stopJoinRetry();
         cleanup();
         gameState.screen = 'menu';
       }
@@ -344,12 +374,14 @@ export async function reconnectRoom() {
       await p2p.joinRoom(gameState.roomCode, gameState.playerName);
       setupGuestHandlers();
 
-      p2p.sendTo(p2p.getConnectedPeers()[0], MSG.JOIN_REQUEST, {
-        playerId: gameState.playerId,
-        playerName: gameState.playerName,
-        originalPeerId: p2p.peer?.id,
-        isReconnect: true
-      });
+      sendJoinRequest(gameState.playerId, gameState.playerName, true);
+      _joinRetryInterval = setInterval(() => {
+        if (gameState.connected) {
+          stopJoinRetry();
+          return;
+        }
+        sendJoinRequest(gameState.playerId, gameState.playerName, true);
+      }, 2000);
     }
 
     gameState.connecting = false;
@@ -717,6 +749,7 @@ function handleGuestMessage(data, peerId) {
           }
           cachedRoom = data.payload.room;
           updateLocalState(cachedRoom);
+          stopJoinRetry();
           if (_joinTimeout) {
             clearTimeout(_joinTimeout);
             _joinTimeout = null;
@@ -754,9 +787,11 @@ function handleGuestMessage(data, peerId) {
           gameState.error = errMsg;
           setConnectionStatus('error', errMsg);
           showToast(errMsg, 'error');
+          stopJoinRetry();
           cleanup();
           gameState.screen = 'menu';
         } else if (data.payload.reconnected) {
+          stopJoinRetry();
           setConnectionStatus('connected', '重连成功');
         }
         break;
@@ -1026,6 +1061,7 @@ function cleanup() {
     clearTimeout(_joinTimeout);
     _joinTimeout = null;
   }
+  stopJoinRetry();
   gameState.connected = false;
   gameState.connecting = false;
   // Keep gameState.error — it contains the last error message for display.

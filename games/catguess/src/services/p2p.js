@@ -416,11 +416,15 @@ class P2PService {
     if (conn && conn.open) {
       try {
         conn.send(message);
+        return true;
       } catch {
         log.warn('sendTo failed, enqueuing for retry', { peerId, type });
         this._enqueueRetry(peerId, type, payload);
+        return false;
       }
     }
+    log.warn('sendTo skipped: peer is not connected', { peerId, type });
+    return false;
   }
 
   getConnectedPeers() {
