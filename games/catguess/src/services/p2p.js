@@ -9,10 +9,40 @@ const PEER_SERVER = {
   secure: true
 };
 
+const METERED_TURN_USERNAME = import.meta.env.VITE_METERED_TURN_USERNAME;
+const METERED_TURN_CREDENTIAL = import.meta.env.VITE_METERED_TURN_CREDENTIAL;
+
+const METERED_TURN_SERVERS = METERED_TURN_USERNAME && METERED_TURN_CREDENTIAL
+  ? [
+    {
+      urls: 'turn:standard.relay.metered.ca:80',
+      username: METERED_TURN_USERNAME,
+      credential: METERED_TURN_CREDENTIAL
+    },
+    {
+      urls: 'turn:standard.relay.metered.ca:80?transport=tcp',
+      username: METERED_TURN_USERNAME,
+      credential: METERED_TURN_CREDENTIAL
+    },
+    {
+      urls: 'turn:standard.relay.metered.ca:443',
+      username: METERED_TURN_USERNAME,
+      credential: METERED_TURN_CREDENTIAL
+    },
+    {
+      urls: 'turns:standard.relay.metered.ca:443?transport=tcp',
+      username: METERED_TURN_USERNAME,
+      credential: METERED_TURN_CREDENTIAL
+    }
+  ]
+  : [];
+
 const PEER_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.relay.metered.ca:80' },
+    ...METERED_TURN_SERVERS
   ]
 };
 
