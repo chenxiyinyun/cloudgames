@@ -6,6 +6,13 @@ const games = [
     description: '双人猜词对战游戏。通过代码提示，帮助队友猜出正确的关键词。',
     href: 'games/codenames/',
     color: '#4a90d9'
+  },
+  {
+    name: '喵喵猜词',
+    englishName: 'Cat Guess',
+    description: '在线 Dixit 猜词游戏。讲故事者出题，众人猜词投票，先满 10 分者获胜！',
+    href: 'games/catguess/',
+    color: '#ff9a76'
   }
 ]
 </script>

@@ -14,7 +14,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
-        codenames: resolve(__dirname, 'games/codenames/index.html')
+        codenames: resolve(__dirname, 'games/codenames/index.html'),
+        catguess: resolve(__dirname, 'games/catguess/index.html')
       }
     }
   },
@@ -22,6 +23,6 @@ export default defineConfig({
   base: '/cloudgames/',
   test: {
     environment: 'node',
-    include: ['games/codenames/src/**/*.test.js']
+    include: ['games/codenames/src/**/*.test.js', 'games/catguess/src/**/*.test.js']
   }
 })

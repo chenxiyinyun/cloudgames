@@ -1,0 +1,729 @@
+/**
+ * 喵喵猜词 - 游戏主题样式
+ * Dixit 风格的温馨、可爱视觉
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&family=Noto+Serif+SC:wght@400;600;700&family=ZCOOL+KuaiLe&display=swap');
+
+:root {
+  --cat-bg: #fdf6f0;
+  --cat-card: #fff9f0;
+  --cat-border: #f0d5b0;
+  --cat-accent: #ff9a76;
+  --cat-accent-light: #ffd4b8;
+  --cat-green: #7bc4a0;
+  --cat-blue: #7ab8d4;
+  --cat-purple: #c4a0d4;
+  --cat-pink: #f4a0b8;
+  --cat-gold: #f0c050;
+  --cat-text: #4a3a2e;
+  --cat-text-light: #8a7a6e;
+  --cat-shadow: rgba(74, 58, 46, 0.12);
+  --cat-font: 'ZCOOL KuaiLe', cursive;
+  --cat-serif: 'Noto Serif SC', serif;
+  --cat-mono: 'Courier Prime', monospace;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--cat-serif);
+  background: var(--cat-bg);
+  color: var(--cat-text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── Screen Shell ─── */
+.screen {
+  display: none;
+  flex: 1;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  animation: fadeIn 0.3s ease;
+}
+
+.screen.active {
+  display: flex;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Card ─── */
+.card {
+  background: var(--cat-card);
+  border: 2px solid var(--cat-border);
+  border-radius: 24px;
+  padding: 32px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: 0 4px 20px var(--cat-shadow);
+  position: relative;
+}
+
+/* ─── Cat Header ─── */
+.cat-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.cat-header .cat-icon {
+  font-size: 48px;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.cat-header h1 {
+  font-family: var(--cat-font);
+  font-size: 28px;
+  color: var(--cat-accent);
+  letter-spacing: 2px;
+}
+
+.cat-header .subtitle {
+  font-size: 14px;
+  color: var(--cat-text-light);
+  margin-top: 4px;
+}
+
+/* ─── Input Groups ─── */
+.input-group {
+  margin-bottom: 16px;
+}
+
+.input-group label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--cat-text);
+  margin-bottom: 6px;
+}
+
+.input-group input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid var(--cat-border);
+  border-radius: 12px;
+  font-size: 16px;
+  font-family: var(--cat-serif);
+  background: white;
+  color: var(--cat-text);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+}
+
+.input-group input:focus {
+  border-color: var(--cat-accent);
+  box-shadow: 0 0 0 3px var(--cat-accent-light);
+}
+
+.input-group input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ─── Buttons ─── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border: 2px solid transparent;
+  border-radius: 14px;
+  font-size: 16px;
+  font-family: var(--cat-serif);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  outline: none;
+  user-select: none;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--cat-accent);
+  color: white;
+  border-color: var(--cat-accent);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #e8886a;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(255, 154, 118, 0.3);
+}
+
+.btn-secondary {
+  background: white;
+  color: var(--cat-text);
+  border-color: var(--cat-border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--cat-bg);
+}
+
+.btn-danger {
+  background: #e87060;
+  color: white;
+  border-color: #e87060;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #d06050;
+}
+
+.btn-success {
+  background: var(--cat-green);
+  color: white;
+  border-color: var(--cat-green);
+}
+
+.btn-success:hover:not(:disabled) {
+  background: #6ab490;
+}
+
+.btn-sm {
+  padding: 8px 16px;
+  font-size: 14px;
+  border-radius: 10px;
+}
+
+.btn-group {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.btn-group .btn {
+  flex: 1;
+}
+
+/* ─── Divider ─── */
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 20px 0;
+  color: var(--cat-text-light);
+  font-size: 14px;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--cat-border);
+}
+
+.divider span {
+  padding: 0 16px;
+  font-family: var(--cat-font);
+}
+
+/* ─── Connection Status ─── */
+.connection-status {
+  text-align: center;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.connection-status.connecting {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.connection-status.connected {
+  background: #d4edda;
+  color: #155724;
+}
+
+.connection-status.error {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.connection-status.reconnecting {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.connection-status.disconnected {
+  background: #e2e3e5;
+  color: #383d41;
+}
+
+/* ─── Room Code ─── */
+.room-code {
+  text-align: center;
+  font-family: var(--cat-mono);
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--cat-accent);
+  letter-spacing: 6px;
+  padding: 12px;
+  background: var(--cat-bg);
+  border-radius: 12px;
+  margin-bottom: 16px;
+}
+
+/* ─── Player List ─── */
+.player-list {
+  margin: 16px 0;
+}
+
+.player-list .section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--cat-text-light);
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.player-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  margin-bottom: 6px;
+  background: var(--cat-bg);
+  transition: all 0.2s;
+}
+
+.player-row.you {
+  background: var(--cat-accent-light);
+  border: 1px solid var(--cat-accent);
+}
+
+.player-row.offline {
+  opacity: 0.5;
+}
+
+.player-name {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.badge-you {
+  background: var(--cat-accent);
+  color: white;
+}
+
+.badge-host {
+  background: var(--cat-gold);
+  color: white;
+}
+
+.badge-offline {
+  background: #ccc;
+  color: #666;
+}
+
+/* ─── Game Play Area ─── */
+.game-container {
+  width: 100%;
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+.game-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  margin-bottom: 16px;
+  border-bottom: 2px solid var(--cat-border);
+}
+
+.game-header .round-info {
+  font-family: var(--cat-font);
+  font-size: 18px;
+  color: var(--cat-text);
+}
+
+.game-header .score-info {
+  font-size: 14px;
+  color: var(--cat-text-light);
+}
+
+/* ─── Secret Word / Story Phase ─── */
+.storyteller-section {
+  text-align: center;
+  margin: 24px 0;
+}
+
+.storyteller-section .role-badge {
+  display: inline-block;
+  padding: 6px 16px;
+  background: var(--cat-gold);
+  color: white;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.storyteller-section .instruction {
+  font-size: 16px;
+  color: var(--cat-text);
+  margin-bottom: 16px;
+}
+
+/* ─── Hand Cards Grid ─── */
+.hand-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.hand-card {
+  background: white;
+  border: 2px solid var(--cat-border);
+  border-radius: 16px;
+  padding: 20px 12px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.hand-card:hover {
+  border-color: var(--cat-accent);
+  transform: translateY(-3px);
+  box-shadow: 0 6px 16px var(--cat-shadow);
+}
+
+.hand-card.selected {
+  border-color: var(--cat-accent);
+  background: var(--cat-accent-light);
+  transform: translateY(-3px);
+  box-shadow: 0 6px 16px rgba(255, 154, 118, 0.25);
+}
+
+.hand-card .word-text {
+  font-family: var(--cat-serif);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--cat-text);
+}
+
+.hand-card .card-index {
+  font-size: 11px;
+  color: var(--cat-text-light);
+  margin-top: 4px;
+}
+
+.hand-card:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ─── Clue Input ─── */
+.clue-input-area {
+  margin: 16px 0;
+}
+
+.clue-input-area label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--cat-text);
+}
+
+.clue-input-area textarea {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid var(--cat-border);
+  border-radius: 12px;
+  font-size: 16px;
+  font-family: var(--cat-serif);
+  background: white;
+  color: var(--cat-text);
+  resize: none;
+  outline: none;
+  transition: border-color 0.2s;
+  min-height: 60px;
+}
+
+.clue-input-area textarea:focus {
+  border-color: var(--cat-accent);
+  box-shadow: 0 0 0 3px var(--cat-accent-light);
+}
+
+/* ─── Revealed Cards (Voting Phase) ─── */
+.reveal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 14px;
+  margin: 20px 0;
+}
+
+.reveal-card {
+  background: white;
+  border: 3px solid var(--cat-border);
+  border-radius: 18px;
+  padding: 28px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.25s;
+  position: relative;
+}
+
+.reveal-card:hover {
+  border-color: var(--cat-blue);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px var(--cat-shadow);
+}
+
+.reveal-card.selected {
+  border-color: var(--cat-blue);
+  background: #e8f4fa;
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(122, 184, 212, 0.3);
+}
+
+.reveal-card .card-letter {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  font-family: var(--cat-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--cat-text-light);
+}
+
+.reveal-card .word-text {
+  font-family: var(--cat-serif);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--cat-text);
+}
+
+.reveal-card .vote-count {
+  position: absolute;
+  bottom: 8px;
+  right: 12px;
+  font-family: var(--cat-mono);
+  font-size: 12px;
+  color: var(--cat-text-light);
+}
+
+.reveal-card.is-secret {
+  border-color: var(--cat-gold);
+  background: #fef9e7;
+}
+
+.reveal-card.is-secret::after {
+  content: '🐱';
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  font-size: 20px;
+}
+
+/* ─── Waiting Phase ─── */
+.waiting-text {
+  text-align: center;
+  color: var(--cat-text-light);
+  font-size: 15px;
+  padding: 16px;
+}
+
+/* ─── Timer Bar ─── */
+.timer-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--cat-border);
+  border-radius: 2px;
+  margin: 12px 0;
+  overflow: hidden;
+}
+
+.timer-bar .timer-fill {
+  height: 100%;
+  background: var(--cat-accent);
+  border-radius: 2px;
+  transition: width 1s linear;
+}
+
+/* ─── Scoring / Results ─── */
+.result-panel {
+  text-align: center;
+  margin: 20px 0;
+}
+
+.result-title {
+  font-family: var(--cat-font);
+  font-size: 28px;
+  margin-bottom: 8px;
+}
+
+.result-title.win {
+  color: var(--cat-gold);
+}
+
+.result-title.lose {
+  color: var(--cat-text-light);
+}
+
+.score-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+}
+
+.score-table th,
+.score-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--cat-border);
+}
+
+.score-table th {
+  font-size: 13px;
+  color: var(--cat-text-light);
+  font-weight: 600;
+}
+
+.score-table td {
+  font-size: 15px;
+}
+
+.score-table .rank {
+  font-family: var(--cat-mono);
+  font-weight: 700;
+  color: var(--cat-text-light);
+  width: 32px;
+}
+
+.score-table .rank.gold { color: var(--cat-gold); }
+.score-table .rank.silver { color: #a8a8a8; }
+.score-table .rank.bronze { color: #d4a060; }
+
+/* ─── Round Score Display ─── */
+.round-result-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  margin-bottom: 6px;
+  background: var(--cat-bg);
+  border-radius: 10px;
+}
+
+.round-result-row .cat-emoji {
+  font-size: 20px;
+}
+
+.round-result-row .player-label {
+  flex: 1;
+  font-size: 14px;
+}
+
+.round-result-row .score-change {
+  font-family: var(--cat-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--cat-green);
+}
+
+.round-result-row .score-change.zero {
+  color: var(--cat-text-light);
+}
+
+/* ─── Phase Label ─── */
+.phase-label {
+  text-align: center;
+  padding: 8px 16px;
+  background: var(--cat-accent-light);
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--cat-accent);
+  margin-bottom: 16px;
+}
+
+/* ─── Waiting Dots ─── */
+.waiting-dots::after {
+  content: '';
+  animation: dots 1.5s steps(3, end) infinite;
+}
+
+@keyframes dots {
+  0% { content: ''; }
+  33% { content: '.'; }
+  66% { content: '..'; }
+  100% { content: '...'; }
+}
+
+/* ─── Submitted State ─── */
+.submitted-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--cat-green);
+  color: white;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 600px) {
+  .card {
+    padding: 20px 16px;
+    border-radius: 16px;
+  }
+
+  .hand-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .reveal-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .cat-header h1 {
+    font-size: 22px;
+  }
+
+  .room-code {
+    font-size: 24px;
+  }
+}
