@@ -58,6 +58,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Debug TURN secrets presence
+        run: |
+          echo "METERED_TURN_USERNAME present:   ${{ secrets.METERED_TURN_USERNAME != '' }}"
+          echo "METERED_TURN_CREDENTIAL present: ${{ secrets.METERED_TURN_CREDENTIAL != '' }}"
+
       - name: Build
         env:
           VITE_METERED_TURN_USERNAME: ${{ secrets.METERED_TURN_USERNAME }}
