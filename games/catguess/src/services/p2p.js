@@ -9,6 +9,40 @@ const PEER_SERVER = {
   secure: true
 };
 
+const PEER_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]
+};
+
+// Translate PeerJS error types to user-friendly Chinese messages
+function translatePeerError(err) {
+  const type = err?.type || '';
+  switch (type) {
+    case 'unavailable-id':
+      return '房间已被占用（上一次连接的残影），请刷新页面重试';
+    case 'peer-unavailable':
+      return '无法找到房间，请确认房间号正确';
+    case 'disconnected':
+      return '与信号服务器断开连接，请检查网络';
+    case 'network':
+      return '网络连接失败，请检查网络设置或尝试切换网络';
+    case 'server-error':
+      return '信号服务器出错，请稍后重试';
+    case 'browser-incompatible':
+      return '当前浏览器不支持 WebRTC（请使用 Chrome/Edge/Firefox）';
+    case 'webrtc':
+      return '浏览器间连接失败（可能被防火墙阻止），请尝试切换网络';
+    case 'socket-error':
+      return 'WebSocket 连接失败，请检查网络';
+    case 'socket-closed':
+      return '与服务器连接中断，请刷新页面重试';
+    default:
+      return err?.message || '连接失败，请重试';
+  }
+}
+
 class P2PService {
   constructor() {
     this.peer = null;
@@ -57,6 +91,7 @@ class P2PService {
 
       this.peer = new Peer(peerId, {
         ...PEER_SERVER,
+        config: PEER_CONFIG,
         debug: 0
       });
 
@@ -66,10 +101,15 @@ class P2PService {
         resolve(id);
       });
 
+      this.peer.on('disconnected', () => {
+        log.warn('Host peer disconnected from signaling server, attempting reconnect...');
+        this.peer.reconnect();
+      });
+
       this.peer.on('error', (err) => {
         clearTimeout(timeout);
         console.error('Host peer error:', err);
-        reject(err);
+        reject(new Error('创建房间失败：' + translatePeerError(err)));
       });
 
       this.peer.on('connection', (conn) => {
@@ -96,6 +136,7 @@ class P2PService {
 
       this.peer = new Peer(guestPeerId, {
         ...PEER_SERVER,
+        config: PEER_CONFIG,
         debug: 0
       });
 
@@ -131,7 +172,7 @@ class P2PService {
       this.peer.on('error', (err) => {
         clearTimeout(timeout);
         console.error('Guest peer error:', err);
-        reject(err);
+        reject(new Error('加入房间失败：' + translatePeerError(err)));
       });
 
       // 访客也监听其他玩家的直连（用于托管模式）

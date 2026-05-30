@@ -135,6 +135,7 @@ export const gameState = reactive({
 let cachedRoom = null;
 let _migrationInProgress = false;
 let _lastBroadcastState = null;
+let _joinTimeout = null;
 
 function deepClone(obj) {
   if (obj === null || obj === undefined) return obj;
@@ -228,6 +229,7 @@ export async function createRoom(name) {
 
     setConnectionStatus('connecting', '正在创建任务...');
     gameState.connecting = true;
+    gameState.error = null;  // Clear previous error
     const playerId = generatePlayerId();
     const roomCode = p2p.generateRoomCode();
     const wordPool = [...DEFAULT_WORD_POOL];
@@ -254,9 +256,10 @@ export async function createRoom(name) {
     return true;
   } catch (error) {
     console.error('Create room error:', error);
-    gameState.error = error.message || '创建房间失败';
+    const msg = error.message || '创建房间失败';
+    gameState.error = msg;
     gameState.connecting = false;
-    setConnectionStatus('error', error.message || '创建房间失败');
+    showToast(`创建房间失败：${msg}`, 'error');
     cleanup();
     return false;
   }
@@ -277,6 +280,7 @@ export async function joinRoom(name, code) {
 
     setConnectionStatus('connecting', '正在连接任务...');
     gameState.connecting = true;
+    gameState.error = null;  // Clear previous error
     const playerId = generatePlayerId();
 
     gameState.playerId = playerId;
@@ -294,14 +298,28 @@ export async function joinRoom(name, code) {
       originalPeerId: p2p.peer?.id
     });
 
+    // Set a timeout — if no ROOM_STATE or JOIN_RESPONSE arrives within 15s, show error
+    _joinTimeout = setTimeout(() => {
+      if (!gameState.connected || gameState.screen === 'menu') {
+        const errMsg = '连接超时：房主未响应，请确认房间号正确或重试';
+        console.warn('[GameStore] Join timeout: no response from host');
+        gameState.error = errMsg;
+        setConnectionStatus('error', errMsg);
+        showToast(errMsg, 'error');
+        cleanup();
+        gameState.screen = 'menu';
+      }
+    }, 15000);
+
     gameState.connecting = false;
     setConnectionStatus('connected', '已加入任务');
     return true;
   } catch (error) {
     console.error('Join room error:', error);
-    gameState.error = error.message || '加入房间失败';
+    const msg = error.message || '加入房间失败';
+    gameState.error = msg;
     gameState.connecting = false;
-    setConnectionStatus('error', error.message || '加入房间失败');
+    showToast(`加入房间失败：${msg}`, 'error');
     cleanup();
     return false;
   }
@@ -349,9 +367,11 @@ export async function reconnectRoom() {
 function setupHostHandlers() {
   p2p.onPlayerConnected = (conn) => {
     console.log('Player connected:', conn.peer);
+    // DO NOT send ROOM_STATE here — the JOIN_REQUEST handler broadcasts it after processing.
+    // Sending ROOM_STATE before JOIN_REQUEST is processed includes stale state (without the new player),
+    // and the subsequent broadcastState() ROOM_STATE gets wrongly rejected by idempotency (same round/phase key).
     if (cachedRoom) {
       setTimeout(() => {
-        p2p.sendTo(conn.peer, MSG.ROOM_STATE, { room: cachedRoom });
         const otherPeers = p2p.getConnectedPeers().filter(id => id !== conn.peer);
         if (otherPeers.length > 0) {
           p2p.sendTo(conn.peer, MSG.PEER_LIST, { peers: otherPeers });
@@ -697,6 +717,10 @@ function handleGuestMessage(data, peerId) {
           }
           cachedRoom = data.payload.room;
           updateLocalState(cachedRoom);
+          if (_joinTimeout) {
+            clearTimeout(_joinTimeout);
+            _joinTimeout = null;
+          }
           if (data.payload.error) {
             showToast(data.payload.error, 'warning');
           }
@@ -726,8 +750,10 @@ function handleGuestMessage(data, peerId) {
     case MSG.JOIN_RESPONSE: {
       try {
         if (data.payload.success === false) {
-          gameState.error = data.payload.error || '加入房间失败';
-          setConnectionStatus('error', data.payload.error || '加入房间失败');
+          const errMsg = data.payload.error || '加入房间失败';
+          gameState.error = errMsg;
+          setConnectionStatus('error', errMsg);
+          showToast(errMsg, 'error');
           cleanup();
           gameState.screen = 'menu';
         } else if (data.payload.reconnected) {
@@ -996,14 +1022,22 @@ function cleanup() {
   _migrationInProgress = false;
   cachedRoom = null;
   _lastBroadcastState = null;
+  if (_joinTimeout) {
+    clearTimeout(_joinTimeout);
+    _joinTimeout = null;
+  }
   gameState.connected = false;
   gameState.connecting = false;
-  gameState.error = null;
+  // Keep gameState.error — it contains the last error message for display.
+  // It will be cleared when user retries createRoom/joinRoom.
   gameState.playerId = null;
   gameState.playerName = '';
   gameState.roomCode = null;
   gameState.isHost = false;
-  setConnectionStatus('disconnected', '');
+  // Only reset connection status, not error state
+  if (gameState.connectionStatus !== 'error') {
+    setConnectionStatus('disconnected', '');
+  }
 
   gameState.room = {
     players: [],
