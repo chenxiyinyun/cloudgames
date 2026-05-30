@@ -1,5 +1,41 @@
-# Vue 3 + Vite
+# 云游戏合集 (Cloud Games)
 
-This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+A collection of browser-based party games built with Vue 3 + Vite, deployed on GitHub Pages.
 
-Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://vuejs.org/guide/scaling-up/tooling.html#ide-support).
+## Games
+
+| Game | Description |
+|------|-------------|
+| [截码战 (Codenames)](./games/codenames/) | 双人猜词对战游戏 - 截码战 / Codenames word-guessing game |
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Start dev server (portal at /, games at /games/<name>/)
+npm run dev
+
+# Run tests
+npm test
+
+# Lint
+npm run lint
+
+# Build for production
+npm run build
+
+# Preview production build
+npm run preview
+```
+
+## Adding a New Game
+
+1. Create `games/<game-name>/` with `index.html` and `src/` directory
+2. Add your game entry in `src/portal/App.vue`
+3. Add the HTML entry to `build.rollupOptions.input` in `vite.config.js`
+
+## Deployment
+
+Automatically deployed to GitHub Pages via GitHub Actions on push to `main`.
