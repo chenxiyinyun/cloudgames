@@ -44,6 +44,20 @@ export const PEER_CONFIG = {
 
 export const HAS_METERED_TURN = METERED_TURN_SERVERS.length > 0;
 
+// 启动诊断：没有 TURN 时，对称 NAT / 蜂窝网络（4G/5G，运营商级 NAT）的两端将无法连通。
+// 把这个状态打到控制台，便于在部署版里一眼确认 TURN 是否真的生效。
+if (typeof console !== 'undefined') {
+  if (HAS_METERED_TURN) {
+    console.info(`[P2P] TURN 中继已启用（${METERED_TURN_SERVERS.length} 个节点），跨网络/蜂窝应可连通。`);
+  } else {
+    console.warn(
+      '[P2P] ⚠️ 未配置 TURN 中继（VITE_METERED_TURN_USERNAME / VITE_METERED_TURN_CREDENTIAL 为空）。' +
+      '对称 NAT / 手机流量（4G/5G）的玩家将无法连接，只有同设备/同局域网能连。' +
+      '请确认 GitHub 仓库 Secrets 已设置且构建时已注入。'
+    );
+  }
+}
+
 export const DEFAULT_ICE_TRANSPORT_POLICY =
   REQUESTED_ICE_TRANSPORT_POLICY === 'relay' ? 'relay' : 'all';
 

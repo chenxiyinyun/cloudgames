@@ -70,6 +70,7 @@ export class P2PService {
     const peerId = this.getHostPeerId(roomCode);
 
     return new Promise((resolve, reject) => {
+      let opened = false;
       const timeout = setTimeout(() => {
         reject(new Error('创建房间超时，请重试'));
       }, 20000);
@@ -79,6 +80,7 @@ export class P2PService {
 
       this.peer.on('open', (id) => {
         clearTimeout(timeout);
+        opened = true;
         console.log('Host peer created:', id);
         resolve(id);
       });
@@ -89,9 +91,19 @@ export class P2PService {
       });
 
       this.peer.on('error', (err) => {
-        clearTimeout(timeout);
+        // peer-unavailable 是非致命的信令层噪音：访客在协商完成前离开了信令服务器
+        // （常见于访客直连超时后销毁旧 peer 改走中继、或访客刷新/离开）。
+        // 房主 peer 不受影响，忽略即可，否则会污染日志甚至连接状态。
+        if (err?.type === 'peer-unavailable') {
+          this.log.warn('Ignoring peer-unavailable on host (guest left signaling before negotiation finished)', { message: err?.message });
+          return;
+        }
         console.error('Host peer error:', err);
-        reject(new Error('创建房间失败：' + translatePeerError(err)));
+        // peer 已建立后才出现的其它错误，promise 早已 settle，仅记录不再 reject
+        if (!opened) {
+          clearTimeout(timeout);
+          reject(new Error('创建房间失败：' + translatePeerError(err)));
+        }
       });
 
       this.peer.on('connection', (conn) => {
