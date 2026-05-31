@@ -85,6 +85,32 @@ let cachedRoom = null;
 let _migrationInProgress = false;
 let _joinTimeout = null;
 let _joinRetryInterval = null;
+let _scoringTimer = null;
+
+/** Auto-advance 8 seconds after scoring phase starts */
+const SCORING_AUTO_ADVANCE_MS = 8000;
+
+function scheduleAutoAdvance() {
+  if (_scoringTimer) clearTimeout(_scoringTimer);
+  _scoringTimer = setTimeout(() => {
+    _scoringTimer = null;
+    if (!cachedRoom || cachedRoom.status === GAME_PHASES.ENDED) return;
+    const result = nextRound(cachedRoom);
+    if (result.error) {
+      log.warn('autoAdvance: nextRound failed', { error: result.error });
+      return;
+    }
+    broadcastState();
+    p2p.broadcast(MSG.NEXT_ROUND, { playerId: gameState.playerId });
+  }, SCORING_AUTO_ADVANCE_MS);
+}
+
+function clearScoringTimer() {
+  if (_scoringTimer) {
+    clearTimeout(_scoringTimer);
+    _scoringTimer = null;
+  }
+}
 
 const sendJoinRequest = createJoinRequestSenderForGame({
   p2p,
@@ -653,6 +679,9 @@ function handleHostMessage(data, peerId) {
           return;
         }
         broadcastState();
+        if (cachedRoom.phase === GAME_PHASES.SCORING) {
+          scheduleAutoAdvance();
+        }
         break;
       } catch (err) {
         log.error('handleHostMessage:SUBMIT_VOTE error', { type: data?.type, peerId, error: err });
@@ -669,6 +698,7 @@ function handleHostMessage(data, peerId) {
           broadcastState();
           return;
         }
+        clearScoringTimer();
         if (cachedRoom.status === GAME_PHASES.ENDED) {
           restartGame(cachedRoom);
         } else {
@@ -943,6 +973,7 @@ export function handleSubmitVote(votedCardId) {
 
 export function handleNextRound() {
   if (!gameState.isHost) return;
+  clearScoringTimer();
   if (cachedRoom.status === GAME_PHASES.ENDED) {
     restartGame(cachedRoom);
   } else {
@@ -975,6 +1006,7 @@ function cleanup() {
   p2p.stopHeartbeat();
   p2p.disconnect();
   _migrationInProgress = false;
+  clearScoringTimer();
   cachedRoom = null;
   roomBroadcaster.resetBroadcastState();
   resetOps();
