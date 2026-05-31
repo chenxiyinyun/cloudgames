@@ -1,3 +1,16 @@
+/**
+ * Fisher-Yates shuffle - unbiased, O(n). Replaces sort(() => Math.random() - 0.5)
+ * which is broken with V8's TimSort (can drop/duplicate elements).
+ */
+function fisherYatesShuffle(array) {
+  const arr = [...array];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 export const GAME_PHASES = {
   WAITING: 'waiting',
   STORYTELLER_PICKING: 'storyteller_picking',
@@ -268,7 +281,7 @@ export function submitCard(room, playerId, selectedCardIndex) {
       });
     });
 
-    const shuffled = allCards.sort(() => Math.random() - 0.5);
+    const shuffled = fisherYatesShuffle(allCards);
     room.gameState.shuffledCards = shuffled.map((card, index) => ({
       id: index,
       word: card.word,

@@ -982,9 +982,28 @@ function handleGuestMessage(data, peerId) {
             log.warn('Delta received but no cachedRoom', { peerId });
             break;
           }
+
+          // ── Preserve shuffledCards order ──────────────────────────────────
+          // shuffledCards is created ONCE in submitCard() when entering REVEALING
+          // phase and never modified after that. However, computeRoomDiff sends
+          // the entire gameState as a single field whenever any subfield changes
+          // (votes, roundScores, etc.), which can replace shuffledCards with a
+          // differently-ordered copy. We keep the existing shuffledCards to
+          // prevent cards from visually reordering during voting.
+          const existingShuffledCards =
+            delta.gameState && cachedRoom.gameState
+              ? cachedRoom.gameState.shuffledCards
+              : null;
+
           Object.keys(delta).forEach(key => {
             cachedRoom[key] = delta[key];
           });
+
+          // Restore the original shuffledCards if the delta replaced gameState
+          if (existingShuffledCards && cachedRoom.gameState) {
+            cachedRoom.gameState.shuffledCards = existingShuffledCards;
+          }
+
           updateLocalState(cachedRoom);
         }
         break;
