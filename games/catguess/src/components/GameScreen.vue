@@ -1,5 +1,10 @@
 <template>
   <div :class="['screen', { active: gameState.screen === 'game' || gameState.screen === 'result' }]">
+    <!-- 重连横幅：轻量非阻塞提示 -->
+    <div v-if="gameState.connectionStatus === 'reconnecting'" class="reconnect-banner">
+      🔄 正在重新连接...
+    </div>
+
     <div class="game-container">
       <!-- Game Header -->
       <div class="game-header">
@@ -939,6 +944,28 @@ watch(countdownSeconds, (newVal) => {
   margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid var(--cat-border);
+}
+
+/* ─── Reconnect Banner ─── */
+
+.reconnect-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(135deg, var(--cat-accent), #E8A85C);
+  color: white;
+  text-align: center;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 950;
+  animation: banner-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes banner-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
 }
 
 /* ─── Rules Modal ─── */

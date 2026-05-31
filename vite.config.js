@@ -23,6 +23,10 @@ export default defineConfig({
   base: '/',
   test: {
     environment: 'node',
-    include: ['games/codenames/src/**/*.test.js', 'games/catguess/src/**/*.test.js']
+    include: [
+      'games/codenames/src/**/*.test.js',
+      'games/catguess/src/**/*.test.js',
+      'src/shared/**/*.test.js'
+    ]
   }
 })

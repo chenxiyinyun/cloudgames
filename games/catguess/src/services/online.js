@@ -12,7 +12,8 @@ export const MSG = createMessageTypes({
   SUBMIT_STORY: 'SUBMIT_STORY',
   SUBMIT_CARD: 'SUBMIT_CARD',
   SUBMIT_VOTE: 'SUBMIT_VOTE',
-  NEXT_ROUND: 'NEXT_ROUND'
+  NEXT_ROUND: 'NEXT_ROUND',
+  REQUEST_STATE: 'REQUEST_STATE'
 });
 
 function makeCatguessOpKey(type, payload = {}, roomCode = '') {
@@ -27,6 +28,8 @@ function makeCatguessOpKey(type, payload = {}, roomCode = '') {
     case MSG.SUBMIT_VOTE:
       return `${type}_${rc}_${playerId}_${payload.votedCardId}`;
     case MSG.NEXT_ROUND:
+      return `${type}_${rc}_${playerId}`;
+    case MSG.REQUEST_STATE:
       return `${type}_${rc}_${playerId}`;
     case MSG.JOIN_REQUEST:
       return `${type}_${rc}_${playerId}_${payload.isReconnect ? 'reconnect' : 'new'}`;

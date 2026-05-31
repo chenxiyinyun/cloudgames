@@ -1,5 +1,5 @@
 import Peer from 'peerjs';
-import { createPeerConfig, HAS_METERED_TURN, PEER_SERVER } from './peerConfig';
+import { createPeerConfig, HAS_TURN_RELAY, PEER_SERVER } from './peerConfig';
 import { translatePeerError } from './peerErrors';
 import { generateRoomCode } from './roomCode';
 
@@ -25,6 +25,7 @@ export class P2PService {
     this.onPlayerDisconnected = null;
     this.onError = null;
     this.onDeadPeer = null;
+    this.onConnectionStateChange = null;
     this.isHost = false;
     this.roomCode = null;
     this.playerName = null;
@@ -37,6 +38,8 @@ export class P2PService {
     this._retryTimer = null;
     this._lastConnectionMode = 'direct-or-relay';
     this._connectionStates = new Map();
+    this._recoveryAttempts = new Map();
+    this._iceGuardTimers = new Map();
   }
 
   generateRoomCode() {
@@ -122,7 +125,7 @@ export class P2PService {
     this.playerName = playerName;
 
     // 是否还有中继兜底可用（已有 TURN，且当前不是纯中继模式）
-    const canRelay = HAS_METERED_TURN && this._getModeLabel() !== 'relay';
+    const canRelay = HAS_TURN_RELAY && this._getModeLabel() !== 'relay';
 
     try {
       // 有中继兜底时，直连用较短超时以尽快放弃、进入中继；
@@ -268,6 +271,8 @@ export class P2PService {
       this._missedHeartbeats.delete(conn.peer);
       this._peerLastSeen.delete(conn.peer);
       this._connectionStates.delete(conn.peer);
+      this._recoveryAttempts.delete(conn.peer);
+      this.resetRecoveryState(conn.peer);
       this.connections = this.connections.filter(c => c.peer !== conn.peer);
       if (this.onPlayerDisconnected) {
         this.onPlayerDisconnected(conn.peer);
@@ -281,6 +286,8 @@ export class P2PService {
       this._missedHeartbeats.delete(conn.peer);
       this._peerLastSeen.delete(conn.peer);
       this._connectionStates.delete(conn.peer);
+      this._recoveryAttempts.delete(conn.peer);
+      this.resetRecoveryState(conn.peer);
       this.connections = this.connections.filter(c => c.peer !== conn.peer);
       if (this.onPlayerDisconnected) {
         this.onPlayerDisconnected(conn.peer);
@@ -298,11 +305,45 @@ export class P2PService {
     }
 
     const updateState = () => {
-      this._connectionStates.set(conn.peer, {
+      const iceState = pc.iceConnectionState;
+      const state = {
         mode: this._lastConnectionMode,
-        iceConnectionState: pc.iceConnectionState,
+        iceConnectionState: iceState,
         connectionState: pc.connectionState
-      });
+      };
+      this._connectionStates.set(conn.peer, state);
+
+      // Fire callback for game layer to react
+      if (this.onConnectionStateChange) {
+        this.onConnectionStateChange({ peerId: conn.peer, ...state });
+      }
+
+      // ICE restart logic: auto-recover from transient disconnections
+      if (iceState === 'disconnected') {
+        // Start 3s guard timer to prevent flicker restart
+        if (!this._iceGuardTimers.has(conn.peer)) {
+          const timer = setTimeout(() => {
+            this._iceGuardTimers.delete(conn.peer);
+            const currentState = pc.iceConnectionState;
+            if (currentState === 'disconnected') {
+              const attempts = (this._recoveryAttempts.get(conn.peer) || 0) + 1;
+              this._recoveryAttempts.set(conn.peer, attempts);
+              this.log.warn('ICE disconnected, triggering restartIce', { peerId: conn.peer, attempt: attempts });
+              try { pc.restartIce(); } catch (e) { this.log.error('restartIce failed', { error: e }); }
+            }
+          }, 3000);
+          this._iceGuardTimers.set(conn.peer, timer);
+        }
+      } else if (iceState === 'failed') {
+        // Browser already waited ~30s consent timeout — restart immediately
+        const attempts = (this._recoveryAttempts.get(conn.peer) || 0) + 1;
+        this._recoveryAttempts.set(conn.peer, attempts);
+        this.log.warn('ICE failed, triggering restartIce immediately', { peerId: conn.peer, attempt: attempts });
+        try { pc.restartIce(); } catch (e) { this.log.error('restartIce failed', { error: e }); }
+      } else if (iceState === 'connected' || iceState === 'completed') {
+        // Recovery succeeded — reset
+        this.resetRecoveryState(conn.peer);
+      }
     };
 
     updateState();
@@ -310,10 +351,56 @@ export class P2PService {
     pc.addEventListener?.('connectionstatechange', updateState);
   }
 
+  getPeerConnectionState(peerId) {
+    return this._connectionStates.get(peerId) || { mode: this._lastConnectionMode };
+  }
+
+  resetRecoveryState(peerId) {
+    this._recoveryAttempts.delete(peerId);
+    this._missedHeartbeats.set(peerId, 0);
+    const timer = this._iceGuardTimers.get(peerId);
+    if (timer) { clearTimeout(timer); this._iceGuardTimers.delete(peerId); }
+  }
+
+  disconnectPeer(peerId) {
+    const conn = this.connections.find(c => c.peer === peerId);
+    if (conn) {
+      try { conn.close(); } catch { /* ignore */ }
+      this.connections = this.connections.filter(c => c.peer !== peerId);
+      this._missedHeartbeats.delete(peerId);
+      this._peerLastSeen.delete(peerId);
+      this._disconnectedPeers.add(peerId);
+      this._connectionStates.delete(peerId);
+      this._recoveryAttempts.delete(peerId);
+      this.resetRecoveryState(peerId);
+    }
+  }
+
+  softDisconnect() {
+    this.stopHeartbeat();
+    this._stopRetryTimer();
+    this._retryQueue = [];
+    this.connections.forEach(conn => {
+      try { conn.close(); } catch { /* ignore close error */ }
+    });
+    this.connections = [];
+    this._missedHeartbeats.clear();
+    this._peerLastSeen.clear();
+    this._disconnectedPeers.clear();
+    this._connectionStates.clear();
+    this._recoveryAttempts.clear();
+    for (const timer of this._iceGuardTimers.values()) { clearTimeout(timer); }
+    this._iceGuardTimers.clear();
+    this._destroyPeerOnly();
+    this.isHost = false;
+    this.roomCode = null;
+    this.playerName = null;
+  }
+
   getConnectionDiagnostics() {
     return {
       mode: this._lastConnectionMode,
-      hasMeteredTurn: HAS_METERED_TURN,
+      hasTurnRelay: HAS_TURN_RELAY,
       peers: Object.fromEntries(this._connectionStates)
     };
   }
@@ -471,6 +558,9 @@ export class P2PService {
     this._peerLastSeen.clear();
     this._disconnectedPeers.clear();
     this._connectionStates.clear();
+    this._recoveryAttempts.clear();
+    for (const timer of this._iceGuardTimers.values()) { clearTimeout(timer); }
+    this._iceGuardTimers.clear();
     this._destroyPeerOnly();
     this.isHost = false;
     this.roomCode = null;

@@ -3,7 +3,7 @@ import p2p from '../services/p2p';
 import { createLogger } from '../services/logger';
 import {
   GAME_PHASES, generatePlayerId, createInitialRoom,
-  addPlayerToRoom, removePlayerFromRoom, startGame,
+  addPlayerToRoom, startGame,
   submitStorySelection, submitCard, submitVote,
   nextRound, restartGame, calculateScores
 } from '../services/gameEngine';
@@ -20,8 +20,16 @@ import {
   resetOps
 } from '../services/online';
 import { showToast } from '../components/ToastNotification.vue';
+import { createHostMigrationHandler } from '../../../../src/shared/online/useHostMigration';
 
 const log = createLogger('GameStore');
+
+// 共享房主迁移处理器
+const hostMigrator = createHostMigrationHandler({
+  gameId: 'catguess',
+  p2p,
+  log
+});
 
 // ── Default Word Pool ──
 const DEFAULT_WORD_POOL = [
@@ -82,19 +90,27 @@ export const gameState = reactive({
 });
 
 let cachedRoom = null;
-let _migrationInProgress = false;
 let _joinTimeout = null;
 let _joinRetryInterval = null;
 let _scoringTimer = null;
 let _pickingTimer = null;
+let _othersPickingTimer = null;
 let _votingTimer = null;
 let _offlinePlayerCleanupTimer = null;
+let _autoReconnectTimer = null;
+let _autoReconnectInterval = null;
+let _reconnectAttempts = 0;
+let _disconnectedSkipTimer = null;
+const MAX_RECONNECT_ATTEMPTS = 8;
 
 /** Auto-advance 15 seconds after scoring phase starts */
 const SCORING_AUTO_ADVANCE_MS = 15000;
 
 /** Auto-advance 60 seconds after storyteller picking phase starts (说书人出题) */
 const PICKING_TIMEOUT_MS = 60000;
+
+/** Auto-submit remaining non-storyteller cards after picking phase starts */
+const OTHERS_PICKING_TIMEOUT_MS = 30000;
 
 /** Auto-advance 30 seconds after voting phase starts (猜词/投票) */
 const VOTING_TIMEOUT_MS = 30000;
@@ -167,6 +183,9 @@ function scheduleAutoAdvance() {
       return;
     }
     broadcastState();
+    if (cachedRoom.phase === GAME_PHASES.STORYTELLER_PICKING) {
+      schedulePickingTimeout();
+    }
     p2p.broadcast(MSG.NEXT_ROUND, { playerId: gameState.playerId });
   }, SCORING_AUTO_ADVANCE_MS);
 }
@@ -181,16 +200,34 @@ function clearScoringTimer() {
 function schedulePickingTimeout() {
   if (!gameState.isHost) return;
   if (_pickingTimer) clearTimeout(_pickingTimer);
+
+  const storyteller = cachedRoom?.players.find(p => p.id === cachedRoom.gameState.storytellerId);
+  // 断开的说书人 3s 超时，正常说书人 60s
+  const delay = (storyteller && !storyteller.isOnline) ? 3000 : PICKING_TIMEOUT_MS;
   
   _pickingTimer = setTimeout(() => {
     _pickingTimer = null;
     if (!cachedRoom || cachedRoom.phase !== GAME_PHASES.STORYTELLER_PICKING) return;
-    
-    const storyteller = cachedRoom.players.find(p => p.id === cachedRoom.gameState.storytellerId);
-    if (!storyteller || storyteller.hand.length === 0) return;
-    
-    const randomCardIndex = Math.floor(Math.random() * storyteller.hand.length);
-    const randomWord = storyteller.hand[randomCardIndex];
+
+    const st = cachedRoom.players.find(p => p.id === cachedRoom.gameState.storytellerId);
+
+    if (st && !st.isOnline) {
+      // 断开的说书人 — 跳过
+      log.info('Auto-skipping disconnected storyteller', { playerId: st.id });
+      const result = submitStorySelection(cachedRoom, st.id, 0, `(离线自动出题)${st.hand?.[0]?.[0] || ''}有关的词`);
+      if (result.error) {
+        log.warn('auto skip storyteller failed', { error: result.error });
+        return;
+      }
+      broadcastState();
+      scheduleOthersPickingTimeout();
+      return;
+    }
+
+    if (!st || st.hand.length === 0) return;
+
+    const randomCardIndex = Math.floor(Math.random() * st.hand.length);
+    const randomWord = st.hand[randomCardIndex];
     const autoClue = generateAutoClue(randomWord);
     
     console.log('[GameStore] Picking timeout: auto-selecting random card', { randomCardIndex, randomWord, autoClue });
@@ -207,13 +244,56 @@ function schedulePickingTimeout() {
       cardIndex: randomCardIndex,
       clue: autoClue
     });
-  }, PICKING_TIMEOUT_MS);
+    scheduleOthersPickingTimeout();
+  }, delay);
 }
 
 function clearPickingTimer() {
   if (_pickingTimer) {
     clearTimeout(_pickingTimer);
     _pickingTimer = null;
+  }
+}
+
+function scheduleOthersPickingTimeout() {
+  if (!gameState.isHost) return;
+  if (_othersPickingTimer) clearTimeout(_othersPickingTimer);
+
+  _othersPickingTimer = setTimeout(() => {
+    _othersPickingTimer = null;
+    if (!cachedRoom || cachedRoom.phase !== GAME_PHASES.OTHERS_PICKING) return;
+
+    const pendingPlayers = cachedRoom.players.filter(player =>
+      player.id !== cachedRoom.gameState.storytellerId &&
+      player.isOnline &&
+      Array.isArray(player.hand) &&
+      player.hand.length > 0 &&
+      !cachedRoom.gameState.submittedCards.some(card => card.playerId === player.id)
+    );
+
+    if (pendingPlayers.length === 0) return;
+
+    pendingPlayers.forEach(player => {
+      if (cachedRoom.phase !== GAME_PHASES.OTHERS_PICKING) return;
+
+      const randomCardIndex = Math.floor(Math.random() * player.hand.length);
+      const result = submitCard(cachedRoom, player.id, randomCardIndex);
+      if (result.error) {
+        log.warn('auto card submit failed', { playerId: player.id, error: result.error });
+      }
+    });
+
+    broadcastState();
+    if (cachedRoom.phase === GAME_PHASES.REVEALING) {
+      scheduleVotingTimeout();
+    }
+  }, OTHERS_PICKING_TIMEOUT_MS);
+}
+
+function clearOthersPickingTimer() {
+  if (_othersPickingTimer) {
+    clearTimeout(_othersPickingTimer);
+    _othersPickingTimer = null;
   }
 }
 
@@ -263,6 +343,23 @@ function clearVotingTimer() {
   }
 }
 
+function scheduleHostTimerForCurrentPhase() {
+  if (!gameState.isHost || !cachedRoom) return;
+
+  clearDisconnectedSkipTimer();
+  scheduleDisconnectedSkipCheck();
+
+  if (cachedRoom.phase === GAME_PHASES.STORYTELLER_PICKING) {
+    schedulePickingTimeout();
+  } else if (cachedRoom.phase === GAME_PHASES.OTHERS_PICKING) {
+    scheduleOthersPickingTimeout();
+  } else if (cachedRoom.phase === GAME_PHASES.REVEALING) {
+    scheduleVotingTimeout();
+  } else if (cachedRoom.phase === GAME_PHASES.SCORING) {
+    scheduleAutoAdvance();
+  }
+}
+
 function generateAutoClue(word) {
   const templates = [
     `和${word[0]}有关`,
@@ -304,9 +401,182 @@ watch(() => ({
   }
 }, { deep: true });
 
-window.addEventListener('beforeunload', () => {
-  flushStateCache(gameState);
-});
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    flushStateCache(gameState);
+  });
+}
+
+// ── Auto-Reconnect Engine ────────────────────────────────────────────────────
+
+function registerAutoReconnectHandlers() {
+  p2p.onConnectionStateChange = ({ peerId, iceConnectionState: iceState }) => {
+    const hostPeerId = `catguess-${gameState.roomCode}`;
+
+    if (iceState === 'disconnected' || iceState === 'failed') {
+      if ((peerId === hostPeerId || gameState.isHost) && !_autoReconnectTimer) {
+        setConnectionStatus('reconnecting', '检测到连接断开，正在自动重连...');
+        startAutoReconnect();
+      }
+    } else if (iceState === 'connected' || iceState === 'completed') {
+      cancelAutoReconnect();
+      if (gameState.connectionStatus === 'reconnecting') {
+        setConnectionStatus('connected', '已连接');
+      }
+      _reconnectAttempts = 0;
+    }
+  };
+
+  // Periodic connection quality check every 3s
+  if (_autoReconnectInterval) return;
+  _autoReconnectInterval = setInterval(() => {
+    const hostPeerId = `catguess-${gameState.roomCode}`;
+    const state = p2p.getPeerConnectionState(hostPeerId);
+    if (state?.iceConnectionState === 'failed' && !_autoReconnectTimer) {
+      startAutoReconnect();
+    }
+  }, 3000);
+}
+
+async function startAutoReconnect() {
+  if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    setConnectionStatus('error', '连接失败，请检查网络后手动重连');
+    cancelAutoReconnect();
+    return;
+  }
+
+  _reconnectAttempts++;
+
+  // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s (capped), with ±25% jitter
+  const baseDelay = Math.min(1000 * Math.pow(2, _reconnectAttempts - 1), 32000);
+  const jitter = baseDelay * (0.75 + Math.random() * 0.5);
+
+  _autoReconnectTimer = setTimeout(async () => {
+    _autoReconnectTimer = null;
+    try {
+      if (gameState.isHost) {
+        const connectedPeers = p2p.getConnectedPeers();
+        if (connectedPeers.length > 0) {
+          cancelAutoReconnect();
+          setConnectionStatus('connected', '已连接');
+          _reconnectAttempts = 0;
+          return;
+        }
+        startAutoReconnect();
+      } else {
+        const ok = await reconnectRoomInternal();
+        if (!ok) {
+          log.warn('Auto-reconnect attempt timed out', { attempt: _reconnectAttempts });
+          startAutoReconnect();
+        }
+      }
+    } catch (err) {
+      log.warn('Auto-reconnect attempt failed', { attempt: _reconnectAttempts, error: err?.message });
+      startAutoReconnect();
+    }
+  }, jitter);
+}
+
+function cancelAutoReconnect() {
+  if (_autoReconnectTimer) {
+    clearTimeout(_autoReconnectTimer);
+    _autoReconnectTimer = null;
+  }
+}
+
+async function reconnectRoomInternal() {
+  if (!gameState.roomCode || !gameState.playerName) return false;
+
+  p2p.softDisconnect();
+  gameState.connected = false;
+
+  await p2p.joinRoom(gameState.roomCode, gameState.playerName);
+  setupGuestHandlers();
+
+  sendJoinRequest(gameState.playerId, gameState.playerName, true);
+
+  // Send REQUEST_STATE to get full snapshot
+  try { p2p.broadcast(MSG.REQUEST_STATE, { playerId: gameState.playerId }); } catch { /* ignore */ }
+
+  // Wait up to 10s for connection to stabilize
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeout = null;
+    let checkInterval = null;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      clearInterval(checkInterval);
+      resolve(ok);
+    };
+    timeout = setTimeout(() => finish(false), 10000);
+    checkInterval = setInterval(() => {
+      if (gameState.connected) {
+        finish(true);
+      }
+    }, 500);
+  });
+}
+
+// ── Disconnected Player Skip ──────────────────────────────────────────────────
+
+function scheduleDisconnectedSkipCheck() {
+  if (!gameState.isHost || !cachedRoom) return;
+
+  const phase = cachedRoom.phase;
+
+  if (phase === GAME_PHASES.STORYTELLER_PICKING) {
+    const st = cachedRoom.players.find(p => p.id === cachedRoom.gameState.storytellerId);
+    if (st && !st.isOnline) {
+      log.info('Storyteller disconnected during picking phase, auto-skipping');
+      // Force auto-pick for disconnected storyteller
+      if (_pickingTimer) { clearTimeout(_pickingTimer); _pickingTimer = null; }
+      const result = submitStorySelection(cachedRoom, st.id, 0, `(离线自动出题)${st.hand?.[0]?.[0] || ''}有关的词`);
+      if (!result.error) {
+        broadcastState();
+        if (cachedRoom.phase === GAME_PHASES.OTHERS_PICKING) scheduleOthersPickingTimeout();
+      }
+    }
+  }
+
+  if (phase === GAME_PHASES.OTHERS_PICKING) {
+    const offlinePlayers = cachedRoom.players.filter(
+      p => !p.isOnline && p.id !== cachedRoom.gameState.storytellerId
+    );
+    let skipped = false;
+    offlinePlayers.forEach(p => {
+      if (!cachedRoom.gameState.submittedCards.find(sc => sc.playerId === p.id)) {
+        const result = submitCard(cachedRoom, p.id, 0);
+        if (!result.error) skipped = true;
+      }
+    });
+    if (skipped) broadcastState();
+  }
+
+  if (phase === GAME_PHASES.REVEALING) {
+    const offlineVoters = cachedRoom.players.filter(
+      p => !p.isOnline && p.id !== cachedRoom.gameState.storytellerId
+    );
+    let changed = false;
+    offlineVoters.forEach(p => {
+      if (!cachedRoom.gameState.votes.find(v => v.voterId === p.id)) {
+        cachedRoom.gameState.votes.push({ voterId: p.id, votedCardId: -1 });
+        changed = true;
+      }
+    });
+    if (changed) broadcastState();
+  }
+
+  _disconnectedSkipTimer = setTimeout(scheduleDisconnectedSkipCheck, 5000);
+}
+
+function clearDisconnectedSkipTimer() {
+  if (_disconnectedSkipTimer) {
+    clearTimeout(_disconnectedSkipTimer);
+    _disconnectedSkipTimer = null;
+  }
+}
 
 function setConnectionStatus(status, message = '') {
   gameState.connectionStatus = status;
@@ -353,6 +623,7 @@ export function restoreFromCache() {
 
   if (cachedRoom) {
     updateLocalState(cachedRoom);
+    scheduleHostTimerForCurrentPhase();
   }
 
   console.log('[GameStore] State restored from cache');
@@ -494,7 +765,7 @@ export async function reconnectRoom() {
     // 连接已被拆除，重置为未连接，确保重发循环/超时在会话内重连时也生效
     gameState.connected = false;
 
-    p2p.disconnect();
+    p2p.softDisconnect();
 
     if (gameState.isHost) {
       // 房主用同一 peerId 重新注册，createHost 成功即重连完成
@@ -563,9 +834,21 @@ function setupHostHandlers() {
 
   p2p.onPlayerDisconnected = (peerId) => {
     console.log('Player disconnected:', peerId);
-    const playerToRemove = cachedRoom?.players.find(p => p._peerId === peerId);
-    if (playerToRemove && cachedRoom) {
-      removePlayerFromRoom(cachedRoom, playerToRemove.id);
+    const playerToMark = cachedRoom?.players.find(p => p._peerId === peerId);
+    if (playerToMark && cachedRoom) {
+      // 标记为离线而非永久移除，允许重连恢复
+      playerToMark.isOnline = false;
+      if (!cachedRoom.disconnectedPlayers) {
+        cachedRoom.disconnectedPlayers = [];
+      }
+      if (!cachedRoom.disconnectedPlayers.find(p => p.id === playerToMark.id)) {
+        cachedRoom.disconnectedPlayers.push({
+          id: playerToMark.id,
+          name: playerToMark.name,
+          disconnectedAt: Date.now()
+        });
+      }
+      scheduleOfflinePlayerCleanup();
       broadcastState();
     }
   };
@@ -600,6 +883,8 @@ function setupHostHandlers() {
       broadcastState();
     }
   };
+
+  registerAutoReconnectHandlers();
 }
 
 function setupGuestHandlers() {
@@ -608,12 +893,12 @@ function setupGuestHandlers() {
 
     const hostPeerId = `catguess-${gameState.roomCode}`;
     if (peerId === hostPeerId) {
-      if (_migrationInProgress) {
+      if (hostMigrator.isMigrationInProgress()) {
         log.info('onPlayerDisconnected: migration already in progress, skipping');
         return;
       }
       console.log('Host disconnected! Attempting migration...');
-      handleHostDisconnect();
+      _doHostMigrate();
     }
   };
 
@@ -632,109 +917,30 @@ function setupGuestHandlers() {
     log.warn('Guest detected dead peer', { peerId });
     const hostPeerId = `catguess-${gameState.roomCode}`;
     if (peerId === hostPeerId) {
-      if (_migrationInProgress) {
+      if (hostMigrator.isMigrationInProgress()) {
         log.info('onDeadPeer: migration already in progress, skipping');
         return;
       }
       log.warn('Host is dead, triggering migration');
-      handleHostDisconnect();
+      _doHostMigrate();
     }
   };
+
+  registerAutoReconnectHandlers();
 }
 
-async function handleHostDisconnect() {
-  if (!cachedRoom) return;
-
-  if (_migrationInProgress) {
-    log.info('Host migration already in progress, skipping');
-    return;
-  }
-
-  const candidates = cachedRoom.players
-    .filter(p => p.isOnline !== false && p.id !== gameState.playerId)
-    .sort((a, b) => a.order - b.order);
-
-  if (candidates.length === 0) {
-    setConnectionStatus('error', '房主已断开，房间关闭');
-    gameState.error = '房主已断开，房间关闭';
-    gameState.connected = false;
-    return;
-  }
-
-  const newHost = candidates[0];
-  const myOrder = cachedRoom.players.find(p => p.id === gameState.playerId)?.order ?? Infinity;
-
-  if (myOrder > newHost.order) {
-    log.info(`Waiting for new host (my order: ${myOrder}, new host order: ${newHost.order})`);
-    setConnectionStatus('reconnecting', `等待 ${newHost.name} 成为新房主...`);
-    return;
-  }
-
-  _migrationInProgress = true;
-
-  const safetyTimer = setTimeout(() => {
-    if (_migrationInProgress) {
-      log.warn('Host migration safety timeout triggered, resetting mutex');
-      _migrationInProgress = false;
-    }
-  }, 5000);
-
-  if (newHost.id === gameState.playerId) {
-    console.log('I am the new host!');
-    await becomeNewHost();
-    clearTimeout(safetyTimer);
-  } else {
-    console.log('Waiting for new host:', newHost.name);
-    setConnectionStatus('reconnecting', '房主已断开，正在重新组织连接...');
-
-    const newHostPeerId = newHost._peerId || `catguess-guest-${newHost.id}`;
-    try {
-      await p2p.connectToPeer(newHostPeerId);
-      setConnectionStatus('connected', '已连接到新房主');
-      clearTimeout(safetyTimer);
-    } catch (err) {
-      console.error('Failed to connect to new host:', err);
-      clearTimeout(safetyTimer);
-      _migrationInProgress = false;
-      becomeNewHost();
-    }
-  }
-}
-
-async function becomeNewHost() {
-  if (!cachedRoom) return;
-
-  cachedRoom.hostId = gameState.playerId;
-  gameState.isHost = true;
-
-  const me = cachedRoom.players.find(p => p.id === gameState.playerId);
-  if (me) {
-    me.isHost = true;
-    me._peerId = p2p.getMyPeerId();
-  }
-
-  const oldHostPeerId = `catguess-${gameState.roomCode}`;
-  p2p.connections = p2p.connections.filter(c => c.peer !== oldHostPeerId);
-
-  setConnectionStatus('connected', '你已成为新房主');
-  gameState.connected = true;
-
-  try {
-    p2p.broadcast(MSG.HOST_MIGRATION, {
-      newHostId: gameState.playerId,
-      newHostPeerId: p2p.getMyPeerId(),
-      room: cachedRoom
-    });
-  } catch (err) {
-    log.error('Failed to broadcast HOST_MIGRATION', { error: err });
-  }
-
-  _migrationInProgress = false;
-
-  p2p.stopHeartbeat();
-  setupHostHandlers();
-
-  broadcastState();
+/**
+ * 房主迁移 — 委托给共享迁移处理器。
+ * 猫猜启用 enableWaitBranch：高 order 的访客等待新房主自动接管。
+ */
+async function _doHostMigrate() {
+  await hostMigrator.handleHostDisconnect(cachedRoom, gameState, {
+    broadcastState,
+    setupHostHandlers,
+    setConnectionStatus,
+    enableWaitBranch: true,
+    onBecomeHost: scheduleHostTimerForCurrentPhase
+  });
 }
 
 function handleHostMessage(data, peerId) {
@@ -851,6 +1057,7 @@ function handleHostMessage(data, peerId) {
           return;
         }
         broadcastState();
+        scheduleOthersPickingTimeout();
         break;
       } catch (err) {
         log.error('handleHostMessage:SUBMIT_STORY error', { type: data?.type, peerId, error: err });
@@ -878,6 +1085,7 @@ function handleHostMessage(data, peerId) {
         broadcastState();
         // 如果进入投票阶段，启动投票超时定时器
         if (cachedRoom.phase === GAME_PHASES.REVEALING) {
+          clearOthersPickingTimer();
           scheduleVotingTimeout();
         }
         break;
@@ -936,9 +1144,29 @@ function handleHostMessage(data, peerId) {
           }
         }
         broadcastState();
+        if (cachedRoom.phase === GAME_PHASES.STORYTELLER_PICKING) {
+          schedulePickingTimeout();
+        }
         break;
       } catch (err) {
         log.error('handleHostMessage:NEXT_ROUND error', { type: data?.type, peerId, error: err });
+        break;
+      }
+    }
+
+    case MSG.REQUEST_STATE: {
+      try {
+        if (!cachedRoom) break;
+        const requestKey = generateOpKey(MSG.REQUEST_STATE, {
+          playerId: data.payload.playerId,
+          roomCode: cachedRoom?.code
+        });
+        if (isDuplicateOp(requestKey)) break;
+        // Force send full state snapshot to the requesting peer
+        p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom });
+        break;
+      } catch (err) {
+        log.error('handleHostMessage:REQUEST_STATE error', { type: data?.type, peerId, error: err });
         break;
       }
     }
@@ -973,7 +1201,13 @@ function handleGuestMessage(data, peerId) {
           }
           if (!gameState.connected) {
             gameState.connected = true;
-            setConnectionStatus('connected', '已连接');
+            if (gameState.connectionStatus === 'reconnecting') {
+              cancelAutoReconnect();
+              _reconnectAttempts = 0;
+              setConnectionStatus('connected', '重连成功，状态已恢复');
+            } else {
+              setConnectionStatus('connected', '已连接');
+            }
             gameState.screen = 'lobby';
           }
         } else if (data.payload.delta) {
@@ -1073,7 +1307,7 @@ function handleGuestMessage(data, peerId) {
           break;
         }
 
-        _migrationInProgress = false;
+        hostMigrator.resetMigrationMutex();
         log.info('Host migration resolved by peer', { newHostId });
 
         cachedRoom = room;
@@ -1209,6 +1443,7 @@ export function handleSubmitStorySelection(cardIndex, clue) {
     cardIndex,
     clue: sanitizedClue
   });
+  scheduleOthersPickingTimeout();
   return true;
 }
 
@@ -1223,6 +1458,10 @@ export function handleSubmitCard(cardIndex) {
     playerId: gameState.playerId,
     cardIndex
   });
+  if (cachedRoom.phase === GAME_PHASES.REVEALING) {
+    clearOthersPickingTimer();
+    scheduleVotingTimeout();
+  }
   return true;
 }
 
@@ -1253,6 +1492,9 @@ export function handleNextRound() {
     }
   }
   broadcastState();
+  if (cachedRoom.phase === GAME_PHASES.STORYTELLER_PICKING) {
+    schedulePickingTimeout();
+  }
   p2p.broadcast(MSG.NEXT_ROUND, { playerId: gameState.playerId });
 }
 
@@ -1260,6 +1502,7 @@ export function handleEndGame() {
   if (!gameState.isHost) return;
   clearScoringTimer();
   clearPickingTimer();
+  clearOthersPickingTimer();
   clearVotingTimer();
   clearOfflinePlayerCleanupTimer();
   cachedRoom.gameState.winner = null;
@@ -1278,11 +1521,15 @@ function cleanup() {
   flushStateCache(gameState);
   p2p.stopHeartbeat();
   p2p.disconnect();
-  _migrationInProgress = false;
+  hostMigrator.resetMigrationMutex();
   clearScoringTimer();
   clearPickingTimer();
+  clearOthersPickingTimer();
   clearVotingTimer();
   clearOfflinePlayerCleanupTimer();
+  clearDisconnectedSkipTimer();
+  cancelAutoReconnect();
+  if (_autoReconnectInterval) { clearInterval(_autoReconnectInterval); _autoReconnectInterval = null; }
   cachedRoom = null;
   roomBroadcaster.resetBroadcastState();
   resetOps();
@@ -1328,5 +1575,10 @@ function cleanup() {
 
   clearStateCache();
 }
+
+export const RECONNECT_METADATA = {
+  get attempt() { return _reconnectAttempts; },
+  MAX_ATTEMPTS: MAX_RECONNECT_ATTEMPTS
+};
 
 export { GAME_PHASES };

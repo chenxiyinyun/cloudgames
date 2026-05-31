@@ -6,6 +6,7 @@ import {
   createRoomBroadcaster,
   deepClone
 } from '../index';
+import { createHostMigrationHandler } from '../useHostMigration';
 
 describe('shared online foundation', () => {
   it('merges shared and game message types', () => {
@@ -78,5 +79,43 @@ describe('shared online foundation', () => {
       a: 1,
       nested: { b: 3 }
     });
+  });
+
+  it('elects the current player when they are the lowest-order online host candidate', async () => {
+    const p2p = {
+      getMyPeerId: vi.fn(() => 'game-guest-p1'),
+      broadcast: vi.fn(),
+      stopHeartbeat: vi.fn(),
+      connections: [{ peer: 'game-ABCDEF' }]
+    };
+    const handler = createHostMigrationHandler({
+      gameId: 'game',
+      p2p,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    });
+    const room = {
+      code: 'ABCDEF',
+      hostId: 'old-host',
+      players: [
+        { id: 'old-host', name: 'Host', order: 0, isOnline: true },
+        { id: 'p1', name: 'Ada', order: 1, isOnline: true },
+        { id: 'p2', name: 'Ben', order: 2, isOnline: true }
+      ]
+    };
+    const gameState = { playerId: 'p1', roomCode: 'ABCDEF', isHost: false };
+    const broadcastState = vi.fn();
+    const setupHostHandlers = vi.fn();
+
+    const result = await handler.handleHostDisconnect(room, gameState, {
+      broadcastState,
+      setupHostHandlers
+    });
+
+    expect(result).toEqual({ action: 'became_host' });
+    expect(room.hostId).toBe('p1');
+    expect(gameState.isHost).toBe(true);
+    expect(p2p.broadcast).toHaveBeenCalledWith('HOST_MIGRATION', expect.objectContaining({ newHostId: 'p1' }));
+    expect(setupHostHandlers).toHaveBeenCalled();
+    expect(broadcastState).toHaveBeenCalled();
   });
 });

@@ -49,4 +49,35 @@ describe('catguess online adapter', () => {
 
     expect(dealtHands).not.toBe(emptyHands);
   });
+
+  it('exposes REQUEST_STATE message type', () => {
+    expect(MSG.REQUEST_STATE).toBe('REQUEST_STATE');
+  });
+
+  it('REQUEST_STATE op key is idempotent for same request', () => {
+    const key1 = generateOpKey(MSG.REQUEST_STATE, {
+      roomCode: 'ABCDEF',
+      playerId: 'p1',
+      requestFull: true
+    });
+    const key2 = generateOpKey(MSG.REQUEST_STATE, {
+      roomCode: 'ABCDEF',
+      playerId: 'p1',
+      requestFull: false
+    });
+    // Same roomCode + playerId → same key (idempotent)
+    expect(key1).toBe(key2);
+  });
+
+  it('REQUEST_STATE op key changes for different player', () => {
+    const key1 = generateOpKey(MSG.REQUEST_STATE, {
+      roomCode: 'ABCDEF',
+      playerId: 'p1'
+    });
+    const key2 = generateOpKey(MSG.REQUEST_STATE, {
+      roomCode: 'ABCDEF',
+      playerId: 'p2'
+    });
+    expect(key1).not.toBe(key2);
+  });
 });
