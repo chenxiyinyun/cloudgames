@@ -46,7 +46,25 @@ export const resetOps = deduper.resetOps;
 export { deepClone };
 
 export function getRoomStateDedupeDetail(room) {
-  return `${room.gameState?.round}_${room.phase}`;
+  const gameState = room.gameState || {};
+  const playerState = (room.players || [])
+    .map(player => [
+      player.id,
+      player.isOnline === false ? '0' : '1',
+      Array.isArray(player.hand) ? player.hand.length : 0
+    ].join(':'))
+    .join(',');
+
+  return [
+    gameState.round || 0,
+    room.phase || '',
+    gameState.storytellerId || '',
+    playerState,
+    gameState.clue || '',
+    gameState.submittedCards?.length || 0,
+    gameState.shuffledCards?.length || 0,
+    gameState.votes?.length || 0
+  ].join('_');
 }
 
 export function createJoinRequestSenderForGame({ p2p, getRoomCode, logger }) {

@@ -17,10 +17,36 @@ describe('catguess online adapter', () => {
     })).toBe('SUBMIT_STORY_ABCDEF_p1_3_dream');
   });
 
-  it('uses game round and phase for room-state dedupe detail', () => {
+  it('includes UI-critical state in room-state dedupe detail', () => {
     expect(getRoomStateDedupeDetail({
-      gameState: { round: 4 },
-      phase: 'voting'
-    })).toBe('4_voting');
+      gameState: {
+        round: 4,
+        storytellerId: 'p1',
+        clue: 'dream',
+        submittedCards: [{ playerId: 'p2' }],
+        shuffledCards: [{ id: 0 }, { id: 1 }],
+        votes: [{ voterId: 'p2' }]
+      },
+      phase: 'voting',
+      players: [
+        { id: 'p1', isOnline: true, hand: ['moon', 'forest'] },
+        { id: 'p2', isOnline: false, hand: ['star'] }
+      ]
+    })).toBe('4_voting_p1_p1:1:2,p2:0:1_dream_1_2_1');
+  });
+
+  it('changes room-state dedupe detail when cards are dealt in the same phase', () => {
+    const emptyHands = getRoomStateDedupeDetail({
+      gameState: { round: 1, storytellerId: 'p1' },
+      phase: 'storyteller_picking',
+      players: [{ id: 'p1', isOnline: true, hand: [] }]
+    });
+    const dealtHands = getRoomStateDedupeDetail({
+      gameState: { round: 1, storytellerId: 'p1' },
+      phase: 'storyteller_picking',
+      players: [{ id: 'p1', isOnline: true, hand: ['moon'] }]
+    });
+
+    expect(dealtHands).not.toBe(emptyHands);
   });
 });
