@@ -422,7 +422,8 @@ export function nextRound(room) {
 
   dealCardsToPlayers(room, 5);
 
-  const hasWinner = checkWinCondition(room, 10);
+  const targetScore = getTargetScore(room);
+  const hasWinner = checkWinCondition(room, targetScore);
 
   if (!hasWinner) {
     room.phase = GAME_PHASES.STORYTELLER_PICKING;
@@ -476,6 +477,17 @@ export function checkWinCondition(room, targetScore = 10) {
 
 export function getOnlinePlayerCount(room) {
   return room.players.filter(p => p.isOnline).length;
+}
+
+/**
+ * 根据在线人数动态计算获胜所需总分。
+ * 人越多目标越高，保证每人都有机会轮到讲故事者。
+ * 公式：人数 × 3 + 1
+ *   3人 → 10分  4人 → 13分  5人 → 16分  6人 → 19分
+ */
+export function getTargetScore(room) {
+  const onlineCount = getOnlinePlayerCount(room);
+  return Math.max(10, onlineCount * 3 + 1);
 }
 
 export function getDisconnectedPlayers(room) {

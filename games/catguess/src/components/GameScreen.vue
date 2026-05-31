@@ -465,7 +465,7 @@
 
         <div class="rules-section">
           <h3>🎯 目标</h3>
-          <p>先获得 <strong>30 分</strong> 的玩家获胜！</p>
+          <p>先获得 <strong>{{ targetWinScore }} 分</strong> 的玩家获胜（人数越多目标越高）！</p>
         </div>
 
         <div class="rules-section">
@@ -515,6 +515,7 @@ import {
   leaveRoom,
   GAME_PHASES
 } from '../stores/gameStore'
+import { getTargetScore } from '../services/gameEngine'
 import { showToast } from './ToastNotification.vue'
 
 // ─── Reactive State ───
@@ -684,6 +685,12 @@ const sortedPlayers = computed(() => {
       if (sa !== sb) return sb - sa
       return a.order - b.order
     })
+})
+
+/** Dynamic target score based on online player count */
+const targetWinScore = computed(() => {
+  if (!gameState.room || !gameState.room.players) return 30
+  return getTargetScore(gameState.room)
 })
 
 /** Number of votes that correctly identified the secret card */
