@@ -19,8 +19,8 @@ export default defineConfig({
       }
     }
   },
-  // GitHub Pages 子路径配置
-  base: '/cloudgames/',
+  // 自定义域名下为根路径，chenxiyinyun.github.io/cloudgames/ 已 301 跳转到自定义域名
+  base: '/',
   test: {
     environment: 'node',
     include: ['games/codenames/src/**/*.test.js', 'games/catguess/src/**/*.test.js']
