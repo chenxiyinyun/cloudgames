@@ -71,6 +71,9 @@ if (typeof console !== 'undefined') {
   if (HAS_METERED_TURN) {
     console.info(`[P2P] ☁️ 海外 TURN 兜底已启用（${METERED_TURN_SERVERS.length} 个节点，Metered.ca），海外用户兜底。`);
   }
+  if (!HAS_SELF_HOSTED_TURN && HAS_METERED_TURN) {
+    console.warn('[P2P] 未检测到自建 TURN 配置，当前只能使用 Metered 海外中继兜底。');
+  }
   if (!HAS_TURN_RELAY) {
     console.warn(
       '[P2P] ⚠️ 未配置任何 TURN 中继。' +

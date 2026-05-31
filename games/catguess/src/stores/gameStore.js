@@ -101,6 +101,7 @@ let _autoReconnectTimer = null;
 let _autoReconnectInterval = null;
 let _reconnectAttempts = 0;
 let _disconnectedSkipTimer = null;
+let _roomDestroyTimer = null;
 const MAX_RECONNECT_ATTEMPTS = 8;
 
 /** Auto-advance 15 seconds after scoring phase starts */
@@ -115,8 +116,11 @@ const OTHERS_PICKING_TIMEOUT_MS = 30000;
 /** Auto-advance 30 seconds after voting phase starts (猜词/投票) */
 const VOTING_TIMEOUT_MS = 30000;
 
-/** 玩家离线等待超时 (60秒后若未重连则移除) */
-const PLAYER_DISCONNECT_TIMEOUT_MS = 60000;
+/** 玩家离线等待超时 (3分钟后若未重连则移除) */
+const PLAYER_DISCONNECT_TIMEOUT_MS = 3 * 60 * 1000;
+
+/** 房间结束或无法恢复时，3分钟后自动退出本地房间 */
+const ROOM_AUTO_DESTROY_MS = 3 * 60 * 1000;
 
 function cleanupDisconnectedPlayers() {
   if (!cachedRoom || !cachedRoom.disconnectedPlayers || cachedRoom.disconnectedPlayers.length === 0) {
@@ -149,6 +153,10 @@ function cleanupDisconnectedPlayers() {
       cachedRoom.status = GAME_PHASES.ENDED;
       cachedRoom.phase = GAME_PHASES.ENDED;
       cachedRoom.gameState.winner = null;
+    }
+
+    if (onlineCount <= 1) {
+      scheduleRoomAutoDestroy('room_empty');
     }
 
     broadcastState();
@@ -578,9 +586,35 @@ function clearDisconnectedSkipTimer() {
   }
 }
 
+function scheduleRoomAutoDestroy(reason = 'room_inactive') {
+  if (_roomDestroyTimer) return;
+  _roomDestroyTimer = setTimeout(() => {
+    _roomDestroyTimer = null;
+    log.info('Auto-destroying inactive room', { reason });
+    cleanup({ forceStatusReset: true });
+    gameState.screen = 'menu';
+  }, ROOM_AUTO_DESTROY_MS);
+}
+
+function clearRoomAutoDestroyTimer() {
+  if (_roomDestroyTimer) {
+    clearTimeout(_roomDestroyTimer);
+    _roomDestroyTimer = null;
+  }
+}
+
 function setConnectionStatus(status, message = '') {
   gameState.connectionStatus = status;
   gameState.connectionMessage = message;
+  if (status === 'connected' || status === 'connecting') {
+    clearRoomAutoDestroyTimer();
+  } else if (
+    (status === 'error' || status === 'disconnected') &&
+    gameState.roomCode &&
+    gameState.screen !== 'menu'
+  ) {
+    scheduleRoomAutoDestroy(status);
+  }
 }
 
 function stopJoinRetry() {
@@ -1413,6 +1447,9 @@ function syncScreenToPhase(room) {
     gameState.screen = 'game';
   }
   if (room.status === GAME_PHASES.ENDED && gameState.screen !== 'result') {
+    cancelAutoReconnect();
+    setConnectionStatus('connected', '');
+    scheduleRoomAutoDestroy('room_ended');
     gameState.screen = 'result';
   }
 }
@@ -1513,11 +1550,11 @@ export function handleEndGame() {
 }
 
 export async function leaveRoom() {
-  cleanup();
+  cleanup({ forceStatusReset: true });
   gameState.screen = 'menu';
 }
 
-function cleanup() {
+function cleanup({ forceStatusReset = false } = {}) {
   flushStateCache(gameState);
   p2p.stopHeartbeat();
   p2p.disconnect();
@@ -1528,7 +1565,9 @@ function cleanup() {
   clearVotingTimer();
   clearOfflinePlayerCleanupTimer();
   clearDisconnectedSkipTimer();
+  clearRoomAutoDestroyTimer();
   cancelAutoReconnect();
+  _reconnectAttempts = 0;
   if (_autoReconnectInterval) { clearInterval(_autoReconnectInterval); _autoReconnectInterval = null; }
   cachedRoom = null;
   roomBroadcaster.resetBroadcastState();
@@ -1546,8 +1585,8 @@ function cleanup() {
   gameState.playerName = '';
   gameState.roomCode = null;
   gameState.isHost = false;
-  // Only reset connection status, not error state
-  if (gameState.connectionStatus !== 'error') {
+  // User-initiated leaves must always dismiss connection overlays.
+  if (forceStatusReset || gameState.connectionStatus !== 'error') {
     setConnectionStatus('disconnected', '');
   }
 

@@ -60,6 +60,9 @@ jobs:
 
       - name: Build
         env:
+          VITE_SELF_HOSTED_TURN_URLS: ${{ secrets.SELF_HOSTED_TURN_URLS }}
+          VITE_SELF_HOSTED_TURN_USERNAME: ${{ secrets.SELF_HOSTED_TURN_USERNAME }}
+          VITE_SELF_HOSTED_TURN_CREDENTIAL: ${{ secrets.SELF_HOSTED_TURN_CREDENTIAL }}
           VITE_METERED_TURN_USERNAME: ${{ secrets.METERED_TURN_USERNAME }}
           VITE_METERED_TURN_CREDENTIAL: ${{ secrets.METERED_TURN_CREDENTIAL }}
         run: npm run build

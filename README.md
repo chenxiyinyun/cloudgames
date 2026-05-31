@@ -34,7 +34,15 @@ npm run preview
 
 The games use PeerJS/WebRTC for multiplayer. By default the shared P2P layer gives the browser both STUN and TURN candidates, so ICE will prefer a direct peer-to-peer path when it works and automatically fall back to a relay candidate when needed.
 
-For reliable relay fallback, configure Metered TURN in the Vite environment:
+For reliable relay fallback, configure the self-hosted TURN first. Multiple URLs can be comma-separated; these are passed to WebRTC before the Metered fallback:
+
+```bash
+VITE_SELF_HOSTED_TURN_URLS=turn:your-turn-host:3478,turn:your-turn-host:3478?transport=tcp
+VITE_SELF_HOSTED_TURN_USERNAME=<turn-username>
+VITE_SELF_HOSTED_TURN_CREDENTIAL=<turn-credential>
+```
+
+Metered TURN can still be configured as an overseas fallback:
 
 ```bash
 VITE_METERED_TURN_USERNAME=<metered-username>

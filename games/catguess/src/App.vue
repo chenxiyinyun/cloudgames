@@ -5,6 +5,7 @@
     <GameScreen v-else-if="gameState.screen === 'game' || gameState.screen === 'result'" />
     <ToastNotification />
     <ConnectionOverlay
+      v-if="showConnectionOverlay"
       :status="gameState.connectionStatus"
       :message="gameState.connectionMessage"
       :attempt="reconnectAttempt"
@@ -26,6 +27,9 @@ import ConnectionOverlay from './components/ConnectionOverlay.vue'
 
 const MAX_RECONNECT_ATTEMPTS = RECONNECT_METADATA.MAX_ATTEMPTS
 const reconnectAttempt = computed(() => RECONNECT_METADATA.attempt)
+const showConnectionOverlay = computed(() =>
+  gameState.screen !== 'menu' && gameState.connectionStatus !== 'connected'
+)
 
 async function handleManualReconnect() {
   try {
