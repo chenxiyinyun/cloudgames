@@ -26,8 +26,15 @@
       </div>
 
       <!-- Decorative Timer Bar -->
-      <div class="timer-bar">
-        <div class="timer-fill" />
+      <div class="timer-bar" v-if="showTimer">
+        <div class="timer-fill" :style="{ width: timerPercentage + '%' }" />
+      </div>
+
+      <!-- Countdown Timer Display -->
+      <div v-if="showTimer" class="countdown-display">
+        <span :class="['countdown-number', { warning: countdownSeconds <= 10 }]">
+          ⏱️ {{ countdownSeconds }}s
+        </span>
       </div>
 
       <!-- ─── Phase: Storyteller Picking ─── -->
@@ -497,6 +504,61 @@ const clueText = ref('')
 /** Index of the card voted for during revealing (-1 = none) */
 const votedCardId = ref(-1)
 
+/** Countdown timer for card selection phase */
+const countdownSeconds = ref(30)
+const countdownTimer = ref(null)
+
+const COUNTDOWN_TOTAL = 30
+
+const showTimer = computed(() => {
+  return phase.value === GAME_PHASES.STORYTELLER_PICKING ||
+         phase.value === GAME_PHASES.OTHERS_PICKING
+})
+
+const timerPercentage = computed(() => {
+  return (countdownSeconds.value / COUNTDOWN_TOTAL) * 100
+})
+
+const startCountdown = () => {
+  if (countdownTimer.value) {
+    clearInterval(countdownTimer.value)
+  }
+  countdownSeconds.value = COUNTDOWN_TOTAL
+  
+  countdownTimer.value = setInterval(() => {
+    if (countdownSeconds.value > 0) {
+      countdownSeconds.value--
+    } else {
+      clearInterval(countdownTimer.value)
+      countdownTimer.value = null
+    }
+  }, 1000)
+}
+
+const stopCountdown = () => {
+  if (countdownTimer.value) {
+    clearInterval(countdownTimer.value)
+    countdownTimer.value = null
+  }
+}
+
+const autoSelectRandomCard = () => {
+  if (!me.value || me.value.hand.length === 0) return -1
+  const randomIndex = Math.floor(Math.random() * me.value.hand.length)
+  return randomIndex
+}
+
+const autoGenerateClue = (word) => {
+  const clueTemplates = [
+    `和${word[0]}有关`,
+    `包含${word.length}个字`,
+    `${word[0]}开头的词`,
+    `${word[word.length - 1]}结尾`,
+    `日常常见的`,
+  ]
+  return clueTemplates[Math.floor(Math.random() * clueTemplates.length)]
+}
+
 // ─── Computed Properties ───
 
 const me = computed(() => {
@@ -703,6 +765,30 @@ watch(phase, () => {
   selectedCardIndex.value = -1
   clueText.value = ''
   votedCardId.value = -1
+  stopCountdown()
+  
+  if (phase.value === GAME_PHASES.STORYTELLER_PICKING) {
+    startCountdown()
+  }
+})
+
+watch(countdownSeconds, (newVal) => {
+  if (newVal === 0 && phase.value === GAME_PHASES.STORYTELLER_PICKING && isStoryteller.value) {
+    stopCountdown()
+    const randomIndex = autoSelectRandomCard()
+    const randomWord = me.value?.hand[randomIndex]
+    if (randomWord) {
+      const autoClue = autoGenerateClue(randomWord)
+      showToast(`⏱️ 时间到！已随机选择「${randomWord}」`, 'warning')
+      setTimeout(async () => {
+        try {
+          await handleSubmitStorySelection(randomIndex, autoClue)
+        } catch (err) {
+          showToast('自动提交失败，请手动选择', 'error')
+        }
+      }, 500)
+    }
+  }
 })
 </script>
 
@@ -896,6 +982,34 @@ watch(phase, () => {
   }
   .clue-bubble .clue-text {
     font-size: 16px;
+  }
+}
+
+.countdown-display {
+  text-align: center;
+  margin: 12px 0;
+}
+
+.countdown-number {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--cat-text);
+  font-family: var(--cat-serif);
+}
+
+.countdown-number.warning {
+  color: var(--cat-red);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
   }
 }
 </style>

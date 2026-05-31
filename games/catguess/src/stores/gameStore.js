@@ -86,9 +86,13 @@ let _migrationInProgress = false;
 let _joinTimeout = null;
 let _joinRetryInterval = null;
 let _scoringTimer = null;
+let _pickingTimer = null;
 
 /** Auto-advance 8 seconds after scoring phase starts */
 const SCORING_AUTO_ADVANCE_MS = 8000;
+
+/** Auto-advance 30 seconds after storyteller picking phase starts */
+const PICKING_TIMEOUT_MS = 30000;
 
 function scheduleAutoAdvance() {
   if (_scoringTimer) clearTimeout(_scoringTimer);
@@ -110,6 +114,56 @@ function clearScoringTimer() {
     clearTimeout(_scoringTimer);
     _scoringTimer = null;
   }
+}
+
+function schedulePickingTimeout() {
+  if (!gameState.isHost) return;
+  if (_pickingTimer) clearTimeout(_pickingTimer);
+  
+  _pickingTimer = setTimeout(() => {
+    _pickingTimer = null;
+    if (!cachedRoom || cachedRoom.phase !== GAME_PHASES.STORYTELLER_PICKING) return;
+    
+    const storyteller = cachedRoom.players.find(p => p.id === cachedRoom.gameState.storytellerId);
+    if (!storyteller || storyteller.hand.length === 0) return;
+    
+    const randomCardIndex = Math.floor(Math.random() * storyteller.hand.length);
+    const randomWord = storyteller.hand[randomCardIndex];
+    const autoClue = generateAutoClue(randomWord);
+    
+    console.log('[GameStore] Picking timeout: auto-selecting random card', { randomCardIndex, randomWord, autoClue });
+    
+    const result = submitStorySelection(cachedRoom, cachedRoom.gameState.storytellerId, randomCardIndex, autoClue);
+    if (result.error) {
+      log.warn('auto picking failed', { error: result.error });
+      return;
+    }
+    
+    broadcastState();
+    p2p.broadcast(MSG.SUBMIT_STORY, {
+      playerId: cachedRoom.gameState.storytellerId,
+      cardIndex: randomCardIndex,
+      clue: autoClue
+    });
+  }, PICKING_TIMEOUT_MS);
+}
+
+function clearPickingTimer() {
+  if (_pickingTimer) {
+    clearTimeout(_pickingTimer);
+    _pickingTimer = null;
+  }
+}
+
+function generateAutoClue(word) {
+  const templates = [
+    `和${word[0]}有关`,
+    `包含${word.length}个字`,
+    `${word[0]}开头的词`,
+    `${word[word.length - 1]}结尾`,
+    `日常常见的`,
+  ];
+  return templates[Math.floor(Math.random() * templates.length)];
 }
 
 const sendJoinRequest = createJoinRequestSenderForGame({
@@ -568,6 +622,14 @@ function handleHostMessage(data, peerId) {
         const { playerId, playerName, originalPeerId, isReconnect } = data.payload;
         console.log('Join request from:', playerName, isReconnect ? '(reconnect)' : '');
 
+        // 检查游戏是否已经开始
+        if (cachedRoom && cachedRoom.status !== GAME_PHASES.WAITING && cachedRoom.phase !== GAME_PHASES.WAITING) {
+          const errMsg = '游戏已经开始，无法加入房间';
+          console.warn('[GameStore] Rejecting join: game already started');
+          p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: false, error: errMsg });
+          return;
+        }
+
         const joinKey = generateOpKey(MSG.JOIN_REQUEST, { playerId, roomCode: cachedRoom?.code, isReconnect });
         if (isDuplicateOp(joinKey)) {
           log.debug('Duplicate JOIN_REQUEST ignored', { key: joinKey });
@@ -623,6 +685,7 @@ function handleHostMessage(data, peerId) {
           p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: '请勿重复提交' });
           return;
         }
+        clearPickingTimer();
         const result = submitStorySelection(cachedRoom, data.payload.playerId, data.payload.cardIndex, data.payload.clue);
         if (result.error) {
           p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: result.error });
@@ -733,6 +796,7 @@ function handleGuestMessage(data, peerId) {
             log.debug('Duplicate ROOM_STATE ignored', { key: roomStateKey });
             break;
           }
+          
           cachedRoom = data.payload.room;
           updateLocalState(cachedRoom);
           stopJoinRetry();
@@ -919,11 +983,13 @@ function syncScreenToPhase(room) {
 export function handleStartGame() {
   if (!gameState.isHost) return;
   startGame(cachedRoom);
+  schedulePickingTimeout();
   broadcastState();
   p2p.broadcast(MSG.SUBMIT_STORY, { playerId: gameState.playerId });
 }
 
 export function handleSubmitStorySelection(cardIndex, clue) {
+  clearPickingTimer();
   const { value: sanitizedClue, error: clueError } = sanitizeStoryClue(clue);
   if (clueError) {
     showToast(clueError, 'warning');
@@ -1007,6 +1073,7 @@ function cleanup() {
   p2p.disconnect();
   _migrationInProgress = false;
   clearScoringTimer();
+  clearPickingTimer();
   cachedRoom = null;
   roomBroadcaster.resetBroadcastState();
   resetOps();
