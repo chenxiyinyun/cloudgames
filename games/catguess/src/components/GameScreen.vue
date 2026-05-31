@@ -881,7 +881,7 @@ watch(countdownSeconds, (newVal) => {
 .clue-bubble .clue-text {
   font-family: var(--cat-serif);
   font-weight: 700;
-  color: var(--cat-accent);
+  color: #8B5E3C;
   font-size: 18px;
 }
 
