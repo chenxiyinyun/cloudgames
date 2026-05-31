@@ -5,7 +5,7 @@ import {
   GAME_PHASES, generatePlayerId, createInitialRoom,
   addPlayerToRoom, removePlayerFromRoom, startGame,
   submitStorySelection, submitCard, submitVote,
-  nextRound, checkWinCondition, restartGame
+  nextRound, checkWinCondition, restartGame, calculateScores
 } from '../services/gameEngine';
 import { saveStateToCache, loadStateFromCache, clearStateCache, hasCachedState, flushStateCache, cancelPendingSave } from '../services/stateCache';
 import { sanitizePlayerName, sanitizeRoomCode, sanitizeStoryClue } from '../services/sanitize';
