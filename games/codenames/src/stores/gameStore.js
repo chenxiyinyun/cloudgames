@@ -12,76 +12,20 @@ import {
 } from '../services/gameEngine';
 import { saveStateToCache, loadStateFromCache, clearStateCache, hasCachedState, flushStateCache, cancelPendingSave } from '../services/stateCache';
 import { sanitizePlayerName, sanitizeRoomCode, sanitizeClues } from '../services/sanitize';
+import {
+  MSG,
+  cleanupOps,
+  createJoinRequestSenderForGame,
+  createRoomBroadcasterForGame,
+  deepClone,
+  generateOpKey,
+  getRoomStateDedupeDetail,
+  isDuplicateOp,
+  resetOps
+} from '../services/online';
 import { showToast } from '../components/ToastNotification.vue';
 
 const log = createLogger('GameStore');
-
-const MSG = {
-  ROOM_STATE: 'ROOM_STATE',
-  JOIN_REQUEST: 'JOIN_REQUEST',
-  JOIN_RESPONSE: 'JOIN_RESPONSE',
-  START_GAME: 'START_GAME',
-  SUBMIT_CLUES: 'SUBMIT_CLUES',
-  SUBMIT_TEAM_GUESS: 'SUBMIT_TEAM_GUESS',
-  SUBMIT_OPPONENT_GUESS: 'SUBMIT_OPPONENT_GUESS',
-  SUBMIT_OPPONENT_VOTE: 'SUBMIT_OPPONENT_VOTE',
-  SUBMIT_TEAM_VOTE: 'SUBMIT_TEAM_VOTE',
-  NEXT_ROUND: 'NEXT_ROUND',
-  PLAYER_LEFT: 'PLAYER_LEFT',
-  PLAYER_RECONNECTED: 'PLAYER_RECONNECTED',
-  RESUME_GAME: 'RESUME_GAME',
-  HOST_MIGRATION: 'HOST_MIGRATION',
-  PEER_LIST: 'PEER_LIST',
-  CONNECT_TO_PEER: 'CONNECT_TO_PEER'
-};
-
-// ── Idempotency Layer ──
-// Prevent duplicate processing of game actions caused by P2P broadcast:
-// host processes locally + relays via ROOM_STATE → guest may see same action twice.
-const _processedOps = new Map();
-
-function generateOpKey(type, payload) {
-  const roomCode = payload.roomCode || cachedRoom?.code;
-  const playerId = payload.playerId || '';
-
-  switch (type) {
-    case MSG.SUBMIT_CLUES:
-      return `${type}_${roomCode}_${playerId}_${(payload.clues || []).join(',')}`;
-    case MSG.SUBMIT_TEAM_GUESS:
-    case MSG.SUBMIT_OPPONENT_GUESS:
-    case MSG.SUBMIT_TEAM_VOTE:
-      return `${type}_${roomCode}_${playerId}_${(payload.guess || []).join(',')}`;
-    case MSG.START_GAME:
-      return `${type}_${roomCode}_${playerId}`;
-    case MSG.NEXT_ROUND:
-      return `${type}_${roomCode}_${playerId}`;
-    case MSG.JOIN_REQUEST:
-      return `${type}_${roomCode}_${playerId}_${payload.isReconnect ? 'reconnect' : 'new'}`;
-    case MSG.ROOM_STATE:
-      return `${type}_${roomCode}_${payload.detail || ''}`;
-    default:
-      return `${type}_${roomCode}_${playerId}`;
-  }
-}
-
-function isDuplicateOp(key, ttlMs = 10000) {
-  const now = Date.now();
-  const prev = _processedOps.get(key);
-  if (prev && (now - prev) < ttlMs) {
-    return true;
-  }
-  _processedOps.set(key, now);
-  return false;
-}
-
-function cleanupOps() {
-  const now = Date.now();
-  for (const [key, ts] of _processedOps) {
-    if (now - ts > 30000) {
-      _processedOps.delete(key);
-    }
-  }
-}
 
 export const gameState = reactive({
   screen: 'menu',
@@ -134,9 +78,20 @@ export const gameState = reactive({
 
 let cachedRoom = null;
 let _migrationInProgress = false;
-let _lastBroadcastState = null;
 let _joinRetryInterval = null;
 let _joinTimeout = null;
+
+const sendJoinRequest = createJoinRequestSenderForGame({
+  p2p,
+  getRoomCode: () => gameState.roomCode,
+  logger: log
+});
+
+const roomBroadcaster = createRoomBroadcasterForGame({
+  p2p,
+  getRoom: () => cachedRoom,
+  updateLocalState
+});
 
 function stopJoinRetry() {
   if (_joinRetryInterval) {
@@ -147,44 +102,6 @@ function stopJoinRetry() {
     clearTimeout(_joinTimeout);
     _joinTimeout = null;
   }
-}
-
-// 向房主发送加入/重连请求。数据通道刚就绪时首条消息可能丢失，
-// 因此外层会配合定时器重发，直到收到 ROOM_STATE / JOIN_RESPONSE。
-function sendJoinRequest(playerId, playerName, isReconnect = false) {
-  const hostPeerId = `codenames-${gameState.roomCode}`;
-  const connectedPeers = p2p.getConnectedPeers();
-  const targetPeerId = connectedPeers.includes(hostPeerId) ? hostPeerId : connectedPeers[0];
-
-  if (!targetPeerId) {
-    log.warn('JOIN_REQUEST skipped: no connected host peer yet', { hostPeerId });
-    return false;
-  }
-
-  return p2p.sendTo(targetPeerId, MSG.JOIN_REQUEST, {
-    playerId,
-    playerName,
-    originalPeerId: p2p.peer?.id,
-    isReconnect
-  });
-}
-
-// 安全的深拷贝函数，避免 structuredClone 的兼容性问题
-function deepClone(obj) {
-  if (obj === null || obj === undefined) return obj;
-  if (typeof obj !== 'object') return obj;
-  if (obj instanceof Date) return new Date(obj.getTime());
-  if (Array.isArray(obj)) return obj.map(deepClone);
-
-  const cloned = {};
-  for (const key in obj) {
-    if (Object.prototype.hasOwnProperty.call(obj, key)) {
-      // 跳过 Vue 响应式内部属性
-      if (key.startsWith('__v_') || key === '_rawValue' || key === '_value') continue;
-      cloned[key] = deepClone(obj[key]);
-    }
-  }
-  return cloned;
 }
 
 // 监听状态变化，自动保存到缓存
@@ -874,7 +791,7 @@ function handleGuestMessage(data, peerId) {
         if (data.payload.room) {
           // Idempotency: skip duplicate room state updates
           const room = data.payload.room;
-          const roomStateKey = generateOpKey(MSG.ROOM_STATE, { roomCode: room.code, detail: `${room.currentRound}_${room.phase}` });
+          const roomStateKey = generateOpKey(MSG.ROOM_STATE, { roomCode: room.code, detail: getRoomStateDedupeDetail(room) });
           if (isDuplicateOp(roomStateKey)) {
             log.debug('Duplicate ROOM_STATE ignored', { key: roomStateKey });
             break;
@@ -1004,49 +921,10 @@ function handleGuestMessage(data, peerId) {
   }
 }
 
-function computeRoomDiff(oldRoom, newRoom) {
-  const diff = {};
-  let changedCount = 0;
-  const keys = Object.keys(newRoom);
-
-  for (const key of keys) {
-    if (key.startsWith('__v_') || key === '_rawValue' || key === '_value') continue;
-
-    const oldVal = oldRoom ? oldRoom[key] : undefined;
-    const newVal = newRoom[key];
-
-    if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
-      diff[key] = newVal;
-      changedCount++;
-    }
-  }
-
-  return { diff, changedCount, totalFields: keys.length };
-}
-
 function broadcastState() {
   if (!cachedRoom) return;
   cleanupOps();
-
-  const { diff, changedCount, totalFields } = computeRoomDiff(_lastBroadcastState, cachedRoom);
-
-  // Full broadcast if: first time, >50% changed, or too few fields (<3)
-  const shouldSendFull = !_lastBroadcastState ||
-                         changedCount > totalFields * 0.5 ||
-                         totalFields < 3;
-
-  if (shouldSendFull) {
-    p2p.broadcast(MSG.ROOM_STATE, { room: cachedRoom });
-  } else {
-    p2p.broadcast(MSG.ROOM_STATE, {
-      delta: diff,
-      round: cachedRoom.currentRound,
-      phase: cachedRoom.phase
-    });
-  }
-
-  _lastBroadcastState = deepClone(cachedRoom);
-  updateLocalState(cachedRoom);
+  roomBroadcaster.broadcastState();
 }
 
 function updateLocalState(room) {
@@ -1240,7 +1118,8 @@ function cleanup() {
   stopJoinRetry();
   _migrationInProgress = false;
   cachedRoom = null;
-  _lastBroadcastState = null;
+  roomBroadcaster.resetBroadcastState();
+  resetOps();
   gameState.connected = false;
   gameState.connecting = false;
   gameState.error = null;

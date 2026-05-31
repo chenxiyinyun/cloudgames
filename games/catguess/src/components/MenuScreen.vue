@@ -5,7 +5,9 @@
       <div class="cat-header">
         <span class="cat-icon">🐱</span>
         <h1>喵喵猜词</h1>
-        <div class="subtitle">喵语 Dixit</div>
+        <div class="subtitle">
+          喵语 Dixit
+        </div>
       </div>
 
       <!-- Connection Status -->
@@ -26,7 +28,7 @@
           placeholder="输入你的喵名..."
           :disabled="gameState.connecting"
           @keyup.enter="handleCreate"
-        />
+        >
       </div>
 
       <!-- Create Room -->
@@ -55,7 +57,7 @@
           :disabled="gameState.connecting"
           @input="roomCode = $event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)"
           @keyup.enter="handleJoin"
-        />
+        >
       </div>
 
       <!-- Join Room -->
@@ -69,7 +71,10 @@
       </button>
 
       <!-- Reconnect Section -->
-      <div v-if="hasRestoreableState()" style="margin-top: 20px; text-align: center;">
+      <div
+        v-if="hasRestoreableState()"
+        style="margin-top: 20px; text-align: center;"
+      >
         <div class="divider">
           <span>或者</span>
         </div>

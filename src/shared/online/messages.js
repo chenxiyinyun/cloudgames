@@ -1,0 +1,17 @@
+export const ONLINE_MESSAGE_TYPES = Object.freeze({
+  ROOM_STATE: 'ROOM_STATE',
+  JOIN_REQUEST: 'JOIN_REQUEST',
+  JOIN_RESPONSE: 'JOIN_RESPONSE',
+  PLAYER_LEFT: 'PLAYER_LEFT',
+  PLAYER_RECONNECTED: 'PLAYER_RECONNECTED',
+  HOST_MIGRATION: 'HOST_MIGRATION',
+  PEER_LIST: 'PEER_LIST',
+  CONNECT_TO_PEER: 'CONNECT_TO_PEER'
+});
+
+export function createMessageTypes(gameMessageTypes = {}) {
+  return Object.freeze({
+    ...ONLINE_MESSAGE_TYPES,
+    ...gameMessageTypes
+  });
+}

@@ -68,6 +68,7 @@ export function createInitialRoom(hostPlayerId, hostName, roomCode) {
       player2Guess: null,
       finalGuess: null
     },
+    opponentGuess: null,
     usedClues: [],
     notes: { white: [], black: [] },
     roundHistory: [],
@@ -274,6 +275,7 @@ export function startGame(room) {
     player2Guess: null,
     finalGuess: null
   };
+  room.opponentGuess = null;
   room.usedClues = [];
   room.notes = { white: [], black: [] };
   room.roundHistory = [];
@@ -299,7 +301,30 @@ function updateEncryptorRole(room) {
 }
 
 export function generateCode() {
-  return [1, 2, 3].map(() => Math.floor(Math.random() * 4) + 1);
+  return [1, 2, 3, 4]
+    .sort(() => Math.random() - 0.5)
+    .slice(0, 3);
+}
+
+function ensureOpponentVotes(room) {
+  if (!room.opponentVotes) {
+    room.opponentVotes = {
+      player1Guess: null,
+      player2Guess: null,
+      finalGuess: null
+    };
+  }
+  return room.opponentVotes;
+}
+
+function setOpponentFinalGuess(room, guess) {
+  const opponentVotes = ensureOpponentVotes(room);
+  opponentVotes.finalGuess = guess;
+  room.opponentGuess = guess;
+}
+
+function getOpponentFinalGuess(room) {
+  return room.opponentVotes?.finalGuess || room.opponentGuess || null;
 }
 
 export function submitClues(room, playerId, clues) {
@@ -487,16 +512,21 @@ export function submitOpponentGuess(room, playerId, guess) {
   }
 
   // 检查是否已提交过
+  if (getOpponentFinalGuess(room)) {
+    return { error: '拦截猜测已提交' };
+  }
+
+  const opponentVotes = ensureOpponentVotes(room);
   const voteKey = playerIndex === 0 ? 'player1Guess' : 'player2Guess';
-  if (room.opponentVotes[voteKey] !== null) {
+  if (opponentVotes[voteKey] !== null) {
     return { error: '你已经提交过拦截猜测了' };
   }
 
-  room.opponentVotes[voteKey] = guess;
+  opponentVotes[voteKey] = guess;
+  setOpponentFinalGuess(room, guess);
   room.updatedAt = Date.now();
 
   // 检查该队是否两人都提交了
-  const opponentVotes = room.opponentVotes;
   if (opponentVotes.player1Guess !== null && opponentVotes.player2Guess !== null) {
     // 判断两人是否一致
     const guess1 = opponentVotes.player1Guess;
@@ -504,7 +534,7 @@ export function submitOpponentGuess(room, playerId, guess) {
     const isSame = guess1.every((g, i) => g === guess2[i]);
     
     if (isSame) {
-      opponentVotes.finalGuess = guess1;
+      setOpponentFinalGuess(room, guess1);
     }
     // 如果不一致，进入投票阶段（与加密方对称）
   }
@@ -544,11 +574,11 @@ export function submitOpponentFinalVote(room, playerId, guess) {
   }
 
   // 如果已经有一致猜测，不需要投票
-  if (room.opponentVotes.finalGuess !== null) {
+  if (getOpponentFinalGuess(room) !== null) {
     return { error: '拦截方已达成一致' };
   }
 
-  room.opponentVotes.finalGuess = guess;
+  setOpponentFinalGuess(room, guess);
   room.updatedAt = Date.now();
 
   // 检查是否可以处理回合
@@ -566,7 +596,7 @@ function canProcessRound(room) {
   // 加密方队友必须达成一致
   const encryptorTeamHasFinal = room.teamVotes[encryptorTeam].finalGuess !== null;
   // 拦截方必须达成一致
-  const opponentHasFinal = room.opponentVotes?.finalGuess !== null;
+  const opponentHasFinal = getOpponentFinalGuess(room) !== null;
   
   return encryptorTeamHasFinal && opponentHasFinal;
 }
@@ -575,7 +605,7 @@ function canProcessRound(room) {
 export function checkNeedTeamVoting(room) {
   const encryptorTeam = room.encryptorTeam;
   const teamVote = room.teamVotes[encryptorTeam];
-  const opponentVotes = room.opponentVotes;
+  const opponentVotes = ensureOpponentVotes(room);
   
   // 加密方两人都提交了但不一致
   const encryptorNeedVote = teamVote.player1Guess !== null && teamVote.player2Guess !== null && teamVote.finalGuess === null;
@@ -591,7 +621,11 @@ export function processRound(room) {
   const interceptTeam = encryptorTeam === 'white' ? 'black' : 'white';
   
   const teammateGuess = room.teamVotes[encryptorTeam].finalGuess;
-  const opponentGuess = room.opponentVotes.finalGuess;
+  const opponentGuess = getOpponentFinalGuess(room);
+
+  if (!teammateGuess || !opponentGuess) {
+    return { error: '缺少最终猜测，无法结算回合' };
+  }
 
   const teammateCorrect = teammateGuess.every((g, i) => g === correctCode[i]);
   const opponentCorrect = opponentGuess.every((g, i) => g === correctCode[i]);
@@ -724,6 +758,7 @@ export function nextRound(room) {
     player2Guess: null,
     finalGuess: null
   };
+  room.opponentGuess = null;
   room.currentCode = generateCode();
   room.roundResult = null;
   room.updatedAt = Date.now();
@@ -767,6 +802,7 @@ export function resetGame(room) {
     player2Guess: null,
     finalGuess: null
   };
+  room.opponentGuess = null;
   room.usedClues = [];
   room.notes = { white: [], black: [] };
   room.roundHistory = [];

@@ -3,9 +3,14 @@
     <div class="game-container">
       <!-- Game Header -->
       <div class="game-header">
-        <div class="round-info">🐱 第 {{ gameState.room.gameState.round }} 轮</div>
+        <div class="round-info">
+          🐱 第 {{ gameState.room.gameState.round }} 轮
+        </div>
         <div class="score-info">
-          <template v-for="(p, i) in topPlayers" :key="p.id">
+          <template
+            v-for="(p, i) in topPlayers"
+            :key="p.id"
+          >
             <span v-if="i > 0"> · </span>
             <span>{{ p.name }}: {{ totalScore(p.id) }}</span>
           </template>
@@ -13,19 +18,28 @@
       </div>
 
       <!-- Phase Label -->
-      <div class="phase-label">{{ phaseLabel }}</div>
+      <div class="phase-label">
+        {{ phaseLabel }}
+      </div>
 
       <!-- Decorative Timer Bar -->
       <div class="timer-bar">
-        <div class="timer-fill"></div>
+        <div class="timer-fill" />
       </div>
 
       <!-- ─── Phase: Storyteller Picking ─── -->
-      <div v-if="phase === 'storyteller_picking'" class="storyteller-section">
-        <div class="role-badge">🐱 {{ isStoryteller ? '你是讲故事者' : '等待讲故事者...' }}</div>
+      <div
+        v-if="phase === 'storyteller_picking'"
+        class="storyteller-section"
+      >
+        <div class="role-badge">
+          🐱 {{ isStoryteller ? '你是讲故事者' : '等待讲故事者...' }}
+        </div>
 
         <template v-if="isStoryteller">
-          <p class="instruction">👆 选一张牌并写一个提示（1–20 字）</p>
+          <p class="instruction">
+            👆 选一张牌并写一个提示（1–20 字）
+          </p>
 
           <div class="hand-grid">
             <div
@@ -34,8 +48,12 @@
               :class="['hand-card', { selected: selectedCardIndex === index }]"
               @click="selectedCardIndex = index"
             >
-              <div class="word-text">{{ word }}</div>
-              <div class="card-index">#{{ index + 1 }}</div>
+              <div class="word-text">
+                {{ word }}
+              </div>
+              <div class="card-index">
+                #{{ index + 1 }}
+              </div>
             </div>
           </div>
 
@@ -47,8 +65,10 @@
               maxlength="20"
               rows="2"
               @input="onClueInput"
-            ></textarea>
-            <div class="char-count">{{ clueText.length }}/20</div>
+            />
+            <div class="char-count">
+              {{ clueText.length }}/20
+            </div>
           </div>
 
           <button
@@ -62,14 +82,19 @@
 
         <template v-else>
           <p class="waiting-text">
-            🐱 讲故事者正在构思中<span class="waiting-dots"></span>
+            🐱 讲故事者正在构思中<span class="waiting-dots" />
           </p>
         </template>
       </div>
 
       <!-- ─── Phase: Others Picking ─── -->
-      <div v-else-if="phase === 'others_picking'" class="storyteller-section">
-        <div class="role-badge">{{ isStoryteller ? '🐱 你是讲故事者' : '🐱 猜词时间' }}</div>
+      <div
+        v-else-if="phase === 'others_picking'"
+        class="storyteller-section"
+      >
+        <div class="role-badge">
+          {{ isStoryteller ? '🐱 你是讲故事者' : '🐱 猜词时间' }}
+        </div>
 
         <div class="clue-bubble">
           <strong>{{ storytellerName }} 的提示：</strong>
@@ -78,7 +103,9 @@
 
         <template v-if="!isStoryteller">
           <template v-if="!hasSubmitted">
-            <p class="instruction">👆 选一张最符合提示的牌</p>
+            <p class="instruction">
+              👆 选一张最符合提示的牌
+            </p>
 
             <div class="hand-grid">
               <div
@@ -87,8 +114,12 @@
                 :class="['hand-card', { selected: selectedCardIndex === index }]"
                 @click="selectedCardIndex = index"
               >
-                <div class="word-text">{{ word }}</div>
-                <div class="card-index">#{{ index + 1 }}</div>
+                <div class="word-text">
+                  {{ word }}
+                </div>
+                <div class="card-index">
+                  #{{ index + 1 }}
+                </div>
               </div>
             </div>
 
@@ -101,19 +132,29 @@
             </button>
           </template>
 
-          <div v-else class="submitted-badge">✓ 已提交</div>
+          <div
+            v-else
+            class="submitted-badge"
+          >
+            ✓ 已提交
+          </div>
         </template>
 
         <template v-else>
           <p class="waiting-text">
-            等待其他玩家选牌<span class="waiting-dots"></span>
+            等待其他玩家选牌<span class="waiting-dots" />
           </p>
         </template>
       </div>
 
       <!-- ─── Phase: Revealing / Voting ─── -->
-      <div v-else-if="phase === 'revealing'" class="storyteller-section">
-        <div class="role-badge">🐱 投票阶段</div>
+      <div
+        v-else-if="phase === 'revealing'"
+        class="storyteller-section"
+      >
+        <div class="role-badge">
+          🐱 投票阶段
+        </div>
 
         <div class="clue-bubble">
           <strong>提示：</strong>
@@ -121,7 +162,12 @@
         </div>
 
         <template v-if="!isStoryteller">
-          <p v-if="!hasVoted" class="instruction">👆 选出讲故事者的牌</p>
+          <p
+            v-if="!hasVoted"
+            class="instruction"
+          >
+            👆 选出讲故事者的牌
+          </p>
 
           <div class="reveal-grid">
             <div
@@ -130,12 +176,20 @@
               :class="['reveal-card', { selected: votedCardId === card.id }]"
               @click="selectVoteCard(card.id)"
             >
-              <div class="card-letter">{{ getCardLetter(card.id) }}</div>
-              <div class="word-text">{{ card.word }}</div>
+              <div class="card-letter">
+                {{ getCardLetter(card.id) }}
+              </div>
+              <div class="word-text">
+                {{ card.word }}
+              </div>
             </div>
           </div>
 
-          <div v-if="!hasVoted" class="btn-group" style="justify-content: center;">
+          <div
+            v-if="!hasVoted"
+            class="btn-group"
+            style="justify-content: center;"
+          >
             <button
               class="btn btn-primary"
               :disabled="votedCardId === -1"
@@ -144,12 +198,17 @@
               🗳️ 确认投票
             </button>
           </div>
-          <div v-else class="submitted-badge">✓ 已投票</div>
+          <div
+            v-else
+            class="submitted-badge"
+          >
+            ✓ 已投票
+          </div>
         </template>
 
         <template v-else>
           <p class="waiting-text">
-            等待其他玩家投票<span class="waiting-dots"></span>
+            等待其他玩家投票<span class="waiting-dots" />
           </p>
           <div class="reveal-grid">
             <div
@@ -157,16 +216,25 @@
               :key="card.id"
               class="reveal-card"
             >
-              <div class="card-letter">{{ getCardLetter(card.id) }}</div>
-              <div class="word-text">{{ card.word }}</div>
+              <div class="card-letter">
+                {{ getCardLetter(card.id) }}
+              </div>
+              <div class="word-text">
+                {{ card.word }}
+              </div>
             </div>
           </div>
         </template>
       </div>
 
       <!-- ─── Phase: Scoring ─── -->
-      <div v-else-if="phase === 'scoring'" class="storyteller-section">
-        <div class="role-badge">🐱 计分阶段</div>
+      <div
+        v-else-if="phase === 'scoring'"
+        class="storyteller-section"
+      >
+        <div class="role-badge">
+          🐱 计分阶段
+        </div>
 
         <div class="result-panel">
           <p class="instruction">
@@ -176,9 +244,15 @@
 
           <div class="correct-count-badge">
             {{ correctCount }} / {{ totalVoters }} 人猜对了
-            <template v-if="correctCount === totalVoters">（提示太直白啦 😿）</template>
-            <template v-else-if="correctCount === 0">（提示太难了 😼）</template>
-            <template v-else>（恰到好处 🎯）</template>
+            <template v-if="correctCount === totalVoters">
+              （提示太直白啦 😿）
+            </template>
+            <template v-else-if="correctCount === 0">
+              （提示太难了 😼）
+            </template>
+            <template v-else>
+              （恰到好处 🎯）
+            </template>
           </div>
 
           <div class="reveal-grid">
@@ -190,17 +264,30 @@
                 selected: myVotedCardId === card.id
               }]"
             >
-              <div class="card-letter">{{ getCardLetter(card.id) }}</div>
-              <div class="word-text">{{ card.word }}</div>
-              <div class="submitter-label">{{ getPlayerName(card.submitterId) }}</div>
-              <div class="vote-count">{{ getVoteCount(card.id) }} 票</div>
-              <div v-if="myVotedCardId === card.id" class="my-vote-tag">
+              <div class="card-letter">
+                {{ getCardLetter(card.id) }}
+              </div>
+              <div class="word-text">
+                {{ card.word }}
+              </div>
+              <div class="submitter-label">
+                {{ getPlayerName(card.submitterId) }}
+              </div>
+              <div class="vote-count">
+                {{ getVoteCount(card.id) }} 票
+              </div>
+              <div
+                v-if="myVotedCardId === card.id"
+                class="my-vote-tag"
+              >
                 {{ card.isSecret ? '✓ 猜对了' : '✗ 猜错了' }}
               </div>
             </div>
           </div>
 
-          <div class="divider"><span>本局得分</span></div>
+          <div class="divider">
+            <span>本局得分</span>
+          </div>
 
           <div
             v-for="player in gameState.room.players"
@@ -218,7 +305,9 @@
             </span>
           </div>
 
-          <div class="divider"><span>总积分</span></div>
+          <div class="divider">
+            <span>总积分</span>
+          </div>
 
           <table class="score-table">
             <thead>
@@ -230,8 +319,13 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(player, idx) in sortedPlayers" :key="player.id">
-                <td :class="['rank', rankClass(idx)]">{{ idx + 1 }}</td>
+              <tr
+                v-for="(player, idx) in sortedPlayers"
+                :key="player.id"
+              >
+                <td :class="['rank', rankClass(idx)]">
+                  {{ idx + 1 }}
+                </td>
                 <td>{{ player.name }}{{ player.id === gameState.playerId ? ' (你)' : '' }}</td>
                 <td :class="['score-change', { zero: roundScore(player.id) === 0 }]">
                   {{ roundScoreStr(player.id) }}
@@ -254,11 +348,18 @@
       </div>
 
       <!-- ─── Phase: Ended ─── -->
-      <div v-else-if="phase === 'ended'" class="storyteller-section">
+      <div
+        v-else-if="phase === 'ended'"
+        class="storyteller-section"
+      >
         <div class="result-panel">
-          <div class="result-title win">🏆 {{ winnerName }} 获胜!</div>
+          <div class="result-title win">
+            🏆 {{ winnerName }} 获胜!
+          </div>
 
-          <div class="divider"><span>最终排名</span></div>
+          <div class="divider">
+            <span>最终排名</span>
+          </div>
 
           <table class="score-table">
             <thead>
@@ -269,8 +370,13 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(player, idx) in sortedPlayers" :key="player.id">
-                <td :class="['rank', rankClass(idx)]">{{ idx + 1 }}</td>
+              <tr
+                v-for="(player, idx) in sortedPlayers"
+                :key="player.id"
+              >
+                <td :class="['rank', rankClass(idx)]">
+                  {{ idx + 1 }}
+                </td>
                 <td>{{ player.name }}{{ player.id === gameState.playerId ? ' (你)' : '' }}</td>
                 <td>{{ totalScore(player.id) }}</td>
               </tr>
@@ -285,7 +391,10 @@
             >
               🔄 再来一局
             </button>
-            <button class="btn btn-secondary" @click="leaveRoom">
+            <button
+              class="btn btn-secondary"
+              @click="leaveRoom"
+            >
               🚪 退出
             </button>
           </div>
@@ -293,8 +402,14 @@
       </div>
 
       <!-- Leave Button (always visible outside ended phase) -->
-      <div v-if="phase !== 'ended'" class="leave-section">
-        <button class="btn btn-secondary btn-sm" @click="leaveRoom">
+      <div
+        v-if="phase !== 'ended'"
+        class="leave-section"
+      >
+        <button
+          class="btn btn-secondary btn-sm"
+          @click="leaveRoom"
+        >
           🚪 退出
         </button>
       </div>

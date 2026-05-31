@@ -5,7 +5,9 @@
       <div class="cat-header">
         <span class="cat-icon">🐱</span>
         <h1>喵喵猜词</h1>
-        <div class="subtitle">等待玩家加入...</div>
+        <div class="subtitle">
+          等待玩家加入...
+        </div>
       </div>
 
       <!-- Room Code -->
@@ -57,7 +59,11 @@
       </div>
 
       <!-- Waiting / Start -->
-      <div v-if="gameState.isHost" class="waiting-text" style="margin-bottom: 12px;">
+      <div
+        v-if="gameState.isHost"
+        class="waiting-text"
+        style="margin-bottom: 12px;"
+      >
         <template v-if="onlinePlayerCount < 3">
           等待更多玩家加入...（至少3人）
         </template>
@@ -65,7 +71,11 @@
           喵！准备就绪，可以开始游戏啦！
         </template>
       </div>
-      <div v-else class="waiting-text" style="margin-bottom: 12px;">
+      <div
+        v-else
+        class="waiting-text"
+        style="margin-bottom: 12px;"
+      >
         等待房主开始游戏...
       </div>
 
