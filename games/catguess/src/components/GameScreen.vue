@@ -362,10 +362,30 @@
         v-else-if="phase === 'ended'"
         class="storyteller-section"
       >
+        <!-- 🎉 Confetti Rain -->
+        <div
+          v-if="showConfetti"
+          class="confetti-container"
+        >
+          <div
+            v-for="n in 50"
+            :key="n"
+            class="confetti-piece"
+            :style="confettiStyle(n)"
+          />
+        </div>
+
         <div class="result-panel">
+          <!-- Victory Celebration -->
+          <span class="victory-crown">👑</span>
           <div class="result-title win">
-            🏆 {{ winnerName }} 获胜!
+            <span class="sparkle">✨</span>
+            <span class="victory-name">{{ winnerName }}</span>
+            <span class="sparkle">✨</span>
           </div>
+          <p class="victory-sub">
+            🏆 恭喜获得最终胜利！
+          </p>
 
           <div class="divider">
             <span>最终排名</span>
@@ -383,11 +403,18 @@
               <tr
                 v-for="(player, idx) in sortedPlayers"
                 :key="player.id"
+                :class="{ 'winner-row': idx === 0 }"
               >
                 <td :class="['rank', rankClass(idx)]">
                   {{ idx + 1 }}
                 </td>
-                <td>{{ player.name }}{{ player.id === gameState.playerId ? ' (你)' : '' }}</td>
+                <td>
+                  {{ player.name }}{{ player.id === gameState.playerId ? ' (你)' : '' }}
+                  <span
+                    v-if="idx === 0"
+                    class="crown-badge"
+                  >👑</span>
+                </td>
                 <td>{{ totalScore(player.id) }}</td>
               </tr>
             </tbody>
@@ -495,6 +522,9 @@ import { showToast } from './ToastNotification.vue'
 /** Whether the game rules modal is open */
 const showRules = ref(false)
 
+/** Whether to show the victory confetti rain */
+const showConfetti = ref(false)
+
 /** Index of the currently selected hand card (-1 = none) */
 const selectedCardIndex = ref(-1)
 
@@ -508,22 +538,32 @@ const votedCardId = ref(-1)
 const countdownSeconds = ref(30)
 const countdownTimer = ref(null)
 
-const COUNTDOWN_TOTAL = 30
+/** Time limits for each phase (in seconds) */
+const PHASE_TIME_LIMITS = {
+  [GAME_PHASES.STORYTELLER_PICKING]: 60,  // 说书人出题：60秒
+  [GAME_PHASES.OTHERS_PICKING]: 30,        // 选牌：30秒
+  [GAME_PHASES.REVEALING]: 30              // 猜词/投票：30秒
+}
+
+const countdownTotal = computed(() => {
+  return PHASE_TIME_LIMITS[phase.value] || 30
+})
 
 const showTimer = computed(() => {
   return phase.value === GAME_PHASES.STORYTELLER_PICKING ||
-         phase.value === GAME_PHASES.OTHERS_PICKING
+         phase.value === GAME_PHASES.OTHERS_PICKING ||
+         phase.value === GAME_PHASES.REVEALING
 })
 
 const timerPercentage = computed(() => {
-  return (countdownSeconds.value / COUNTDOWN_TOTAL) * 100
+  return (countdownSeconds.value / countdownTotal.value) * 100
 })
 
 const startCountdown = () => {
   if (countdownTimer.value) {
     clearInterval(countdownTimer.value)
   }
-  countdownSeconds.value = COUNTDOWN_TOTAL
+  countdownSeconds.value = countdownTotal.value
   
   countdownTimer.value = setInterval(() => {
     if (countdownSeconds.value > 0) {
@@ -759,6 +799,26 @@ const goNextRound = async () => {
   }
 }
 
+/** Generate randomized inline style for a confetti piece */
+const CONFETTI_COLORS = ['#FF6B6B', '#4ECDC4', '#FFD93D', '#6C5CE7', '#FF8A5C', '#25CCF7', '#FC427B', '#55E6C1', '#F8B500', '#A29BFE']
+
+const confettiStyle = (n) => {
+  const left = (n * 7 + 13) % 100
+  const delay = ((n * 0.17) % 3).toFixed(2)
+  const duration = (2.5 + ((n * 0.11) % 2.5)).toFixed(2)
+  const size = 6 + (n % 10)
+  const color = CONFETTI_COLORS[n % CONFETTI_COLORS.length]
+  return {
+    left: `${left}%`,
+    animationDelay: `${delay}s`,
+    animationDuration: `${duration}s`,
+    width: `${size}px`,
+    height: `${size + 2}px`,
+    backgroundColor: color,
+    borderRadius: n % 3 === 0 ? '50%' : '3px'
+  }
+}
+
 // ─── Watch: Reset local state on phase change ───
 
 watch(phase, () => {
@@ -767,8 +827,22 @@ watch(phase, () => {
   votedCardId.value = -1
   stopCountdown()
   
-  if (phase.value === GAME_PHASES.STORYTELLER_PICKING) {
+  // Start countdown for picking phases and voting phase
+  if (phase.value === GAME_PHASES.STORYTELLER_PICKING ||
+      phase.value === GAME_PHASES.OTHERS_PICKING ||
+      phase.value === GAME_PHASES.REVEALING) {
     startCountdown()
+  }
+
+  // 🎉 Victory celebration when game ends
+  if (phase.value === GAME_PHASES.ENDED) {
+    showConfetti.value = true
+    setTimeout(() => { showConfetti.value = false }, 5000)
+    if (winnerName.value) {
+      showToast(`🎉 ${winnerName.value} 获得了最终的胜利！恭喜！`, 'success')
+    }
+  } else {
+    showConfetti.value = false
   }
 })
 

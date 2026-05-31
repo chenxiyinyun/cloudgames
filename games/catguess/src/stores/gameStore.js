@@ -87,12 +87,16 @@ let _joinTimeout = null;
 let _joinRetryInterval = null;
 let _scoringTimer = null;
 let _pickingTimer = null;
+let _votingTimer = null;
 
-/** Auto-advance 8 seconds after scoring phase starts */
-const SCORING_AUTO_ADVANCE_MS = 8000;
+/** Auto-advance 15 seconds after scoring phase starts */
+const SCORING_AUTO_ADVANCE_MS = 15000;
 
-/** Auto-advance 30 seconds after storyteller picking phase starts */
-const PICKING_TIMEOUT_MS = 30000;
+/** Auto-advance 60 seconds after storyteller picking phase starts (说书人出题) */
+const PICKING_TIMEOUT_MS = 60000;
+
+/** Auto-advance 30 seconds after voting phase starts (猜词/投票) */
+const VOTING_TIMEOUT_MS = 30000;
 
 function scheduleAutoAdvance() {
   if (_scoringTimer) clearTimeout(_scoringTimer);
@@ -152,6 +156,52 @@ function clearPickingTimer() {
   if (_pickingTimer) {
     clearTimeout(_pickingTimer);
     _pickingTimer = null;
+  }
+}
+
+function scheduleVotingTimeout() {
+  if (!gameState.isHost) return;
+  if (_votingTimer) clearTimeout(_votingTimer);
+  
+  _votingTimer = setTimeout(() => {
+    _votingTimer = null;
+    if (!cachedRoom || cachedRoom.phase !== GAME_PHASES.REVEALING) return;
+    
+    // If not all players have voted, force calculate scores with current votes
+    const eligibleVoters = cachedRoom.players.filter(
+      p => p.id !== cachedRoom.gameState.storytellerId && p.isOnline
+    );
+    const votedPlayerIds = cachedRoom.gameState.votes.map(v => v.voterId);
+    
+    // Only proceed if everyone has voted, otherwise we can't calculate scores fairly
+    if (votedPlayerIds.length < eligibleVoters.length) {
+      log.warn('[GameStore] Voting timeout: not all players voted, waiting...');
+      // Schedule another check in 5 seconds
+      _votingTimer = setTimeout(() => {
+        if (!cachedRoom || cachedRoom.phase !== GAME_PHASES.REVEALING) return;
+        if (cachedRoom.gameState.votes.length < eligibleVoters.length) {
+          // Still not all voted, just advance with what we have
+          console.log('[GameStore] Forcing score calculation with', cachedRoom.gameState.votes.length, 'votes');
+          const result = calculateScores(cachedRoom);
+          if (result.error) {
+            log.warn('Forced scoring failed', { error: result.error });
+            return;
+          }
+          cachedRoom.phase = GAME_PHASES.SCORING;
+          cachedRoom.updatedAt = Date.now();
+          broadcastState();
+          scheduleAutoAdvance();
+        }
+      }, 5000);
+      return;
+    }
+  }, VOTING_TIMEOUT_MS);
+}
+
+function clearVotingTimer() {
+  if (_votingTimer) {
+    clearTimeout(_votingTimer);
+    _votingTimer = null;
   }
 }
 
@@ -317,7 +367,16 @@ export async function joinRoom(name, code) {
     setConnectionStatus('connecting', '正在连接任务...');
     gameState.connecting = true;
     gameState.error = null;  // Clear previous error
-    const playerId = generatePlayerId();
+
+    // 复用缓存的 playerId，避免以新身份加入同一房间
+    const cache = loadStateFromCache();
+    let playerId;
+    if (cache?.state?.playerId && cache?.state?.roomCode === sanitizedCode) {
+      playerId = cache.state.playerId;
+      console.log('[GameStore] Reusing cached playerId for room', sanitizedCode, ':', playerId);
+    } else {
+      playerId = generatePlayerId();
+    }
 
     gameState.playerId = playerId;
     gameState.playerName = sanitizedName;
@@ -622,7 +681,54 @@ function handleHostMessage(data, peerId) {
         const { playerId, playerName, originalPeerId, isReconnect } = data.payload;
         console.log('Join request from:', playerName, isReconnect ? '(reconnect)' : '');
 
-        // 检查游戏是否已经开始
+        // 1. 先按 playerId 查找已有玩家
+        const existingByPlayerId = cachedRoom?.players.find(p => p.id === playerId);
+
+        if (existingByPlayerId && !existingByPlayerId.isOnline) {
+          // playerId 匹配到离线玩家 → 重连
+          existingByPlayerId.isOnline = true;
+          existingByPlayerId._peerId = originalPeerId || peerId;
+          if (cachedRoom.disconnectedPlayers) {
+            cachedRoom.disconnectedPlayers = cachedRoom.disconnectedPlayers.filter(p => p.id !== playerId);
+          }
+          broadcastState();
+          p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: true, reconnected: true, originalPlayerId: playerId });
+          return;
+        }
+
+        if (existingByPlayerId && existingByPlayerId.isOnline) {
+          // playerId 匹配到在线玩家 → 可能是重复请求
+          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom });
+          return;
+        }
+
+        // 2. playerId 未匹配，按 playerName 查找已有玩家（处理缓存丢失后以新 playerId 重新加入的情况）
+        const existingByName = cachedRoom?.players.find(
+          p => p.name === playerName && !p.isOnline
+        );
+
+        if (existingByName) {
+          // 名字匹配到离线玩家 → 视为重连，恢复原身份
+          existingByName.isOnline = true;
+          existingByName._peerId = originalPeerId || peerId;
+          if (cachedRoom.disconnectedPlayers) {
+            cachedRoom.disconnectedPlayers = cachedRoom.disconnectedPlayers.filter(p => p.id !== existingByName.id);
+          }
+          broadcastState();
+          p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: true, reconnected: true, originalPlayerId: existingByName.id });
+          return;
+        }
+
+        const existingOnlineByName = cachedRoom?.players.find(
+          p => p.name === playerName && p.isOnline
+        );
+        if (existingOnlineByName) {
+          p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: false, error: '该名字的玩家已在线' });
+          return;
+        }
+
+        // 3. 完全没有匹配 → 这是新玩家
+        // 游戏已开始则拒绝新玩家加入
         if (cachedRoom && cachedRoom.status !== GAME_PHASES.WAITING && cachedRoom.phase !== GAME_PHASES.WAITING) {
           const errMsg = '游戏已经开始，无法加入房间';
           console.warn('[GameStore] Rejecting join: game already started');
@@ -630,22 +736,11 @@ function handleHostMessage(data, peerId) {
           return;
         }
 
+        // 游戏未开始，允许新玩家加入
         const joinKey = generateOpKey(MSG.JOIN_REQUEST, { playerId, roomCode: cachedRoom?.code, isReconnect });
         if (isDuplicateOp(joinKey)) {
           log.debug('Duplicate JOIN_REQUEST ignored', { key: joinKey });
           p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom });
-          return;
-        }
-
-        const existingPlayer = cachedRoom?.players.find(p => p.id === playerId);
-        if (existingPlayer && !existingPlayer.isOnline) {
-          existingPlayer.isOnline = true;
-          existingPlayer._peerId = originalPeerId || peerId;
-          if (cachedRoom.disconnectedPlayers) {
-            cachedRoom.disconnectedPlayers = cachedRoom.disconnectedPlayers.filter(p => p.id !== playerId);
-          }
-          broadcastState();
-          p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: true, reconnected: true });
           return;
         }
 
@@ -717,6 +812,10 @@ function handleHostMessage(data, peerId) {
           return;
         }
         broadcastState();
+        // 如果进入投票阶段，启动投票超时定时器
+        if (cachedRoom.phase === GAME_PHASES.REVEALING) {
+          scheduleVotingTimeout();
+        }
         break;
       } catch (err) {
         log.error('handleHostMessage:SUBMIT_CARD error', { type: data?.type, peerId, error: err });
@@ -736,6 +835,7 @@ function handleHostMessage(data, peerId) {
           p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: '请勿重复投票' });
           return;
         }
+        clearVotingTimer();
         const result = submitVote(cachedRoom, data.payload.playerId, data.payload.votedCardId);
         if (result.error) {
           p2p.sendTo(peerId, MSG.ROOM_STATE, { room: cachedRoom, error: result.error });
@@ -841,6 +941,11 @@ function handleGuestMessage(data, peerId) {
           cleanup();
           gameState.screen = 'menu';
         } else if (data.payload.reconnected) {
+          // 房主返回了原始 playerId，更新本地身份
+          if (data.payload.originalPlayerId && data.payload.originalPlayerId !== gameState.playerId) {
+            console.log('[GameStore] Restoring original playerId:', data.payload.originalPlayerId);
+            gameState.playerId = data.payload.originalPlayerId;
+          }
           stopJoinRetry();
           gameState.connected = true;
           setConnectionStatus('connected', '重连成功');
@@ -1074,6 +1179,7 @@ function cleanup() {
   _migrationInProgress = false;
   clearScoringTimer();
   clearPickingTimer();
+  clearVotingTimer();
   cachedRoom = null;
   roomBroadcaster.resetBroadcastState();
   resetOps();
