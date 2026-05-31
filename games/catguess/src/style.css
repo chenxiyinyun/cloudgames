@@ -497,12 +497,15 @@ body {
   border-radius: 18px;
   padding: 28px 16px;
   text-align: center;
-  cursor: pointer;
   transition: all 0.25s;
   position: relative;
 }
 
-.reveal-card:hover {
+.reveal-card.votable {
+  cursor: pointer;
+}
+
+.reveal-card.votable:hover {
   border-color: var(--cat-blue);
   transform: translateY(-4px);
   box-shadow: 0 8px 20px var(--cat-shadow);

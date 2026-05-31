@@ -5,7 +5,7 @@ import {
   GAME_PHASES, generatePlayerId, createInitialRoom,
   addPlayerToRoom, removePlayerFromRoom, startGame,
   submitStorySelection, submitCard, submitVote,
-  nextRound, checkWinCondition
+  nextRound, checkWinCondition, restartGame
 } from '../services/gameEngine';
 import { saveStateToCache, loadStateFromCache, clearStateCache, hasCachedState, flushStateCache, cancelPendingSave } from '../services/stateCache';
 import { sanitizePlayerName, sanitizeRoomCode, sanitizeStoryClue } from '../services/sanitize';
@@ -670,9 +670,13 @@ function handleHostMessage(data, peerId) {
           return;
         }
         if (cachedRoom.status === GAME_PHASES.ENDED) {
-          checkWinCondition(cachedRoom);
+          restartGame(cachedRoom);
         } else {
-          nextRound(cachedRoom);
+          const result = nextRound(cachedRoom);
+          if (result.error) {
+            log.warn('Host received NEXT_ROUND but nextRound failed', { error: result.error });
+            break;
+          }
         }
         broadcastState();
         break;
@@ -940,12 +944,13 @@ export function handleSubmitVote(votedCardId) {
 export function handleNextRound() {
   if (!gameState.isHost) return;
   if (cachedRoom.status === GAME_PHASES.ENDED) {
-    const hasWinner = checkWinCondition(cachedRoom);
-    if (!hasWinner) {
-      cachedRoom.status = GAME_PHASES.PLAYING;
-    }
+    restartGame(cachedRoom);
   } else {
-    nextRound(cachedRoom);
+    const result = nextRound(cachedRoom);
+    if (result.error) {
+      showToast(result.error, 'warning');
+      return;
+    }
   }
   broadcastState();
   p2p.broadcast(MSG.NEXT_ROUND, { playerId: gameState.playerId });

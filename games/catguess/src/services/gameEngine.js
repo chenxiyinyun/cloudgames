@@ -419,6 +419,34 @@ export function nextRound(room) {
   return { room };
 }
 
+export function restartGame(room) {
+  room.status = GAME_PHASES.PLAYING;
+  room.phase = GAME_PHASES.STORYTELLER_PICKING;
+  room.gameState.round = 1;
+  room.gameState.storytellerId = room.players.filter(p => p.isOnline)[0]?.id || room.players[0]?.id;
+  room.gameState.secretCardId = null;
+  room.gameState.clue = '';
+  room.gameState.submittedCards = [];
+  room.gameState.shuffledCards = [];
+  room.gameState.votes = [];
+  room.gameState.roundScores = {};
+  room.gameState.scores = {};
+  room.gameState.roundHistory = [];
+  room.gameState.winner = null;
+  room.disconnectedPlayers = [];
+  room.savedPhase = null;
+  room.savedStorytellerId = null;
+
+  room.players.forEach(p => {
+    room.gameState.scores[p.id] = 0;
+  });
+
+  dealCardsToPlayers(room, 5);
+
+  room.updatedAt = Date.now();
+  return { room };
+}
+
 export function checkWinCondition(room, targetScore = 10) {
   for (const [playerId, score] of Object.entries(room.gameState.scores)) {
     if (score >= targetScore) {
