@@ -481,10 +481,10 @@
         <div class="rules-section">
           <h3>📊 计分规则</h3>
           <ul class="rules-list">
-            <li>猜对的玩家 <strong>+1 分</strong></li>
-            <li>讲故事者：<strong>不是全部猜对也不是全猜错</strong>则 +2 分</li>
-            <li>如果所有人都猜对了 → 提示太直白，讲故事者 <strong>0 分</strong></li>
-            <li>如果全都猜错了 → 提示太难，讲故事者 <strong>0 分</strong></li>
+            <li>猜对的玩家 <strong>+3 分</strong></li>
+            <li>讲故事者：<strong>不是全部猜对也不是全猜错</strong>则 <strong>+3 分</strong></li>
+            <li>如果所有人都猜对了 → 提示太直白，讲故事者 <strong>0 分</strong>，所有投票者 <strong>+2 分</strong></li>
+            <li>如果全都猜错了 → 提示太难，讲故事者 <strong>0 分</strong>，所有投票者 <strong>+2 分</strong></li>
           </ul>
         </div>
 
@@ -857,7 +857,7 @@ watch(countdownSeconds, (newVal) => {
       setTimeout(async () => {
         try {
           await handleSubmitStorySelection(randomIndex, autoClue)
-        } catch (err) {
+        } catch {
           showToast('自动提交失败，请手动选择', 'error')
         }
       }, 500)

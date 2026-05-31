@@ -150,6 +150,7 @@ export function startGame(room) {
   room.gameState.round = 1;
   room.gameState.storytellerId = room.players.filter(p => p.isOnline)[0].id;
   room.gameState.secretCardId = null;
+  room.gameState.secretWord = null;
   room.gameState.clue = '';
   room.gameState.submittedCards = [];
   room.gameState.shuffledCards = [];
@@ -198,6 +199,7 @@ export function submitStorySelection(room, playerId, selectedCardIndex, clue) {
   }
 
   room.gameState.secretCardId = selectedCardIndex;
+  room.gameState.secretWord = storyteller.hand[selectedCardIndex];
   room.gameState.clue = clue.trim();
   room.phase = GAME_PHASES.OTHERS_PICKING;
   room.updatedAt = Date.now();
@@ -233,7 +235,8 @@ export function submitCard(room, playerId, selectedCardIndex) {
 
   room.gameState.submittedCards.push({
     playerId,
-    cardId: selectedCardIndex
+    cardId: selectedCardIndex,
+    word: player.hand[selectedCardIndex]
   });
 
   room.updatedAt = Date.now();
@@ -251,19 +254,15 @@ export function submitCard(room, playerId, selectedCardIndex) {
     const allCards = [];
 
     const storyteller = room.players.find(p => p.id === room.gameState.storytellerId);
-    const secretWord = storyteller.hand[room.gameState.secretCardId];
     allCards.push({
-      word: secretWord,
+      word: room.gameState.secretWord,
       isSecret: true,
       submitterId: storyteller.id
     });
 
     room.gameState.submittedCards.forEach(sc => {
-      const submitter = room.players.find(p => p.id === sc.playerId);
-      if (!submitter) return;
-      const word = submitter.hand[sc.cardId];
       allCards.push({
-        word,
+        word: sc.word,
         isSecret: false,
         submitterId: sc.playerId
       });
@@ -371,7 +370,7 @@ export function calculateScores(room) {
     storytellerId,
     clue: room.gameState.clue,
     secretCardWord: secretCard ? secretCard.word : '',
-    shuffledCards: shuffledCards.map(c => ({ id: c.id, word: c.word })),
+    shuffledCards: shuffledCards.map(c => ({ id: c.id, word: c.word, isSecret: c.isSecret })),
     votes: votes.map(v => ({ voterId: v.voterId, votedCardId: v.votedCardId })),
     roundScores: { ...room.gameState.roundScores },
     scores: { ...scores },
@@ -401,6 +400,7 @@ export function nextRound(room) {
   room.gameState.round++;
   room.gameState.storytellerId = onlinePlayers[nextStorytellerIndex].id;
   room.gameState.secretCardId = null;
+  room.gameState.secretWord = null;
   room.gameState.clue = '';
   room.gameState.submittedCards = [];
   room.gameState.shuffledCards = [];
@@ -425,6 +425,7 @@ export function restartGame(room) {
   room.gameState.round = 1;
   room.gameState.storytellerId = room.players.filter(p => p.isOnline)[0]?.id || room.players[0]?.id;
   room.gameState.secretCardId = null;
+  room.gameState.secretWord = null;
   room.gameState.clue = '';
   room.gameState.submittedCards = [];
   room.gameState.shuffledCards = [];

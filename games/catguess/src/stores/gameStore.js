@@ -5,7 +5,7 @@ import {
   GAME_PHASES, generatePlayerId, createInitialRoom,
   addPlayerToRoom, removePlayerFromRoom, startGame,
   submitStorySelection, submitCard, submitVote,
-  nextRound, checkWinCondition, restartGame, calculateScores
+  nextRound, restartGame, calculateScores
 } from '../services/gameEngine';
 import { saveStateToCache, loadStateFromCache, clearStateCache, hasCachedState, flushStateCache, cancelPendingSave } from '../services/stateCache';
 import { sanitizePlayerName, sanitizeRoomCode, sanitizeStoryClue } from '../services/sanitize';
@@ -88,6 +88,7 @@ let _joinRetryInterval = null;
 let _scoringTimer = null;
 let _pickingTimer = null;
 let _votingTimer = null;
+let _offlinePlayerCleanupTimer = null;
 
 /** Auto-advance 15 seconds after scoring phase starts */
 const SCORING_AUTO_ADVANCE_MS = 15000;
@@ -97,6 +98,63 @@ const PICKING_TIMEOUT_MS = 60000;
 
 /** Auto-advance 30 seconds after voting phase starts (猜词/投票) */
 const VOTING_TIMEOUT_MS = 30000;
+
+/** 玩家离线等待超时 (60秒后若未重连则移除) */
+const PLAYER_DISCONNECT_TIMEOUT_MS = 60000;
+
+function cleanupDisconnectedPlayers() {
+  if (!cachedRoom || !cachedRoom.disconnectedPlayers || cachedRoom.disconnectedPlayers.length === 0) {
+    return;
+  }
+
+  const now = Date.now();
+  const stalePlayers = cachedRoom.disconnectedPlayers.filter(
+    p => now - p.disconnectedAt > PLAYER_DISCONNECT_TIMEOUT_MS
+  );
+
+  if (stalePlayers.length > 0) {
+    log.info('Removing stale disconnected players', { count: stalePlayers.length });
+
+    stalePlayers.forEach(player => {
+      cachedRoom.players = cachedRoom.players.filter(p => p.id !== player.id);
+    });
+
+    cachedRoom.disconnectedPlayers = cachedRoom.disconnectedPlayers.filter(
+      p => !stalePlayers.find(sp => sp.id === p.id)
+    );
+
+    if (cachedRoom.disconnectedPlayers.length === 0) {
+      clearOfflinePlayerCleanupTimer();
+    }
+
+    const onlineCount = cachedRoom.players.filter(p => p.isOnline).length;
+    if (onlineCount < 3 && cachedRoom.status === GAME_PHASES.PLAYING) {
+      log.warn('Not enough online players, ending game', { onlineCount });
+      cachedRoom.status = GAME_PHASES.ENDED;
+      cachedRoom.phase = GAME_PHASES.ENDED;
+      cachedRoom.gameState.winner = null;
+    }
+
+    broadcastState();
+  }
+}
+
+function scheduleOfflinePlayerCleanup() {
+  if (_offlinePlayerCleanupTimer) clearTimeout(_offlinePlayerCleanupTimer);
+  _offlinePlayerCleanupTimer = setTimeout(() => {
+    cleanupDisconnectedPlayers();
+    if (cachedRoom?.disconnectedPlayers?.length > 0) {
+      scheduleOfflinePlayerCleanup();
+    }
+  }, 10000);
+}
+
+function clearOfflinePlayerCleanupTimer() {
+  if (_offlinePlayerCleanupTimer) {
+    clearTimeout(_offlinePlayerCleanupTimer);
+    _offlinePlayerCleanupTimer = null;
+  }
+}
 
 function scheduleAutoAdvance() {
   if (_scoringTimer) clearTimeout(_scoringTimer);
@@ -532,8 +590,13 @@ function setupHostHandlers() {
         cachedRoom.disconnectedPlayers = [];
       }
       if (!cachedRoom.disconnectedPlayers.find(p => p.id === playerToMark.id)) {
-        cachedRoom.disconnectedPlayers.push(playerToMark);
+        cachedRoom.disconnectedPlayers.push({
+          id: playerToMark.id,
+          name: playerToMark.name,
+          disconnectedAt: Date.now()
+        });
       }
+      scheduleOfflinePlayerCleanup();
       broadcastState();
     }
   };
@@ -586,6 +649,27 @@ async function handleHostDisconnect() {
     log.info('Host migration already in progress, skipping');
     return;
   }
+
+  const candidates = cachedRoom.players
+    .filter(p => p.isOnline !== false && p.id !== gameState.playerId)
+    .sort((a, b) => a.order - b.order);
+
+  if (candidates.length === 0) {
+    setConnectionStatus('error', '房主已断开，房间关闭');
+    gameState.error = '房主已断开，房间关闭';
+    gameState.connected = false;
+    return;
+  }
+
+  const newHost = candidates[0];
+  const myOrder = cachedRoom.players.find(p => p.id === gameState.playerId)?.order ?? Infinity;
+
+  if (myOrder > newHost.order) {
+    log.info(`Waiting for new host (my order: ${myOrder}, new host order: ${newHost.order})`);
+    setConnectionStatus('reconnecting', `等待 ${newHost.name} 成为新房主...`);
+    return;
+  }
+
   _migrationInProgress = true;
 
   const safetyTimer = setTimeout(() => {
@@ -594,25 +678,6 @@ async function handleHostDisconnect() {
       _migrationInProgress = false;
     }
   }, 5000);
-
-  const otherPlayers = cachedRoom.players.filter(p =>
-    p.id !== gameState.playerId && p.isOnline !== false
-  );
-
-  if (otherPlayers.length === 0) {
-    clearTimeout(safetyTimer);
-    _migrationInProgress = false;
-    setConnectionStatus('error', '房主已断开，房间关闭');
-    gameState.error = '房主已断开，房间关闭';
-    gameState.connected = false;
-    return;
-  }
-
-  const candidates = cachedRoom.players
-    .filter(p => p.isOnline !== false)
-    .sort((a, b) => a.order - b.order);
-
-  const newHost = candidates[0];
 
   if (newHost.id === gameState.playerId) {
     console.log('I am the new host!');
@@ -627,7 +692,6 @@ async function handleHostDisconnect() {
       await p2p.connectToPeer(newHostPeerId);
       setConnectionStatus('connected', '已连接到新房主');
       clearTimeout(safetyTimer);
-      _migrationInProgress = false;
     } catch (err) {
       console.error('Failed to connect to new host:', err);
       clearTimeout(safetyTimer);
@@ -1048,7 +1112,7 @@ function updateLocalState(room) {
       storytellerId: room.gameState.storytellerId || null,
       clue: room.gameState.clue || '',
       submittedCards: room.gameState.submittedCards ? [...room.gameState.submittedCards] : [],
-      shuffledCards: room.gameState.shuffledCards ? [...room.gameState.shuffledCards] : [],
+      shuffledCards: sanitizeShuffledCardsForClient(room.gameState, room.phase),
       votes: room.gameState.votes ? [...room.gameState.votes] : [],
       roundScores: room.gameState.roundScores ? { ...room.gameState.roundScores } : {},
       scores: room.gameState.scores ? { ...room.gameState.scores } : {},
@@ -1068,12 +1132,27 @@ function updateLocalState(room) {
       winner: null,
       secretCardId: null
     },
+    hostId: room.hostId || null,
     disconnectedPlayers: room.disconnectedPlayers ? [...room.disconnectedPlayers] : [],
     savedPhase: room.savedPhase || null,
     savedStorytellerId: room.savedStorytellerId || null
   };
 
   syncScreenToPhase(room);
+}
+
+function sanitizeShuffledCardsForClient(gameState, phase) {
+  if (!gameState.shuffledCards) return [];
+
+  if (phase === GAME_PHASES.SCORING || phase === GAME_PHASES.ENDED) {
+    return [...gameState.shuffledCards];
+  }
+
+  return gameState.shuffledCards.map(card => ({
+    id: card.id,
+    word: card.word,
+    submitterId: card.submitterId
+  }));
 }
 
 function syncScreenToPhase(room) {
@@ -1160,6 +1239,10 @@ export function handleNextRound() {
 
 export function handleEndGame() {
   if (!gameState.isHost) return;
+  clearScoringTimer();
+  clearPickingTimer();
+  clearVotingTimer();
+  clearOfflinePlayerCleanupTimer();
   cachedRoom.gameState.winner = null;
   cachedRoom.status = GAME_PHASES.ENDED;
   cachedRoom.phase = GAME_PHASES.ENDED;
@@ -1180,6 +1263,7 @@ function cleanup() {
   clearScoringTimer();
   clearPickingTimer();
   clearVotingTimer();
+  clearOfflinePlayerCleanupTimer();
   cachedRoom = null;
   roomBroadcaster.resetBroadcastState();
   resetOps();

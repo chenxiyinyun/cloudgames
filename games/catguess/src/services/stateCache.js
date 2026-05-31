@@ -19,7 +19,6 @@ const CACHE_FIELDS = [
   'playerName',
   'roomCode',
   'isHost',
-  'team',
   'screen',
   'connectionStatus'
 ];
@@ -27,24 +26,12 @@ const CACHE_FIELDS = [
 // 需要缓存的房间字段
 const CACHE_ROOM_FIELDS = [
   'players',
-  'teams',
-  'whiteKeywords',
-  'blackKeywords',
-  'currentCode',
-  'currentRound',
   'phase',
-  'encryptor',
-  'encryptorTeam',
-  'clues',
-  'teamVotes',
-  'opponentGuess',
-  'notes',
-  'roundResult',
-  'winner',
   'status',
-  'rotationIndex',
+  'gameState',
   'disconnectedPlayers',
-  'savedPhase'
+  'savedPhase',
+  'savedStorytellerId'
 ];
 
 // 将响应式对象转换为普通对象（深拷贝）
