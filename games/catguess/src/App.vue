@@ -10,6 +10,7 @@
       :message="gameState.connectionMessage"
       :attempt="reconnectAttempt"
       :max-attempts="MAX_RECONNECT_ATTEMPTS"
+      :diagnostics="gameState.diagnostics"
       @retry="handleManualReconnect"
       @leave="handleForceLeave"
     />

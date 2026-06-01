@@ -1,5 +1,5 @@
 import Peer from 'peerjs';
-import { createPeerConfig, HAS_TURN_RELAY, PEER_SERVER } from './peerConfig';
+import { createPeerConfig, HAS_TURN_RELAY, PEER_SERVER, SIGNALING_INFO, TURN_RELAY_INFO } from './peerConfig';
 import { translatePeerError } from './peerErrors';
 import { generateRoomCode } from './roomCode';
 
@@ -26,9 +26,14 @@ export class P2PService {
     this.onError = null;
     this.onDeadPeer = null;
     this.onConnectionStateChange = null;
+    this.onModeChange = null;
     this.isHost = false;
     this.roomCode = null;
     this.playerName = null;
+
+    // 静态诊断信息（启动后不变），供 UI 渲染
+    this.signalingInfo = SIGNALING_INFO;
+    this.turnRelayInfo = TURN_RELAY_INFO;
 
     this._heartbeatInterval = null;
     this._peerLastSeen = new Map();
@@ -40,6 +45,25 @@ export class P2PService {
     this._connectionStates = new Map();
     this._recoveryAttempts = new Map();
     this._iceGuardTimers = new Map();
+  }
+
+  /**
+   * 模式/状态变更通知：让上层（gameStore / UI）能感知直连→中继切换
+   * @param {{ phase: 'trying-direct' | 'switching-to-relay' | 'using-relay' | 'failed', reason?: string }} payload
+   */
+  _emitModeChange(payload) {
+    this._lastModeChange = { ...payload, at: Date.now() };
+    if (typeof this.onModeChange === 'function') {
+      try {
+        this.onModeChange(payload);
+      } catch (e) {
+        this.log.error('onModeChange callback threw', { error: e });
+      }
+    }
+  }
+
+  getLastModeChange() {
+    return this._lastModeChange;
   }
 
   generateRoomCode() {
@@ -153,18 +177,34 @@ export class P2PService {
     // 是否还有中继兜底可用（已有 TURN，且当前不是纯中继模式）
     const canRelay = HAS_TURN_RELAY && this._getModeLabel() !== 'relay';
 
+    // 进入尝试阶段，通知 UI
+    this._emitModeChange({ phase: 'trying-direct', mode: 'direct-or-relay' });
+
     try {
       // 有中继兜底时，直连用较短超时以尽快放弃、进入中继；
       // 没有兜底时这是唯一一次机会，给足时间避免高延迟下误超时。
+      // _joinRoom 内部监听 ICE 状态，failed 时会立即 reject 一个 'ice-failed'
+      // 错误，让我们在不依赖 timeout 的情况下无缝切 TURN。
       return await this._joinRoom(roomCode, {
         forceRelay: false,
         timeout: canRelay ? 12000 : 20000
       });
     } catch (err) {
+      const isIceFailed = err && err.code === 'ICE_FAILED';
+      const isTimeout = err && err.code === 'JOIN_TIMEOUT';
       if (!canRelay) {
+        // 没 TURN 兜底，老实把错误抛上去
         throw err;
       }
-      this.log.warn('Room join failed, retrying with relay-only TURN', { roomCode, error: err });
+      this.log.warn(
+        'Room join failed, switching to relay-only TURN',
+        { roomCode, reason: isIceFailed ? 'ice-failed' : isTimeout ? 'timeout' : 'other', error: err }
+      );
+      this._emitModeChange({
+        phase: 'switching-to-relay',
+        mode: 'relay',
+        reason: isIceFailed ? '直连 ICE 失败（很可能是 NAT/防火墙问题），切到 TURN 中继' : '直连超时，切到 TURN 中继'
+      });
       this._destroyPeerOnly();
       // 中继节点多在境外、RTT 高，relay 路径给足时间。
       return this._joinRoom(roomCode, { forceRelay: true, timeout: 25000 });
@@ -176,8 +216,18 @@ export class P2PService {
     const guestPeerId = this.getGuestPeerId();
 
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const settle = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        fn(value);
+      };
+
       const timeout = setTimeout(() => {
-        reject(new Error('连接房间超时，请确认房间号正确'));
+        const err = new Error('连接房间超时，请确认房间号正确');
+        err.code = 'JOIN_TIMEOUT';
+        settle(reject, err);
       }, timeoutMs);
 
       this._lastConnectionMode = this._getModeLabel({ forceRelay });
@@ -190,32 +240,51 @@ export class P2PService {
           reliable: true
         });
 
-        let resolved = false;
-
         conn.on('open', () => {
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeout);
-            console.log('Connected to host:', hostPeerId);
-            this._setupConnection(conn);
-            resolve(id);
-          }
+          settle(resolve, id);
+          console.log('Connected to host:', hostPeerId);
+          this._setupConnection(conn);
         });
 
         conn.on('error', (err) => {
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeout);
-            console.error('Connection error:', err);
-            reject(new Error('无法连接到房间'));
-          }
+          console.error('Connection error:', err);
+          settle(reject, new Error('无法连接到房间'));
         });
+
+        // ICE 状态快速失败通道：不靠 12s 超时，浏览器明确告诉你过不去时立刻切
+        // 对称 NAT / 防火墙阻挡时，ICE 大约 5-10s 内会进 'failed'，比 timeout 更早
+        const onIceStateChange = () => {
+          const pc = conn.peerConnection;
+          if (!pc) return;
+          const state = pc.iceConnectionState;
+          this.log.debug('Join ICE state', { state, forceRelay, hostPeerId });
+          if (state === 'failed' && !forceRelay) {
+            this.log.warn('ICE failed during direct connect, signaling fallback to relay', { hostPeerId });
+            const err = new Error('ICE connection failed');
+            err.code = 'ICE_FAILED';
+            settle(reject, err);
+          } else if (state === 'connected' || state === 'completed') {
+            this._emitModeChange({
+              phase: forceRelay ? 'using-relay' : 'trying-direct',
+              mode: this._lastConnectionMode,
+              iceState: state
+            });
+          }
+        };
+        // peerConnection 还没就绪时，open 之后才挂监听
+        const attachWhenReady = () => {
+          if (conn.peerConnection) {
+            conn.peerConnection.addEventListener?.('iceconnectionstatechange', onIceStateChange);
+          } else {
+            setTimeout(attachWhenReady, 50);
+          }
+        };
+        attachWhenReady();
       });
 
       this.peer.on('error', (err) => {
-        clearTimeout(timeout);
         console.error('Guest peer error:', err);
-        reject(new Error('加入房间失败：' + translatePeerError(err)));
+        settle(reject, new Error('加入房间失败：' + translatePeerError(err)));
       });
 
       this.peer.on('connection', (conn) => {
@@ -425,8 +494,15 @@ export class P2PService {
 
   getConnectionDiagnostics() {
     return {
+      // 当前连接模式：'direct-or-relay' / 'relay' / 'unknown'
       mode: this._lastConnectionMode,
-      hasTurnRelay: HAS_TURN_RELAY,
+      // 信令源信息（启动时确定）
+      signaling: this.signalingInfo,
+      // TURN 中继信息（启动时确定）
+      turnRelay: this.turnRelayInfo,
+      // 最近的模式变更事件
+      lastModeChange: this._lastModeChange || null,
+      // 每个对端连接的状态
       peers: Object.fromEntries(this._connectionStates)
     };
   }

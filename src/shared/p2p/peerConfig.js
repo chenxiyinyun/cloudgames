@@ -59,12 +59,26 @@ export const PEER_SERVER = USE_CUSTOM_SIGNALING ? {
   secure: true
 };
 
-// 信令源启动诊断：只暴露模式（自托管/公共）+ 路径，不暴露 host/port/IP
-// 真实 IP/端口/域名已经写死在客户端 bundle 里、network 面板也藏不住，本行只是减少显眼度
+// 暴露给 UI 诊断面板使用（不暴露 host/port/IP，仅暴露模式 + 关键路径）
+export const SIGNALING_INFO = {
+  mode: USE_CUSTOM_SIGNALING ? 'self-hosted' : 'public',
+  label: USE_CUSTOM_SIGNALING ? '自托管信令' : '公共 PeerJS (0.peerjs.com)',
+  // 公共信令在国内连接质量差，UI 上需要给玩家明确的提示
+  isRisky: !USE_CUSTOM_SIGNALING,
+  path: PEER_SERVER.path || '/peerjs',
+  secure: PEER_SERVER.secure !== false
+};
+
+// 信令源启动诊断：控制台 + 让 UI 可读
 if (typeof console !== 'undefined') {
-  const path = PEER_SERVER.path || '/peerjs';
   const tag = USE_CUSTOM_SIGNALING ? '自托管' : '公共 PeerJS';
-  console.info(`[P2P] 📡 信令模式: ${tag} (path=${path})`);
+  console.info(`[P2P] 📡 信令模式: ${tag} (path=${SIGNALING_INFO.path})`);
+  if (SIGNALING_INFO.isRisky) {
+    console.warn(
+      '[P2P] ⚠️ 当前使用公共 PeerJS 信令（0.peerjs.com），国内访问不稳定。' +
+      '生产环境请设置 VITE_PEER_SERVER_HOST 走自建信令。'
+    );
+  }
 }
 
 export const PEER_CONFIG = {
@@ -81,6 +95,26 @@ export const PEER_CONFIG = {
 export const HAS_METERED_TURN = METERED_TURN_SERVERS.length > 0;
 export const HAS_SELF_HOSTED_TURN = SELF_HOSTED_TURN_SERVERS.length > 0;
 export const HAS_TURN_RELAY = HAS_SELF_HOSTED_TURN || HAS_METERED_TURN;
+
+// 暴露给 UI 诊断面板使用
+export const TURN_RELAY_INFO = {
+  hasSelfHosted: HAS_SELF_HOSTED_TURN,
+  hasMetered: HAS_METERED_TURN,
+  selfHostedCount: SELF_HOSTED_TURN_SERVERS.length,
+  meteredCount: METERED_TURN_SERVERS.length,
+  totalCount: SELF_HOSTED_TURN_SERVERS.length + METERED_TURN_SERVERS.length,
+  // 推荐等级：自建 > 海外兜底 > 无
+  tier: HAS_SELF_HOSTED_TURN
+    ? 'excellent'
+    : HAS_METERED_TURN
+      ? 'fallback-only'
+      : 'none',
+  label: HAS_SELF_HOSTED_TURN
+    ? `自建 TURN (${SELF_HOSTED_TURN_SERVERS.length} 节点)`
+    : HAS_METERED_TURN
+      ? '仅海外兜底 (Metered.ca)'
+      : '无 TURN 中继'
+};
 
 // 启动诊断
 if (typeof console !== 'undefined') {

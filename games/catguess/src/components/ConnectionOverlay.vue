@@ -5,10 +5,19 @@
         <div class="overlay-icon">{{ icon }}</div>
         <div class="overlay-title">{{ title }}</div>
         <div class="overlay-message">{{ message || defaultMessage }}</div>
+        <!-- 连接中显示当前模式，玩家能看见 P2P→TURN 切换 -->
+        <div v-if="showProgress && modeText" class="overlay-mode">
+          {{ modeText }}
+        </div>
         <div v-if="showProgress" class="overlay-progress">
           <div v-for="i in 3" :key="i" class="progress-dot"
             :style="{ animationDelay: (i * 0.3) + 's' }" />
         </div>
+        <DiagnosticsPanel
+          v-if="diagnostics && (status === 'error' || status === 'disconnected')"
+          :diagnostics="diagnostics"
+          variant="detail"
+        />
         <div class="overlay-actions">
           <button v-if="showRetry" class="btn btn-primary" @click="$emit('retry')">
             🔄 手动重连
@@ -24,12 +33,14 @@
 
 <script setup>
 import { computed } from 'vue'
+import DiagnosticsPanel from './DiagnosticsPanel.vue'
 
 const props = defineProps({
   status: { type: String, default: 'connected' },
   message: { type: String, default: '' },
   attempt: { type: Number, default: 0 },
-  maxAttempts: { type: Number, default: 8 }
+  maxAttempts: { type: Number, default: 8 },
+  diagnostics: { type: Object, default: () => null }
 })
 
 defineEmits(['retry', 'leave'])
@@ -74,6 +85,21 @@ const defaultMessage = computed(() => {
     case 'error': return '多次重连失败，请检查网络环境后重试'
     default: return ''
   }
+})
+
+const modeText = computed(() => {
+  if (!props.diagnostics) return ''
+  const last = props.diagnostics.lastModeChange
+  if (last?.phase === 'switching-to-relay') {
+    return '🔄 正在切换到 TURN 中继…'
+  }
+  if (props.diagnostics.mode === 'relay') {
+    return '📡 已通过 TURN 中继连接'
+  }
+  if (props.diagnostics.mode === 'direct-or-relay') {
+    return '🔗 正在尝试直连 P2P…'
+  }
+  return ''
 })
 
 const overlayClass = computed(() => `overlay-${props.status}`)
@@ -123,6 +149,17 @@ const overlayClass = computed(() => `overlay-${props.status}`)
   color: var(--cat-text-light);
   margin-bottom: 20px;
   line-height: 1.5;
+}
+
+.overlay-mode {
+  display: inline-block;
+  font-size: 12px;
+  padding: 4px 10px;
+  margin-bottom: 12px;
+  background: var(--cat-accent-light);
+  border-radius: 999px;
+  color: var(--cat-text);
+  font-weight: 600;
 }
 
 .overlay-progress {

@@ -87,6 +87,13 @@
           {{ gameState.connecting ? '连接中...' : '重新连接' }}
         </button>
       </div>
+
+      <!-- 诊断条：菜单页底部，点开看完整 -->
+      <DiagnosticsPanel
+        :diagnostics="gameState.diagnostics"
+        variant="compact"
+        style="margin-top: 16px;"
+      />
     </div>
   </div>
 </template>
@@ -96,6 +103,7 @@ import { ref, computed } from 'vue'
 import { gameState, createRoom, joinRoom, restoreFromCache, reconnectRoom, hasRestoreableState } from '../stores/gameStore'
 import { showToast } from './ToastNotification.vue'
 import { sanitizePlayerName, sanitizeRoomCode } from '../services/sanitize'
+import DiagnosticsPanel from './DiagnosticsPanel.vue'
 
 const playerName = ref(gameState.playerName || '')
 const roomCode = ref('')

@@ -65,6 +65,15 @@ export const gameState = reactive({
   connectionStatus: 'disconnected',
   connectionMessage: '',
   toast: null,
+  // P2P 诊断信息（启动时由 p2p.getConnectionDiagnostics() 初始化 + 模式变更时更新）
+  // 字段：{ mode, signaling: { mode, label, isRisky, ... }, turnRelay: { tier, label, ... }, lastModeChange: { phase, mode, reason, at } | null, peers: {...} }
+  diagnostics: {
+    mode: 'unknown',
+    signaling: null,
+    turnRelay: null,
+    lastModeChange: null,
+    peers: {}
+  },
 
   room: {
     players: [],
@@ -88,6 +97,35 @@ export const gameState = reactive({
     savedStorytellerId: null
   }
 });
+
+// 启动时立即拉取一次诊断（信令/TURN 信息在构建期就确定了）
+try {
+  Object.assign(gameState.diagnostics, p2p.getConnectionDiagnostics());
+} catch (e) {
+  log.warn('Failed to read initial p2p diagnostics', { error: e });
+}
+
+// 订阅模式变更（P2P → TURN 切换时刷新诊断 + 通知玩家）
+p2p.onModeChange = (payload) => {
+  log.info('P2P mode change', payload);
+  gameState.diagnostics.lastModeChange = payload;
+  gameState.diagnostics.mode = payload.mode || gameState.diagnostics.mode;
+  // 在连接状态文案上提示一下（仅在 connecting/reconnecting 时）
+  if (payload.phase === 'switching-to-relay' && payload.reason) {
+    gameState.connectionMessage = payload.reason;
+  } else if (payload.phase === 'using-relay' && payload.mode === 'relay') {
+    gameState.connectionMessage = '已通过 TURN 中继连接';
+  }
+};
+
+// 对外暴露：让 UI 组件可以拉取最新诊断（实时值，不是 reactive 字段）
+export function getDiagnostics() {
+  try {
+    return p2p.getConnectionDiagnostics();
+  } catch {
+    return gameState.diagnostics;
+  }
+}
 
 let cachedRoom = null;
 let _joinTimeout = null;
