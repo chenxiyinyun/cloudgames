@@ -13,6 +13,7 @@ export {
   handleSubmitOpponentVote,
   handleSubmitTeamVote,
   handleNextRound,
-  handlePlayAgain
+  handlePlayAgain,
+  RECONNECT_METADATA
 } from './connection';
 export { GAME_PHASES, GUESS_TYPE } from '../services/gameEngine';

@@ -97,9 +97,11 @@ watch(() => ({
 }, { deep: true });
 
 // Flush cached state on tab close
-window.addEventListener('beforeunload', () => {
-  flushStateCache(gameState);
-});
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    flushStateCache(gameState);
+  });
+}
 
 // 从缓存恢复状态
 export function restoreFromCache() {

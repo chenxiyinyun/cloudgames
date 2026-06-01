@@ -48,6 +48,223 @@ export const hostMigrator = createHostMigrationHandler({
   log
 });
 
+// ── Auto-Reconnect Engine ────────────────────────────────────────────────────
+// 与 catguess 语义一致：
+//   - 监听 P2P ICE 状态变化（disconnected/failed → 触发重连）
+//   - 3s 周期性轮询兜底（应对 onConnectionStateChange 漏报）
+//   - 指数退避 1→32s 上限，8 次封顶，每次 ±25% jitter
+//   - 房主：靠"peer 还在 → cancel"，访客：整 peer 重建并重连
+//
+// 与 catguess 唯一不同：codenames 走"已注册的 onPlayerDisconnected / onDeadPeer"
+// 路径处理 host 死亡（迁移），auto-reconnect 只管"host 还在但 ICE 抖"的场景，
+// 因此房主路径基本只是 cancelAutoReconnect（host 的 peer 永远在）。
+const MAX_RECONNECT_ATTEMPTS = 8;
+let _reconnectAttempts = 0;
+let _autoReconnectTimer = null;
+let _autoReconnectInterval = null;
+
+function registerAutoReconnectHandlers() {
+  p2p.onConnectionStateChange = ({ peerId, iceConnectionState: iceState }) => {
+    const hostPeerId = `codenames-${gameState.roomCode}`;
+
+    if (iceState === 'disconnected' || iceState === 'failed') {
+      if ((peerId === hostPeerId || gameState.isHost) && !_autoReconnectTimer) {
+        setConnectionStatus('reconnecting', '检测到连接断开，正在自动重连...');
+        startAutoReconnect();
+      }
+    } else if (iceState === 'connected' || iceState === 'completed') {
+      cancelAutoReconnect();
+      if (gameState.connectionStatus === 'reconnecting') {
+        setConnectionStatus('connected', '已连接');
+      }
+      _reconnectAttempts = 0;
+    }
+  };
+
+  // 周期性兜底：3s 检查一次 ICE 状态
+  if (_autoReconnectInterval) return;
+  _autoReconnectInterval = setInterval(() => {
+    if (!gameState.roomCode) return;
+    const hostPeerId = `codenames-${gameState.roomCode}`;
+    const state = p2p.getPeerConnectionState(hostPeerId);
+    if (state?.iceConnectionState === 'failed' && !_autoReconnectTimer) {
+      startAutoReconnect();
+    }
+  }, 3000);
+}
+
+async function startAutoReconnect() {
+  if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    setConnectionStatus('error', '连接失败，请检查网络后手动重连');
+    cancelAutoReconnect();
+    return;
+  }
+
+  _reconnectAttempts++;
+
+  // 指数退避：1s, 2s, 4s, 8s, 16s, 32s (capped), ±25% jitter
+  const baseDelay = Math.min(1000 * Math.pow(2, _reconnectAttempts - 1), 32000);
+  const jitter = baseDelay * (0.75 + Math.random() * 0.5);
+
+  _autoReconnectTimer = setTimeout(async () => {
+    _autoReconnectTimer = null;
+    try {
+      if (gameState.isHost) {
+        // 房主：peer 一直注册在信令服务器上，等连接自然恢复
+        const connectedPeers = p2p.getConnectedPeers();
+        if (connectedPeers.length > 0) {
+          cancelAutoReconnect();
+          setConnectionStatus('connected', '已连接');
+          _reconnectAttempts = 0;
+          return;
+        }
+        // peers 全断 → 等下一轮 ICE 触发或定时器再走一次
+        startAutoReconnect();
+      } else {
+        // 访客：softDisconnect 重建 peer，重发 JOIN_REQUEST + REQUEST_STATE
+        const ok = await reconnectRoomInternal();
+        if (!ok) {
+          log.warn('Auto-reconnect attempt timed out', { attempt: _reconnectAttempts });
+          startAutoReconnect();
+        }
+      }
+    } catch (err) {
+      log.warn('Auto-reconnect attempt failed', { attempt: _reconnectAttempts, error: err?.message });
+      startAutoReconnect();
+    }
+  }, jitter);
+}
+
+function cancelAutoReconnect() {
+  if (_autoReconnectTimer) {
+    clearTimeout(_autoReconnectTimer);
+    _autoReconnectTimer = null;
+  }
+}
+
+async function reconnectRoomInternal() {
+  if (!gameState.roomCode || !gameState.playerName) return false;
+
+  p2p.softDisconnect();
+  gameState.connected = false;
+
+  await p2p.joinRoom(gameState.roomCode, gameState.playerName);
+  setupGuestHandlers();
+
+  sendJoinRequest(gameState.playerId, gameState.playerName, true);
+
+  // 等 ROOM_STATE / JOIN_RESPONSE 确认恢复
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeout = null;
+    let checkInterval = null;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      clearInterval(checkInterval);
+      resolve(ok);
+    };
+    timeout = setTimeout(() => finish(false), 10000);
+    checkInterval = setInterval(() => {
+      if (gameState.connected) {
+        finish(true);
+      }
+    }, 500);
+  });
+}
+
+// ── Disconnected Player Cleanup ──────────────────────────────────────────────
+// 与 catguess 一致：玩家离线后用统一路径标记 + 启动超时清理。
+// 区别（与 catguess 相比）：
+//   - 猫猜在游戏阶段也会自动出卡/出题/投票；codenames 是 4 人对猜，4 缺 1 没法公平继续
+//   - 因此 codenames 游戏阶段只保留"标记 offline + 推入 disconnectedPlayers + 暂停游戏"，
+//     不做超时强制清理（避免 3 人继续导致 gameEngine 状态卡死）
+//   - 仅大厅阶段 30s 后从 players 移除（仿 catguess 大厅策略）
+const LOBBY_DISCONNECT_TIMEOUT_MS = 30 * 1000;
+const LOBBY_CLEANUP_INTERVAL_MS = 10 * 1000;
+let _offlinePlayerCleanupTimer = null;
+
+function markPlayerOffline(peerId) {
+  const cachedRoom = getRoom();
+  const playerToMark = cachedRoom?.players.find(p => p._peerId === peerId);
+  if (!playerToMark || !cachedRoom) return;
+
+  // 已经在 disconnectedPlayers 列表里就别重复塞
+  const alreadyTracked = (cachedRoom.disconnectedPlayers || []).find(p => p.id === playerToMark.id);
+  playerToMark.isOnline = false;
+  if (!cachedRoom.disconnectedPlayers) {
+    cachedRoom.disconnectedPlayers = [];
+  }
+  if (!alreadyTracked) {
+    cachedRoom.disconnectedPlayers.push({
+      id: playerToMark.id,
+      name: playerToMark.name,
+      team: playerToMark.team,
+      disconnectedAt: Date.now()
+    });
+  }
+
+  // 游戏阶段：依赖 gameEngine 内置的 PAUSED 等待机制，不在这里再搞自动恢复
+  // 大厅阶段：启动超时清理（30s 后真正移除，让新玩家能补位）
+  const isInLobby = cachedRoom.status === GAME_PHASES.WAITING;
+  if (isInLobby) {
+    scheduleOfflinePlayerCleanup();
+  }
+}
+
+function cleanupDisconnectedPlayers() {
+  const cachedRoom = getRoom();
+  if (!cachedRoom || !cachedRoom.disconnectedPlayers || cachedRoom.disconnectedPlayers.length === 0) {
+    return;
+  }
+
+  // 仅大厅阶段执行：游戏阶段由 PAUSED 等待，不破坏 4 人对猜的逻辑
+  const isInLobby = cachedRoom.status === GAME_PHASES.WAITING;
+  if (!isInLobby) {
+    clearOfflinePlayerCleanupTimer();
+    return;
+  }
+
+  const now = Date.now();
+  const stale = cachedRoom.disconnectedPlayers.filter(
+    p => now - p.disconnectedAt > LOBBY_DISCONNECT_TIMEOUT_MS
+  );
+
+  if (stale.length === 0) return;
+
+  log.info('Removing stale disconnected players from lobby', { count: stale.length });
+
+  stale.forEach(sp => {
+    removePlayerFromRoom(cachedRoom, sp.id);
+  });
+
+  if (cachedRoom.disconnectedPlayers.length === 0) {
+    clearOfflinePlayerCleanupTimer();
+  }
+
+  broadcastState();
+}
+
+function scheduleOfflinePlayerCleanup() {
+  if (_offlinePlayerCleanupTimer) return;
+  _offlinePlayerCleanupTimer = setTimeout(() => {
+    _offlinePlayerCleanupTimer = null;
+    cleanupDisconnectedPlayers();
+    // 列表非空就继续轮询（已无意义时由 cleanupDisconnectedPlayers 自己停）
+    if (getRoom()?.disconnectedPlayers?.length > 0) {
+      scheduleOfflinePlayerCleanup();
+    }
+  }, LOBBY_CLEANUP_INTERVAL_MS);
+}
+
+function clearOfflinePlayerCleanupTimer() {
+  if (_offlinePlayerCleanupTimer) {
+    clearTimeout(_offlinePlayerCleanupTimer);
+    _offlinePlayerCleanupTimer = null;
+  }
+}
+
 export function broadcastState() {
   if (!getRoom()) return;
   cleanupOps();
@@ -229,12 +446,12 @@ export async function reconnectRoom() {
 function setupHostHandlers() {
   p2p.onPlayerConnected = (conn) => {
     console.log('Player connected:', conn.peer);
-    // 发送当前房间状态给新连接的玩家
-    const cachedRoom = getRoom();
-    if (cachedRoom) {
+    // DO NOT send ROOM_STATE here — the JOIN_REQUEST handler broadcasts it after processing.
+    // Sending ROOM_STATE before JOIN_REQUEST is processed includes stale state (without the new player),
+    // and the subsequent broadcastState() ROOM_STATE gets wrongly rejected by idempotency (same round/phase key).
+    if (getRoom()) {
       setTimeout(() => {
-        p2p.sendTo(conn.peer, MSG.ROOM_STATE, { room: cachedRoom });
-        // 发送当前已连接的 peer 列表，让访客互相连接
+        // 只发 PEER_LIST 让访客互相连接；ROOM_STATE 留给 JOIN_REQUEST 处理完后由 broadcastState 推
         const otherPeers = p2p.getConnectedPeers().filter(id => id !== conn.peer);
         if (otherPeers.length > 0) {
           p2p.sendTo(conn.peer, MSG.PEER_LIST, { peers: otherPeers });
@@ -245,12 +462,10 @@ function setupHostHandlers() {
 
   p2p.onPlayerDisconnected = (peerId) => {
     console.log('Player disconnected:', peerId);
-    const cachedRoom = getRoom();
-    const playerToRemove = cachedRoom?.players.find(p => p._peerId === peerId);
-    if (playerToRemove && cachedRoom) {
-      removePlayerFromRoom(cachedRoom, playerToRemove.id);
-      broadcastState();
-    }
+    // 走统一路径：标记 offline + 推入 disconnectedPlayers + 启动超时清理
+    // 大厅阶段 30s 后真正移除；游戏阶段交给 gameEngine 的 PAUSED 等待机制
+    markPlayerOffline(peerId);
+    broadcastState();
   };
 
   p2p.onMessage = (data, peerId) => {
@@ -267,19 +482,11 @@ function setupHostHandlers() {
   p2p.startHeartbeat(10000);
   p2p.onDeadPeer = (peerId) => {
     log.warn('Host detected dead peer', { peerId });
-    const cachedRoom = getRoom();
-    const playerToMark = cachedRoom?.players.find(p => p._peerId === peerId);
-    if (playerToMark && cachedRoom) {
-      playerToMark.isOnline = false;
-      if (!cachedRoom.disconnectedPlayers) {
-        cachedRoom.disconnectedPlayers = [];
-      }
-      if (!cachedRoom.disconnectedPlayers.find(p => p.id === playerToMark.id)) {
-        cachedRoom.disconnectedPlayers.push(playerToMark);
-      }
-      broadcastState();
-    }
+    markPlayerOffline(peerId);
+    broadcastState();
   };
+
+  registerAutoReconnectHandlers();
 }
 
 function setupGuestHandlers() {
@@ -323,6 +530,8 @@ function setupGuestHandlers() {
     }
     // For non-host dead peers, just log; host will handle cleanup
   };
+
+  registerAutoReconnectHandlers();
 }
 
 // 房主迁移 — 委托给共享迁移处理器（codenames 不启用高 order 等待分支）
@@ -471,7 +680,20 @@ export function cleanup() {
   hostMigrator.resetMigrationMutex();
   roomBroadcaster.resetBroadcastState();
   resetOps();
+  cancelAutoReconnect();
+  clearOfflinePlayerCleanupTimer();
+  if (_autoReconnectInterval) {
+    clearInterval(_autoReconnectInterval);
+    _autoReconnectInterval = null;
+  }
+  _reconnectAttempts = 0;
   resetGameState();
   // 清除缓存
   clearCache();
 }
+
+// 暴露给 UI / 测试读取当前重连状态
+export const RECONNECT_METADATA = {
+  get attempt() { return _reconnectAttempts; },
+  MAX_ATTEMPTS: MAX_RECONNECT_ATTEMPTS
+};
