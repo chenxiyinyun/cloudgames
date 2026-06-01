@@ -52,7 +52,32 @@ export const resetOps = deduper.resetOps;
 export { deepClone };
 
 export function getRoomStateDedupeDetail(room) {
-  return `${room.currentRound}_${room.phase}`;
+  // 细粒度去重 detail：同一 round+phase 内，玩家上下线、队伍变化、
+  // 线索/投票进度变化都必须产生不同的 key，否则有效状态更新会被误丢。
+  const playerState = (room.players || [])
+    .map(player => [
+      player.id,
+      player.isOnline === false ? '0' : '1',
+      player.team || ''
+    ].join(':'))
+    .join(',');
+
+  const finalVotes = [
+    room.teamVotes?.white?.finalGuess ? 'w' : '',
+    room.teamVotes?.black?.finalGuess ? 'b' : '',
+    room.opponentVotes?.finalGuess ? 'o' : ''
+  ].join('');
+
+  return [
+    room.currentRound || 0,
+    room.phase || '',
+    room.status || '',
+    room.winner || '',
+    playerState,
+    room.clues?.length || 0,
+    finalVotes,
+    room.disconnectedPlayers?.length || 0
+  ].join('_');
 }
 
 export function createJoinRequestSenderForGame({ p2p, getRoomCode, logger }) {

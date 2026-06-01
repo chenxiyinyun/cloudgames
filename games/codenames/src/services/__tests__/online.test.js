@@ -22,8 +22,53 @@ describe('codenames online adapter', () => {
     })).toBe('SUBMIT_CLUES_ABCDEF_p1_red,moon');
   });
 
-  it('uses round and phase for room-state dedupe detail', () => {
-    expect(getRoomStateDedupeDetail({ currentRound: 2, phase: 'guessing' })).toBe('2_guessing');
+  it('includes round and phase in room-state dedupe detail', () => {
+    const detail = getRoomStateDedupeDetail({ currentRound: 2, phase: 'guessing' });
+    expect(detail.startsWith('2_guessing_')).toBe(true);
+  });
+
+  it('produces different detail when a player goes offline within the same round/phase', () => {
+    const base = {
+      currentRound: 1,
+      phase: 'guessing',
+      players: [
+        { id: 'p1', isOnline: true, team: 'white' },
+        { id: 'p2', isOnline: true, team: 'black' }
+      ]
+    };
+    const afterDisconnect = {
+      ...base,
+      players: [
+        { id: 'p1', isOnline: true, team: 'white' },
+        { id: 'p2', isOnline: false, team: 'black' }
+      ],
+      disconnectedPlayers: [{ id: 'p2' }]
+    };
+    expect(getRoomStateDedupeDetail(base)).not.toBe(getRoomStateDedupeDetail(afterDisconnect));
+  });
+
+  it('produces different detail when votes advance within the same round/phase', () => {
+    const base = {
+      currentRound: 1,
+      phase: 'team_voting',
+      teamVotes: { white: { finalGuess: null }, black: { finalGuess: null } }
+    };
+    const afterVote = {
+      currentRound: 1,
+      phase: 'team_voting',
+      teamVotes: { white: { finalGuess: [1, 2, 3] }, black: { finalGuess: null } }
+    };
+    expect(getRoomStateDedupeDetail(base)).not.toBe(getRoomStateDedupeDetail(afterVote));
+  });
+
+  it('produces a stable detail for identical room snapshots', () => {
+    const room = {
+      currentRound: 3,
+      phase: 'guessing',
+      players: [{ id: 'p1', isOnline: true, team: 'white' }],
+      clues: ['a', 'b']
+    };
+    expect(getRoomStateDedupeDetail({ ...room })).toBe(getRoomStateDedupeDetail({ ...room }));
   });
 
   it('creates a codenames join sender', () => {

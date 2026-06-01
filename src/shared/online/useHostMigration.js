@@ -162,9 +162,9 @@ export function createHostMigrationHandler({ gameId, p2p, log }) {
       me._peerId = p2p.getMyPeerId();
     }
 
-    // 移除旧房主的连接
+    // 移除旧房主的连接（走 P2PService 公共方法，避免直接改写内部 connections）
     const oldHostPeerId = `${gameId}-${gameState.roomCode}`;
-    p2p.connections = p2p.connections.filter(c => c.peer !== oldHostPeerId);
+    p2p.disconnectPeer(oldHostPeerId);
 
     // 广播房主变更
     try {

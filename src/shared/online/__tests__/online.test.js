@@ -86,7 +86,7 @@ describe('shared online foundation', () => {
       getMyPeerId: vi.fn(() => 'game-guest-p1'),
       broadcast: vi.fn(),
       stopHeartbeat: vi.fn(),
-      connections: [{ peer: 'game-ABCDEF' }]
+      disconnectPeer: vi.fn()
     };
     const handler = createHostMigrationHandler({
       gameId: 'game',
@@ -117,5 +117,76 @@ describe('shared online foundation', () => {
     expect(p2p.broadcast).toHaveBeenCalledWith('HOST_MIGRATION', expect.objectContaining({ newHostId: 'p1' }));
     expect(setupHostHandlers).toHaveBeenCalled();
     expect(broadcastState).toHaveBeenCalled();
+    // 通过 P2PService 公共方法移除旧房主连接，而非直接改写内部 connections
+    expect(p2p.disconnectPeer).toHaveBeenCalledWith('game-ABCDEF');
+  });
+
+  it('closes the room when no online candidate remains besides the host', async () => {
+    const p2p = {
+      getMyPeerId: vi.fn(() => 'game-guest-p1'),
+      broadcast: vi.fn(),
+      stopHeartbeat: vi.fn(),
+      disconnectPeer: vi.fn()
+    };
+    const handler = createHostMigrationHandler({
+      gameId: 'game',
+      p2p,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    });
+    const room = {
+      code: 'ABCDEF',
+      hostId: 'old-host',
+      players: [
+        { id: 'old-host', name: 'Host', order: 0, isOnline: true },
+        { id: 'p1', name: 'Ada', order: 1, isOnline: false }
+      ]
+    };
+    const gameState = { playerId: 'p1', roomCode: 'ABCDEF', isHost: false };
+    const setConnectionStatus = vi.fn();
+
+    const result = await handler.handleHostDisconnect(room, gameState, {
+      broadcastState: vi.fn(),
+      setupHostHandlers: vi.fn(),
+      setConnectionStatus
+    });
+
+    expect(result).toEqual({ action: 'room_closed' });
+    expect(gameState.connected).toBe(false);
+    expect(setConnectionStatus).toHaveBeenCalledWith('error', expect.any(String));
+    expect(p2p.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('excludes the old host from candidates even if still marked online', async () => {
+    // 房主骤断、isOnline 尚未翻转时，候选过滤仍应排除旧 hostId，
+    // 从而由下一位 order 的在线访客接管（共享 handler 的正确行为）。
+    const p2p = {
+      getMyPeerId: vi.fn(() => 'game-guest-p1'),
+      broadcast: vi.fn(),
+      stopHeartbeat: vi.fn(),
+      disconnectPeer: vi.fn()
+    };
+    const handler = createHostMigrationHandler({
+      gameId: 'game',
+      p2p,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    });
+    const room = {
+      code: 'ABCDEF',
+      hostId: 'old-host',
+      players: [
+        { id: 'old-host', name: 'Host', order: 0, isOnline: true },
+        { id: 'p1', name: 'Ada', order: 1, isOnline: true }
+      ]
+    };
+    const gameState = { playerId: 'p1', roomCode: 'ABCDEF', isHost: false };
+
+    const result = await handler.handleHostDisconnect(room, gameState, {
+      broadcastState: vi.fn(),
+      setupHostHandlers: vi.fn()
+    });
+
+    // p1（order 1）接管，而非 order 0 的旧房主
+    expect(result).toEqual({ action: 'became_host' });
+    expect(room.hostId).toBe('p1');
   });
 });
