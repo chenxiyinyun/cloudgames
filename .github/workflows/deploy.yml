@@ -65,6 +65,11 @@ jobs:
           VITE_SELF_HOSTED_TURN_CREDENTIAL: ${{ secrets.SELF_HOSTED_TURN_CREDENTIAL }}
           VITE_METERED_TURN_USERNAME: ${{ secrets.METERED_TURN_USERNAME }}
           VITE_METERED_TURN_CREDENTIAL: ${{ secrets.METERED_TURN_CREDENTIAL }}
+          VITE_PEER_SERVER_HOST: ${{ secrets.VITE_PEER_SERVER_HOST }}
+          VITE_PEER_SERVER_PORT: ${{ secrets.VITE_PEER_SERVER_PORT }}
+          VITE_PEER_SERVER_PATH: ${{ secrets.VITE_PEER_SERVER_PATH }}
+          VITE_PEER_SERVER_KEY: ${{ secrets.VITE_PEER_SERVER_KEY }}
+          VITE_PEER_SERVER_SECURE: ${{ secrets.VITE_PEER_SERVER_SECURE }}
         run: npm run build
 
       - name: Setup Pages
