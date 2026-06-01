@@ -88,9 +88,35 @@ export class P2PService {
         resolve(id);
       });
 
+      // 信号层掉线：指数退避 + 最大尝试次数。
+      // 历史 bug：直接 this.peer.reconnect() 无任何节流，0.peerjs.com 一抖动就紧密重连循环
+      // 现在：1s → 2s → 4s → 8s → 16s（第 5 次），再掉就放弃，把控制权交给
+      //       gameStore.startAutoReconnect（再退避 1→32s、最多 8 次、整 peer 重建）
+      let _disconnectAttempts = 0;
+      const MAX_DISCONNECT_ATTEMPTS = 5;
       this.peer.on('disconnected', () => {
-        this.log.warn('Host peer disconnected from signaling server, attempting reconnect...');
-        this.peer?.reconnect();
+        if (_disconnectAttempts >= MAX_DISCONNECT_ATTEMPTS) {
+          this.log.warn(
+            `Host peer signaling reconnect aborted after ${MAX_DISCONNECT_ATTEMPTS} attempts; deferring to game-layer auto-reconnect`
+          );
+          return;
+        }
+        const delay = Math.min(1000 * 2 ** _disconnectAttempts, 30000);
+        _disconnectAttempts++;
+        this.log.warn(
+          `Host peer disconnected from signaling server, reconnect attempt ${_disconnectAttempts}/${MAX_DISCONNECT_ATTEMPTS} in ${delay}ms`
+        );
+        setTimeout(() => {
+          if (this.peer && !this.peer.destroyed) {
+            this.peer.reconnect();
+          }
+        }, delay);
+      });
+      this.peer.on('open', () => {
+        if (_disconnectAttempts > 0) {
+          this.log.info(`Host peer signaling reconnected after ${_disconnectAttempts} attempt(s)`);
+          _disconnectAttempts = 0;
+        }
       });
 
       this.peer.on('error', (err) => {

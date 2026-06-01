@@ -42,11 +42,30 @@ const METERED_TURN_SERVERS = METERED_TURN_USERNAME && METERED_TURN_CREDENTIAL
   ]
   : [];
 
-export const PEER_SERVER = {
+// 信令服务器：优先用 VITE_PEER_SERVER_HOST（自托管），缺失时回退到公共 0.peerjs.com
+// 这样 secret 全部清空也能跑（开发期兜底），加了 secret 就走阿里云
+const ENV_PEER_HOST = import.meta.env.VITE_PEER_SERVER_HOST;
+const USE_CUSTOM_SIGNALING = Boolean(ENV_PEER_HOST);
+
+export const PEER_SERVER = USE_CUSTOM_SIGNALING ? {
+  host: ENV_PEER_HOST,
+  port: Number(import.meta.env.VITE_PEER_SERVER_PORT) || 9000,
+  path: import.meta.env.VITE_PEER_SERVER_PATH || '/peerjs',
+  key: import.meta.env.VITE_PEER_SERVER_KEY || 'catguess-2026',
+  secure: import.meta.env.VITE_PEER_SERVER_SECURE !== 'false'
+} : {
   host: '0.peerjs.com',
   port: 443,
   secure: true
 };
+
+// 信令源启动诊断：只暴露模式（自托管/公共）+ 路径，不暴露 host/port/IP
+// 真实 IP/端口/域名已经写死在客户端 bundle 里、network 面板也藏不住，本行只是减少显眼度
+if (typeof console !== 'undefined') {
+  const path = PEER_SERVER.path || '/peerjs';
+  const tag = USE_CUSTOM_SIGNALING ? '自托管' : '公共 PeerJS';
+  console.info(`[P2P] 📡 信令模式: ${tag} (path=${path})`);
+}
 
 export const PEER_CONFIG = {
   iceServers: [
