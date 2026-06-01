@@ -308,40 +308,62 @@ function clearOthersPickingTimer() {
 function scheduleVotingTimeout() {
   if (!gameState.isHost) return;
   if (_votingTimer) clearTimeout(_votingTimer);
-  
+
   _votingTimer = setTimeout(() => {
     _votingTimer = null;
-    if (!cachedRoom || cachedRoom.phase !== GAME_PHASES.REVEALING) return;
-    
-    // If not all players have voted, force calculate scores with current votes
-    const eligibleVoters = cachedRoom.players.filter(
-      p => p.id !== cachedRoom.gameState.storytellerId && p.isOnline
-    );
-    const votedPlayerIds = cachedRoom.gameState.votes.map(v => v.voterId);
-    
-    // Only proceed if everyone has voted, otherwise we can't calculate scores fairly
-    if (votedPlayerIds.length < eligibleVoters.length) {
-      log.warn('[GameStore] Voting timeout: not all players voted, waiting...');
-      // Schedule another check in 5 seconds
-      _votingTimer = setTimeout(() => {
-        if (!cachedRoom || cachedRoom.phase !== GAME_PHASES.REVEALING) return;
-        if (cachedRoom.gameState.votes.length < eligibleVoters.length) {
-          // Still not all voted, just advance with what we have
-          console.log('[GameStore] Forcing score calculation with', cachedRoom.gameState.votes.length, 'votes');
-          const result = calculateScores(cachedRoom);
-          if (result.error) {
-            log.warn('Forced scoring failed', { error: result.error });
-            return;
-          }
-          cachedRoom.phase = GAME_PHASES.SCORING;
-          cachedRoom.updatedAt = Date.now();
-          broadcastState();
-          scheduleAutoAdvance();
-        }
-      }, 5000);
-      return;
-    }
+    forceAdvanceVotingIfStalled(true);
   }, VOTING_TIMEOUT_MS);
+}
+
+/**
+ * Advance out of REVEALING when voting has stalled.
+ *
+ * Counts only ONLINE eligible voters that have not yet voted. The previous
+ * implementation compared total votes (which include the -1 votes auto-filled
+ * for offline players by scheduleDisconnectedSkipCheck) against the count of
+ * online eligible voters; offline auto-votes could inflate the total so that
+ * `totalVotes >= onlineVoters` while a real online voter still hadn't voted,
+ * causing the timeout to do nothing and the round to hang in REVEALING forever.
+ * It also never handled the case where every online voter HAS voted but the
+ * SCORING transition never fired (e.g. the final vote was an offline auto-vote,
+ * which bypasses submitVote()'s all-voted check).
+ *
+ * @param {boolean} allowGrace - give still-pending online voters one more short
+ *                               window before forcing scoring.
+ */
+function forceAdvanceVotingIfStalled(allowGrace) {
+  if (!cachedRoom || cachedRoom.phase !== GAME_PHASES.REVEALING) return;
+
+  const eligibleVoters = cachedRoom.players.filter(
+    p => p.id !== cachedRoom.gameState.storytellerId && p.isOnline
+  );
+  const votedIds = new Set(cachedRoom.gameState.votes.map(v => v.voterId));
+  const pendingOnline = eligibleVoters.filter(p => !votedIds.has(p.id));
+
+  if (pendingOnline.length > 0 && allowGrace) {
+    log.warn('[GameStore] Voting timeout: online voters still pending, granting grace period', {
+      pending: pendingOnline.length
+    });
+    if (_votingTimer) clearTimeout(_votingTimer);
+    _votingTimer = setTimeout(() => {
+      _votingTimer = null;
+      forceAdvanceVotingIfStalled(false);
+    }, 5000);
+    return;
+  }
+
+  // Either the grace period elapsed, or every online voter has already voted but
+  // the transition never fired — score with whatever votes we have.
+  console.log('[GameStore] Forcing score calculation with', cachedRoom.gameState.votes.length, 'votes');
+  const result = calculateScores(cachedRoom);
+  if (result.error) {
+    log.warn('Forced scoring failed', { error: result.error });
+    return;
+  }
+  cachedRoom.phase = GAME_PHASES.SCORING;
+  cachedRoom.updatedAt = Date.now();
+  broadcastState();
+  scheduleAutoAdvance();
 }
 
 function clearVotingTimer() {
@@ -1251,26 +1273,21 @@ function handleGuestMessage(data, peerId) {
             break;
           }
 
-          // ── Preserve shuffledCards order ──────────────────────────────────
-          // shuffledCards is created ONCE in submitCard() when entering REVEALING
-          // phase and never modified after that. However, computeRoomDiff sends
-          // the entire gameState as a single field whenever any subfield changes
-          // (votes, roundScores, etc.), which can replace shuffledCards with a
-          // differently-ordered copy. We keep the existing shuffledCards to
-          // prevent cards from visually reordering during voting.
-          const existingShuffledCards =
-            delta.gameState && cachedRoom.gameState
-              ? cachedRoom.gameState.shuffledCards
-              : null;
-
+          // The host is authoritative for the entire room, including
+          // gameState.shuffledCards. The cards are created once in submitCard()
+          // when entering REVEALING and kept in a stable order (the host never
+          // reorders them; deepClone/computeRoomDiff preserve array order, and
+          // the template keys each card by card.id). So we simply apply every
+          // delta field as-is — including gameState — and never second-guess the
+          // host's shuffledCards. A previous version preserved the guest's own
+          // shuffledCards across gameState deltas, which meant the cards could
+          // only ever be updated by a *full* ROOM_STATE; since the transitions
+          // that build/reset the cards (entering REVEALING, nextRound) are sent
+          // as deltas, guests carried stale cards from a prior round until an
+          // occasional full sync snapped the words to their correct values.
           Object.keys(delta).forEach(key => {
             cachedRoom[key] = delta[key];
           });
-
-          // Restore the original shuffledCards if the delta replaced gameState
-          if (existingShuffledCards && cachedRoom.gameState) {
-            cachedRoom.gameState.shuffledCards = existingShuffledCards;
-          }
 
           updateLocalState(cachedRoom);
         }

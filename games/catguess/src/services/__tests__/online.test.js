@@ -25,14 +25,35 @@ describe('catguess online adapter', () => {
         clue: 'dream',
         submittedCards: [{ playerId: 'p2' }],
         shuffledCards: [{ id: 0 }, { id: 1 }],
-        votes: [{ voterId: 'p2' }]
+        votes: [{ voterId: 'p2' }],
+        scores: { p1: 6, p2: 3 },
+        roundScores: { p1: 3 }
       },
       phase: 'voting',
       players: [
-        { id: 'p1', isOnline: true, hand: ['moon', 'forest'] },
-        { id: 'p2', isOnline: false, hand: ['star'] }
+        { id: 'p1', name: 'Cat', isOnline: true, hand: ['moon', 'forest'] },
+        { id: 'p2', name: 'Fox', isOnline: false, hand: ['star'] }
       ]
-    })).toBe('4_voting_p1_p1:1:2,p2:0:1_dream_1_2_1');
+    })).toBe('4_voting_p1_p1:1:2,p2:0:1_dream_1_2_1_p1=Cat,p2=Fox_p1:6,p2:3_p1:3');
+  });
+
+  it('changes dedupe detail when only scores change (same phase and array lengths)', () => {
+    const base = {
+      gameState: {
+        round: 4, storytellerId: 'p1', clue: 'dream',
+        submittedCards: [{ playerId: 'p2' }],
+        shuffledCards: [{ id: 0 }, { id: 1 }],
+        votes: [{ voterId: 'p2' }],
+        scores: { p1: 6, p2: 3 }
+      },
+      phase: 'scoring',
+      players: [{ id: 'p1', name: 'Cat', isOnline: true, hand: [] }]
+    };
+    const bumped = {
+      ...base,
+      gameState: { ...base.gameState, scores: { p1: 9, p2: 3 } }
+    };
+    expect(getRoomStateDedupeDetail(bumped)).not.toBe(getRoomStateDedupeDetail(base));
   });
 
   it('changes room-state dedupe detail when cards are dealt in the same phase', () => {

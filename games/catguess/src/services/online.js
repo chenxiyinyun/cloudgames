@@ -58,6 +58,18 @@ export function getRoomStateDedupeDetail(room) {
     ].join(':'))
     .join(',');
 
+  // Names and scores are NOT derivable from the array lengths above, yet a
+  // full ROOM_STATE that differs only in one of them must not be deduped away
+  // as a "duplicate". Fingerprint them explicitly so the dedupe key reflects
+  // every UI-visible field, not just the append-only array lengths.
+  const nameState = (room.players || [])
+    .map(player => `${player.id}=${player.name || ''}`)
+    .join(',');
+  const fingerprintScores = (scores) => Object.keys(scores || {})
+    .sort()
+    .map(id => `${id}:${scores[id]}`)
+    .join(',');
+
   return [
     gameState.round || 0,
     room.phase || '',
@@ -66,7 +78,10 @@ export function getRoomStateDedupeDetail(room) {
     gameState.clue || '',
     gameState.submittedCards?.length || 0,
     gameState.shuffledCards?.length || 0,
-    gameState.votes?.length || 0
+    gameState.votes?.length || 0,
+    nameState,
+    fingerprintScores(gameState.scores),
+    fingerprintScores(gameState.roundScores)
   ].join('_');
 }
 
