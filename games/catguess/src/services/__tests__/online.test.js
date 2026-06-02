@@ -17,7 +17,7 @@ describe('catguess online adapter', () => {
     })).toBe('SUBMIT_STORY_ABCDEF_p1_3_dream');
   });
 
-  it('includes UI-critical state in room-state dedupe detail', () => {
+  it('includes round, phase, and updatedAt in room-state dedupe detail', () => {
     expect(getRoomStateDedupeDetail({
       gameState: {
         round: 4,
@@ -30,14 +30,15 @@ describe('catguess online adapter', () => {
         roundScores: { p1: 3 }
       },
       phase: 'voting',
+      updatedAt: 1234567890,
       players: [
         { id: 'p1', name: 'Cat', isOnline: true, hand: ['moon', 'forest'] },
         { id: 'p2', name: 'Fox', isOnline: false, hand: ['star'] }
       ]
-    })).toBe('4_voting_p1_p1:1:2,p2:0:1_dream_1_2_1_p1=Cat,p2=Fox_p1:6,p2:3_p1:3');
+    })).toBe('4_voting_1234567890');
   });
 
-  it('changes dedupe detail when only scores change (same phase and array lengths)', () => {
+  it('changes dedupe detail when updatedAt changes (same phase and round)', () => {
     const base = {
       gameState: {
         round: 4, storytellerId: 'p1', clue: 'dream',
@@ -47,24 +48,28 @@ describe('catguess online adapter', () => {
         scores: { p1: 6, p2: 3 }
       },
       phase: 'scoring',
+      updatedAt: 1000,
       players: [{ id: 'p1', name: 'Cat', isOnline: true, hand: [] }]
     };
     const bumped = {
       ...base,
+      updatedAt: 2000,
       gameState: { ...base.gameState, scores: { p1: 9, p2: 3 } }
     };
     expect(getRoomStateDedupeDetail(bumped)).not.toBe(getRoomStateDedupeDetail(base));
   });
 
-  it('changes room-state dedupe detail when cards are dealt in the same phase', () => {
+  it('changes room-state dedupe detail when cards are dealt in the same phase (updatedAt differs)', () => {
     const emptyHands = getRoomStateDedupeDetail({
       gameState: { round: 1, storytellerId: 'p1' },
       phase: 'storyteller_picking',
+      updatedAt: 1000,
       players: [{ id: 'p1', isOnline: true, hand: [] }]
     });
     const dealtHands = getRoomStateDedupeDetail({
       gameState: { round: 1, storytellerId: 'p1' },
       phase: 'storyteller_picking',
+      updatedAt: 2000,
       players: [{ id: 'p1', isOnline: true, hand: ['moon'] }]
     });
 

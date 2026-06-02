@@ -48,83 +48,129 @@ let _scoringTimer = null;
 let _pickingTimer = null;
 let _othersPickingTimer = null;
 let _votingTimer = null;
-let _offlinePlayerCleanupTimer = null;
+let _offlineTickTimer = null;
 let _autoReconnectTimer = null;
-let _autoReconnectInterval = null;
-let _disconnectedSkipTimer = null;
+let _iceCheckingTimer = null;
 let _roomDestroyTimer = null;
 let _reconnectAttempts = 0;
 
 const MAX_RECONNECT_ATTEMPTS = 8;
 
-// ── Disconnected Player Cleanup ───────────────────────────────────────────────
+// ── Offline Player Tick (unified) ─────────────────────────────────────────────
+// 合并了原 cleanupDisconnectedPlayers + scheduleDisconnectedSkipCheck：
+// Part A 按当前阶段代操作离线玩家；Part B 按超时移除离线玩家。
 
-export function cleanupDisconnectedPlayers() {
+export function offlinePlayerTick() {
   const cachedRoom = getRoom();
-  if (!cachedRoom || !cachedRoom.disconnectedPlayers || cachedRoom.disconnectedPlayers.length === 0) {
+  if (!cachedRoom) return;
+
+  // ── Part A: 阶段内代操作（原 scheduleDisconnectedSkipCheck）──
+  if (gameState.isHost) {
+    const phase = cachedRoom.phase;
+
+    if (phase === GAME_PHASES.STORYTELLER_PICKING) {
+      const st = cachedRoom.players.find(p => p.id === cachedRoom.gameState.storytellerId);
+      if (st && !st.isOnline) {
+        log.info('Storyteller disconnected during picking phase, auto-skipping');
+        if (_pickingTimer) { clearTimeout(_pickingTimer); _pickingTimer = null; }
+        const result = submitStorySelection(cachedRoom, st.id, 0, `(离线自动出题)${st.hand?.[0]?.[0] || ''}有关的词`);
+        if (!result.error) {
+          broadcastState();
+          if (cachedRoom.phase === GAME_PHASES.OTHERS_PICKING) scheduleOthersPickingTimeout();
+        }
+      }
+    }
+
+    if (phase === GAME_PHASES.OTHERS_PICKING) {
+      const offlinePlayers = cachedRoom.players.filter(
+        p => !p.isOnline && p.id !== cachedRoom.gameState.storytellerId
+      );
+      let skipped = false;
+      offlinePlayers.forEach(p => {
+        if (!cachedRoom.gameState.submittedCards.find(sc => sc.playerId === p.id)) {
+          const result = submitCard(cachedRoom, p.id, 0);
+          if (!result.error) skipped = true;
+        }
+      });
+      if (skipped) broadcastState();
+    }
+
+    if (phase === GAME_PHASES.REVEALING) {
+      const offlineVoters = cachedRoom.players.filter(
+        p => !p.isOnline && p.id !== cachedRoom.gameState.storytellerId
+      );
+      let changed = false;
+      offlineVoters.forEach(p => {
+        if (!cachedRoom.gameState.votes.find(v => v.voterId === p.id)) {
+          cachedRoom.gameState.votes.push({ voterId: p.id, votedCardId: -1 });
+          changed = true;
+        }
+      });
+      if (changed) broadcastState();
+    }
+  }
+
+  // ── Part B: 超时移除（原 cleanupDisconnectedPlayers）──
+  if (!cachedRoom.disconnectedPlayers || cachedRoom.disconnectedPlayers.length === 0) {
     return;
   }
 
-  // 大厅阶段 vs 游戏中阶段用不同超时
   const isInLobby = cachedRoom.status === GAME_PHASES.WAITING;
   const timeoutMs = isInLobby ? LOBBY_DISCONNECT_TIMEOUT_MS : GAME_DISCONNECT_TIMEOUT_MS;
-  const phase = isInLobby ? 'lobby' : 'game';
 
   const now = Date.now();
   const stalePlayers = cachedRoom.disconnectedPlayers.filter(
     p => now - p.disconnectedAt > timeoutMs
   );
 
-  if (stalePlayers.length > 0) {
-    log.info('Removing stale disconnected players', {
-      count: stalePlayers.length,
-      phase,
-      timeoutMs
-    });
+  if (stalePlayers.length === 0) return;
 
-    stalePlayers.forEach(player => {
-      cachedRoom.players = cachedRoom.players.filter(p => p.id !== player.id);
-    });
+  log.info('Removing stale disconnected players', {
+    count: stalePlayers.length,
+    phase: isInLobby ? 'lobby' : 'game',
+    timeoutMs
+  });
 
-    cachedRoom.disconnectedPlayers = cachedRoom.disconnectedPlayers.filter(
-      p => !stalePlayers.find(sp => sp.id === p.id)
-    );
+  stalePlayers.forEach(player => {
+    cachedRoom.players = cachedRoom.players.filter(p => p.id !== player.id);
+  });
 
-    if (cachedRoom.disconnectedPlayers.length === 0) {
-      clearOfflinePlayerCleanupTimer();
-    }
+  cachedRoom.disconnectedPlayers = cachedRoom.disconnectedPlayers.filter(
+    p => !stalePlayers.find(sp => sp.id === p.id)
+  );
 
-    const onlineCount = cachedRoom.players.filter(p => p.isOnline).length;
-    if (onlineCount < 3 && cachedRoom.status === GAME_PHASES.PLAYING) {
-      log.warn('Not enough online players, ending game', { onlineCount });
-      cachedRoom.status = GAME_PHASES.ENDED;
-      cachedRoom.phase = GAME_PHASES.ENDED;
-      cachedRoom.gameState.winner = null;
-    }
-
-    if (onlineCount <= 1) {
-      scheduleRoomAutoDestroy('room_empty');
-    }
-
-    broadcastState();
+  const onlineCount = cachedRoom.players.filter(p => p.isOnline).length;
+  if (onlineCount < 3 && cachedRoom.status === GAME_PHASES.PLAYING) {
+    log.warn('Not enough online players, ending game', { onlineCount });
+    cachedRoom.status = GAME_PHASES.ENDED;
+    cachedRoom.phase = GAME_PHASES.ENDED;
+    cachedRoom.gameState.winner = null;
   }
+
+  if (onlineCount <= 1) {
+    scheduleRoomAutoDestroy('room_empty');
+  }
+
+  broadcastState();
 }
 
-function scheduleOfflinePlayerCleanup() {
-  if (_offlinePlayerCleanupTimer) clearTimeout(_offlinePlayerCleanupTimer);
-  _offlinePlayerCleanupTimer = setTimeout(() => {
-    _offlinePlayerCleanupTimer = null;
-    cleanupDisconnectedPlayers();
-    if (getRoom()?.disconnectedPlayers?.length > 0) {
-      scheduleOfflinePlayerCleanup();
+function scheduleOfflineTick() {
+  if (_offlineTickTimer) clearTimeout(_offlineTickTimer);
+  _offlineTickTimer = setTimeout(() => {
+    _offlineTickTimer = null;
+    offlinePlayerTick();
+    // 只要还有离线玩家或处于游戏中，就持续轮询
+    const room = getRoom();
+    if (room && (room.disconnectedPlayers?.length > 0 || room.status === GAME_PHASES.PLAYING)) {
+      scheduleOfflineTick();
     }
-  }, 10000);
+  }, 5000);
 }
 
-function clearOfflinePlayerCleanupTimer() {
-  if (_offlinePlayerCleanupTimer) {
-    clearTimeout(_offlinePlayerCleanupTimer);
-    _offlinePlayerCleanupTimer = null;
+function clearOfflineTickTimer() {
+  if (_offlineTickTimer) {
+    clearTimeout(_offlineTickTimer);
+    _offlineTickTimer = null;
   }
 }
 
@@ -335,8 +381,8 @@ function scheduleHostTimerForCurrentPhase() {
   const cachedRoom = getRoom();
   if (!cachedRoom) return;
 
-  clearDisconnectedSkipTimer();
-  scheduleDisconnectedSkipCheck();
+  clearOfflineTickTimer();
+  scheduleOfflineTick();
 
   if (cachedRoom.phase === GAME_PHASES.STORYTELLER_PICKING) {
     schedulePickingTimeout();
@@ -360,64 +406,7 @@ function generateAutoClue(word) {
   return templates[Math.floor(Math.random() * templates.length)];
 }
 
-function scheduleDisconnectedSkipCheck() {
-  if (!gameState.isHost) return;
-  const cachedRoom = getRoom();
-  if (!cachedRoom) return;
-
-  const phase = cachedRoom.phase;
-
-  if (phase === GAME_PHASES.STORYTELLER_PICKING) {
-    const st = cachedRoom.players.find(p => p.id === cachedRoom.gameState.storytellerId);
-    if (st && !st.isOnline) {
-      log.info('Storyteller disconnected during picking phase, auto-skipping');
-      // Force auto-pick for disconnected storyteller
-      if (_pickingTimer) { clearTimeout(_pickingTimer); _pickingTimer = null; }
-      const result = submitStorySelection(cachedRoom, st.id, 0, `(离线自动出题)${st.hand?.[0]?.[0] || ''}有关的词`);
-      if (!result.error) {
-        broadcastState();
-        if (cachedRoom.phase === GAME_PHASES.OTHERS_PICKING) scheduleOthersPickingTimeout();
-      }
-    }
-  }
-
-  if (phase === GAME_PHASES.OTHERS_PICKING) {
-    const offlinePlayers = cachedRoom.players.filter(
-      p => !p.isOnline && p.id !== cachedRoom.gameState.storytellerId
-    );
-    let skipped = false;
-    offlinePlayers.forEach(p => {
-      if (!cachedRoom.gameState.submittedCards.find(sc => sc.playerId === p.id)) {
-        const result = submitCard(cachedRoom, p.id, 0);
-        if (!result.error) skipped = true;
-      }
-    });
-    if (skipped) broadcastState();
-  }
-
-  if (phase === GAME_PHASES.REVEALING) {
-    const offlineVoters = cachedRoom.players.filter(
-      p => !p.isOnline && p.id !== cachedRoom.gameState.storytellerId
-    );
-    let changed = false;
-    offlineVoters.forEach(p => {
-      if (!cachedRoom.gameState.votes.find(v => v.voterId === p.id)) {
-        cachedRoom.gameState.votes.push({ voterId: p.id, votedCardId: -1 });
-        changed = true;
-      }
-    });
-    if (changed) broadcastState();
-  }
-
-  _disconnectedSkipTimer = setTimeout(scheduleDisconnectedSkipCheck, 5000);
-}
-
-function clearDisconnectedSkipTimer() {
-  if (_disconnectedSkipTimer) {
-    clearTimeout(_disconnectedSkipTimer);
-    _disconnectedSkipTimer = null;
-  }
-}
+// scheduleOfflineTick 和 scheduleOfflinePlayerCleanup 已合并为 offlinePlayerTick（见上方）
 
 function scheduleRoomAutoDestroy(reason = 'room_inactive') {
   if (_roomDestroyTimer) return;
@@ -488,22 +477,23 @@ export function registerAutoReconnectHandlers() {
       }
     } else if (iceState === 'connected' || iceState === 'completed') {
       cancelAutoReconnect();
+      if (_iceCheckingTimer) { clearTimeout(_iceCheckingTimer); _iceCheckingTimer = null; }
       if (gameState.connectionStatus === 'reconnecting') {
         setConnectionStatus('connected', '已连接');
       }
       _reconnectAttempts = 0;
+    } else if (iceState === 'checking') {
+      // ICE checking 超时保护：如果持续 checking 超过 10s，触发重连
+      if (_iceCheckingTimer) clearTimeout(_iceCheckingTimer);
+      _iceCheckingTimer = setTimeout(() => {
+        const state = p2p.getPeerConnectionState(hostPeerId);
+        if (state?.iceConnectionState === 'checking' && !_autoReconnectTimer) {
+          setConnectionStatus('reconnecting', '连接建立超时，正在重试...');
+          startAutoReconnect();
+        }
+      }, 10000);
     }
   };
-
-  // Periodic connection quality check every 3s
-  if (_autoReconnectInterval) return;
-  _autoReconnectInterval = setInterval(() => {
-    const hostPeerId = `catguess-${gameState.roomCode}`;
-    const state = p2p.getPeerConnectionState(hostPeerId);
-    if (state?.iceConnectionState === 'failed' && !_autoReconnectTimer) {
-      startAutoReconnect();
-    }
-  }, 3000);
 }
 
 async function startAutoReconnect() {
@@ -550,6 +540,10 @@ export function cancelAutoReconnect() {
     clearTimeout(_autoReconnectTimer);
     _autoReconnectTimer = null;
   }
+  if (_iceCheckingTimer) {
+    clearTimeout(_iceCheckingTimer);
+    _iceCheckingTimer = null;
+  }
 }
 
 async function reconnectRoomInternal() {
@@ -594,14 +588,9 @@ export function resetAllTimers() {
   clearPickingTimer();
   clearOthersPickingTimer();
   clearVotingTimer();
-  clearOfflinePlayerCleanupTimer();
-  clearDisconnectedSkipTimer();
+  clearOfflineTickTimer();
   clearRoomAutoDestroyTimer();
   cancelAutoReconnect();
-  if (_autoReconnectInterval) {
-    clearInterval(_autoReconnectInterval);
-    _autoReconnectInterval = null;
-  }
   stopJoinRetry();
   _reconnectAttempts = 0;
 }
@@ -614,8 +603,7 @@ export const RECONNECT_METADATA = {
 // 暴露给 network.js 在 setupHost/setupGuest 时调用，以及 gameStore.js 高层 API
 export {
   scheduleHostTimerForCurrentPhase,
-  scheduleOfflinePlayerCleanup,
-  scheduleDisconnectedSkipCheck,
+  scheduleOfflineTick,
   schedulePickingTimeout,
   scheduleVotingTimeout,
   scheduleAutoAdvance,
@@ -624,7 +612,5 @@ export {
   clearPickingTimer,
   clearOthersPickingTimer,
   clearVotingTimer,
-  clearOfflinePlayerCleanupTimer,
-  clearDisconnectedSkipTimer,
-  clearRoomAutoDestroyTimer
+  clearOfflineTickTimer
 };

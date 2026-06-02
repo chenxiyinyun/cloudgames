@@ -25,9 +25,8 @@ import { gameState, getRoom, setRoom, updateLocalState } from './state';
 // 循环 import（见 timers.js 同款），仅函数体内引用，ES module live binding 可容忍
 import {
   scheduleHostTimerForCurrentPhase,
-  scheduleOfflinePlayerCleanup,
+  scheduleOfflineTick,
   registerAutoReconnectHandlers,
-  scheduleDisconnectedSkipCheck,
   setConnectionStatus,
   stopJoinRetry
 } from './timers';
@@ -59,6 +58,43 @@ export function broadcastState() {
   if (!getRoom()) return;
   cleanupOps();
   roomBroadcaster.broadcastState();
+}
+
+// ── Host Message Helper ──────────────────────────────────────────────────────────
+
+/**
+ * 通用消息处理辅助：生成去重 key → 检查重复 → 执行业务逻辑 → 广播。
+ *
+ * @param {string} msgType - 消息类型
+ * @param {object} payload - 消息载荷（含 playerId 等）
+ * @param {string} peerId  - 发送者 peer ID
+ * @param {function} fn    - 业务函数，接收 (room) 返回 { error? }
+ * @param {object} [opts]  - 可选配置
+ * @param {string} opts.dupeMessage - 重复时的提示语
+ * @param {function} opts.afterBroadcast - 广播后的回调
+ */
+function withDedupe(msgType, payload, peerId, fn, opts = {}) {
+  const room = getRoom();
+  const key = generateOpKey(msgType, { ...payload, roomCode: room?.code });
+  if (isDuplicateOp(key)) {
+    log.debug(`Duplicate ${msgType} ignored`, { key });
+    p2p.sendTo(peerId, MSG.ROOM_STATE, {
+      room,
+      error: opts.dupeMessage || '请勿重复操作'
+    });
+    return;
+  }
+
+  const result = fn(room);
+  if (result?.error) {
+    p2p.sendTo(peerId, MSG.ROOM_STATE, { room: getRoom(), error: result.error });
+    return;
+  }
+
+  broadcastState();
+  if (typeof opts.afterBroadcast === 'function') {
+    opts.afterBroadcast(getRoom());
+  }
 }
 
 // ── Host Handlers ─────────────────────────────────────────────────────────────
@@ -96,7 +132,7 @@ export function setupHostHandlers() {
           disconnectedAt: Date.now()
         });
       }
-      scheduleOfflinePlayerCleanup();
+      scheduleOfflineTick();
       broadcastState();
     }
   };
@@ -128,7 +164,7 @@ export function setupHostHandlers() {
           disconnectedAt: Date.now()
         });
       }
-      scheduleOfflinePlayerCleanup();
+      scheduleOfflineTick();
       broadcastState();
     }
   };
@@ -289,115 +325,72 @@ export function handleHostMessage(data, peerId) {
 
     case MSG.SUBMIT_STORY: {
       try {
-        const submitStoryKey = generateOpKey(MSG.SUBMIT_STORY, {
-          playerId: data.payload.playerId,
-          roomCode: getRoom()?.code,
-          cardIndex: data.payload.cardIndex,
-          clue: data.payload.clue
-        });
-        if (isDuplicateOp(submitStoryKey)) {
-          log.debug('Duplicate SUBMIT_STORY ignored', { key: submitStoryKey });
-          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: getRoom(), error: '请勿重复提交' });
-          return;
-        }
-        const result = submitStorySelection(getRoom(), data.payload.playerId, data.payload.cardIndex, data.payload.clue);
-        if (result.error) {
-          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: getRoom(), error: result.error });
-          return;
-        }
-        broadcastState();
-        scheduleDisconnectedSkipCheck();
-        break;
+        withDedupe(MSG.SUBMIT_STORY, data.payload, peerId,
+          (room) => submitStorySelection(room, data.payload.playerId, data.payload.cardIndex, data.payload.clue),
+          { dupeMessage: '请勿重复提交', afterBroadcast: () => scheduleOfflineTick() }
+        );
       } catch (err) {
         log.error('handleHostMessage:SUBMIT_STORY error', { type: data?.type, peerId, error: err });
-        break;
       }
+      break;
     }
 
     case MSG.SUBMIT_CARD: {
       try {
-        const submitCardKey = generateOpKey(MSG.SUBMIT_CARD, {
-          playerId: data.payload.playerId,
-          roomCode: getRoom()?.code,
-          cardIndex: data.payload.cardIndex
-        });
-        if (isDuplicateOp(submitCardKey)) {
-          log.debug('Duplicate SUBMIT_CARD ignored', { key: submitCardKey });
-          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: getRoom(), error: '请勿重复提交' });
-          return;
-        }
-        const result = submitCard(getRoom(), data.payload.playerId, data.payload.cardIndex);
-        if (result.error) {
-          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: getRoom(), error: result.error });
-          return;
-        }
-        broadcastState();
-        if (getRoom().phase === GAME_PHASES.REVEALING) {
-          scheduleDisconnectedSkipCheck();
-        }
-        break;
+        withDedupe(MSG.SUBMIT_CARD, data.payload, peerId,
+          (room) => submitCard(room, data.payload.playerId, data.payload.cardIndex),
+          {
+            dupeMessage: '请勿重复提交',
+            afterBroadcast: (room) => {
+              if (room?.phase === GAME_PHASES.REVEALING) scheduleOfflineTick();
+            }
+          }
+        );
       } catch (err) {
         log.error('handleHostMessage:SUBMIT_CARD error', { type: data?.type, peerId, error: err });
-        break;
       }
+      break;
     }
 
     case MSG.SUBMIT_VOTE: {
       try {
-        const submitVoteKey = generateOpKey(MSG.SUBMIT_VOTE, {
-          playerId: data.payload.playerId,
-          roomCode: getRoom()?.code,
-          votedCardId: data.payload.votedCardId
-        });
-        if (isDuplicateOp(submitVoteKey)) {
-          log.debug('Duplicate SUBMIT_VOTE ignored', { key: submitVoteKey });
-          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: getRoom(), error: '请勿重复投票' });
-          return;
-        }
-        const result = submitVote(getRoom(), data.payload.playerId, data.payload.votedCardId);
-        if (result.error) {
-          p2p.sendTo(peerId, MSG.ROOM_STATE, { room: getRoom(), error: result.error });
-          return;
-        }
-        broadcastState();
-        if (getRoom().phase === GAME_PHASES.SCORING) {
-          scheduleHostTimerForCurrentPhase();
-        }
-        break;
+        withDedupe(MSG.SUBMIT_VOTE, data.payload, peerId,
+          (room) => submitVote(room, data.payload.playerId, data.payload.votedCardId),
+          {
+            dupeMessage: '请勿重复投票',
+            afterBroadcast: (room) => {
+              if (room?.phase === GAME_PHASES.SCORING) scheduleHostTimerForCurrentPhase();
+            }
+          }
+        );
       } catch (err) {
         log.error('handleHostMessage:SUBMIT_VOTE error', { type: data?.type, peerId, error: err });
-        break;
       }
+      break;
     }
 
     case MSG.NEXT_ROUND: {
       try {
         const cachedRoom = getRoom();
-        if (data.payload.playerId !== cachedRoom?.hostId) return;
-        const nextRoundKey = generateOpKey(MSG.NEXT_ROUND, { playerId: data.payload.playerId, roomCode: cachedRoom?.code });
-        if (isDuplicateOp(nextRoundKey)) {
-          log.debug('Duplicate NEXT_ROUND ignored', { key: nextRoundKey });
-          broadcastState();
-          return;
-        }
-        if (cachedRoom.status === GAME_PHASES.ENDED) {
-          restartGame(cachedRoom);
-        } else {
-          const result = nextRound(cachedRoom);
-          if (result.error) {
-            log.warn('Host received NEXT_ROUND but nextRound failed', { error: result.error });
-            break;
+        if (data.payload.playerId !== cachedRoom?.hostId) break;
+        withDedupe(MSG.NEXT_ROUND, data.payload, peerId,
+          (room) => {
+            if (room.status === GAME_PHASES.ENDED) {
+              restartGame(room);
+              return {};
+            }
+            return nextRound(room);
+          },
+          {
+            afterBroadcast: (room) => {
+              if (room?.phase === GAME_PHASES.STORYTELLER_PICKING) scheduleHostTimerForCurrentPhase();
+            }
           }
-        }
-        broadcastState();
-        if (cachedRoom.phase === GAME_PHASES.STORYTELLER_PICKING) {
-          scheduleHostTimerForCurrentPhase();
-        }
-        break;
+        );
       } catch (err) {
         log.error('handleHostMessage:NEXT_ROUND error', { type: data?.type, peerId, error: err });
-        break;
       }
+      break;
     }
 
     case MSG.REQUEST_STATE: {

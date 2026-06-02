@@ -833,6 +833,9 @@ const confettiStyle = (n) => {
 
 // ─── Watch: Reset local state on phase change ───
 
+// immediate: true — 组件在 phase 已经切换为 storyteller_picking 后才挂载
+// （App.vue v-else-if 按 screen 条件渲染），此时 watch 不会检测到"变化"，
+// 导致首轮倒计时不启动。immediate 会在挂载时立即执行一次回调。
 watch(phase, () => {
   selectedCardIndex.value = -1
   clueText.value = ''
@@ -856,7 +859,7 @@ watch(phase, () => {
   } else {
     showConfetti.value = false
   }
-})
+}, { immediate: true })
 
 watch(countdownSeconds, (newVal) => {
   if (newVal === 0 && phase.value === GAME_PHASES.STORYTELLER_PICKING && isStoryteller.value) {

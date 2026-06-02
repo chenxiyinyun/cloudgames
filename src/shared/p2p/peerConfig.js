@@ -85,7 +85,6 @@ export const PEER_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.qq.com:3478' },
     { urls: 'stun:stun.miwifi.com:3478' },
-    { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun.relay.metered.ca:80' },
     ...SELF_HOSTED_TURN_SERVERS,
     ...METERED_TURN_SERVERS

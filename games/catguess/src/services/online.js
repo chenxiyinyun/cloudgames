@@ -48,41 +48,13 @@ export const cleanupOps = deduper.cleanupOps;
 export const resetOps = deduper.resetOps;
 export { deepClone };
 
+/**
+ * ROOM_STATE 去重指纹 — gameEngine.js 在每次状态变更后都设置 updatedAt，
+ * 因此 round + phase + updatedAt 足以唯一标识每一次有意义的广播。
+ */
 export function getRoomStateDedupeDetail(room) {
-  const gameState = room.gameState || {};
-  const playerState = (room.players || [])
-    .map(player => [
-      player.id,
-      player.isOnline === false ? '0' : '1',
-      Array.isArray(player.hand) ? player.hand.length : 0
-    ].join(':'))
-    .join(',');
-
-  // Names and scores are NOT derivable from the array lengths above, yet a
-  // full ROOM_STATE that differs only in one of them must not be deduped away
-  // as a "duplicate". Fingerprint them explicitly so the dedupe key reflects
-  // every UI-visible field, not just the append-only array lengths.
-  const nameState = (room.players || [])
-    .map(player => `${player.id}=${player.name || ''}`)
-    .join(',');
-  const fingerprintScores = (scores) => Object.keys(scores || {})
-    .sort()
-    .map(id => `${id}:${scores[id]}`)
-    .join(',');
-
-  return [
-    gameState.round || 0,
-    room.phase || '',
-    gameState.storytellerId || '',
-    playerState,
-    gameState.clue || '',
-    gameState.submittedCards?.length || 0,
-    gameState.shuffledCards?.length || 0,
-    gameState.votes?.length || 0,
-    nameState,
-    fingerprintScores(gameState.scores),
-    fingerprintScores(gameState.roundScores)
-  ].join('_');
+  const gs = room.gameState || {};
+  return `${gs.round || 0}_${room.phase || ''}_${room.updatedAt || 0}`;
 }
 
 export function createJoinRequestSenderForGame({ p2p, getRoomCode, logger }) {

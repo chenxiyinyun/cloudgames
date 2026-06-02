@@ -24,7 +24,7 @@ import {
   scheduleHostTimerForCurrentPhase, schedulePickingTimeout,
   scheduleVotingTimeout,
   clearScoringTimer, clearPickingTimer, clearOthersPickingTimer,
-  clearVotingTimer, clearOfflinePlayerCleanupTimer
+  clearVotingTimer, clearOfflineTickTimer
 } from './timers';
 import {
   sendJoinRequest, hostMigrator, broadcastState,
@@ -306,7 +306,7 @@ export function handleEndGame() {
   clearPickingTimer();
   clearOthersPickingTimer();
   clearVotingTimer();
-  clearOfflinePlayerCleanupTimer();
+  clearOfflineTickTimer();
   getRoom().gameState.winner = null;
   getRoom().status = GAME_PHASES.ENDED;
   getRoom().phase = GAME_PHASES.ENDED;

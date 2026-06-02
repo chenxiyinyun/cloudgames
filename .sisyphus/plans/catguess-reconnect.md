@@ -78,7 +78,7 @@ Phase 5: Polish & Verification (depends on all above)
 
 1. Add `VITE_METERED_TURN_REGION` env var (`'global' | 'sg' | 'jp' | 'seoul'`)
 2. Build `METERED_TURN_SERVERS` with region-based host (`${region}.relay.metered.ca`)
-3. Add `stun:stun.l.google.com:19302` for redundancy
+3. Add `stun:stun.qq.com:3478` for redundancy (国内低延迟，避免依赖 Google STUN)
 4. Document in README.md
 
 **Estimated effort:** 0.5 hours
