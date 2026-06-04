@@ -1,0 +1,426 @@
+:root {
+  font-family: 'Noto Serif SC', Georgia, serif;
+  color: #f4efe4;
+  background: #15120f;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --bg: #15120f;
+  --panel: #24201b;
+  --panel-strong: #312a22;
+  --line: #5f5647;
+  --paper: #efe3c4;
+  --paper-ink: #282114;
+  --danger: #e14d38;
+  --danger-dark: #8f2319;
+  --amber: #d69b37;
+  --green: #5ca96b;
+  --muted: #b8aa91;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    radial-gradient(circle at 20% 10%, rgba(225, 77, 56, 0.2), transparent 26rem),
+    var(--bg);
+  background-size: 34px 34px, 34px 34px, auto;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  min-height: 44px;
+  border: 0;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+#bomb-defuse-app {
+  min-height: 100vh;
+}
+
+.screen {
+  width: min(1060px, calc(100vw - 32px));
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 36px 0;
+}
+
+.menu-screen {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.75fr);
+  gap: 28px;
+  align-items: center;
+}
+
+.mission-brief h1,
+.top-bar h1,
+.game-header h1,
+.result-panel h1 {
+  margin: 0;
+  font-size: clamp(2.4rem, 6vw, 5.8rem);
+  line-height: 0.95;
+  letter-spacing: 0;
+}
+
+.brief-copy {
+  max-width: 560px;
+  color: var(--muted);
+  font-size: 1.08rem;
+  line-height: 1.8;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  color: var(--amber);
+  font-family: 'Courier Prime', monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.command-panel,
+.player-slot,
+.room-code-panel,
+.bomb-shell,
+.manual-page,
+.result-panel {
+  border: 1px solid var(--line);
+  background: rgba(36, 32, 27, 0.92);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+}
+
+.command-panel {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.field input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 14px;
+  color: #fff9ee;
+  background: #17130f;
+  outline: none;
+}
+
+.field input:focus {
+  border-color: var(--amber);
+}
+
+.code-input {
+  font-family: 'Courier Prime', monospace;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.divider {
+  color: var(--muted);
+  text-align: center;
+}
+
+.primary-button,
+.secondary-button,
+.danger-button,
+.ghost-button {
+  border-radius: 6px;
+  padding: 0 18px;
+  color: #fff7e8;
+  font-weight: 700;
+}
+
+.primary-button {
+  background: linear-gradient(180deg, #f16b4f, var(--danger));
+}
+
+.secondary-button {
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+}
+
+.danger-button {
+  background: var(--danger-dark);
+}
+
+.ghost-button {
+  border: 1px solid var(--line);
+  background: transparent;
+}
+
+.wide {
+  width: 100%;
+}
+
+.top-bar,
+.game-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.top-bar h1,
+.game-header h1 {
+  font-size: clamp(2rem, 4vw, 4rem);
+}
+
+.room-code-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 18px 20px;
+}
+
+.room-code-panel span {
+  color: var(--muted);
+}
+
+.room-code-panel strong {
+  font-family: 'Courier Prime', monospace;
+  font-size: clamp(2rem, 7vw, 4.4rem);
+  letter-spacing: 0.16em;
+}
+
+.player-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.player-slot {
+  min-height: 180px;
+  padding: 18px;
+}
+
+.player-slot.offline {
+  opacity: 0.62;
+}
+
+.role-label {
+  display: inline-block;
+  margin-bottom: 22px;
+  color: var(--amber);
+  font-family: 'Courier Prime', monospace;
+  font-size: 0.82rem;
+}
+
+.player-slot h2 {
+  margin: 0 0 8px;
+  font-size: 1.7rem;
+}
+
+.player-slot p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.timer {
+  min-width: 148px;
+  border: 2px solid var(--danger);
+  padding: 10px 16px;
+  color: #ffe5df;
+  background: #210c09;
+  font-family: 'Courier Prime', monospace;
+  font-size: clamp(1.8rem, 5vw, 3.2rem);
+  font-weight: 700;
+  text-align: center;
+}
+
+.status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+  color: var(--muted);
+  font-family: 'Courier Prime', monospace;
+}
+
+.status-strip span {
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.manual-layout {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.manual-page {
+  min-height: 260px;
+  padding: 20px;
+  color: var(--paper-ink);
+  background: var(--paper);
+}
+
+.manual-page h2 {
+  margin: 0 0 14px;
+}
+
+.manual-page li,
+.manual-page p {
+  line-height: 1.7;
+}
+
+.bomb-shell {
+  padding: 22px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent),
+    #2a2a27;
+}
+
+.serial {
+  width: max-content;
+  margin-bottom: 18px;
+  border: 1px solid #827c69;
+  padding: 6px 10px;
+  color: #111;
+  background: #d8d0b5;
+  font-family: 'Courier Prime', monospace;
+  font-weight: 700;
+}
+
+.module-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.module-tile {
+  aspect-ratio: 1 / 0.82;
+  border: 2px solid #1b1916;
+  border-radius: 8px;
+  padding: 14px;
+  color: #f6eee1;
+  background: #403a32;
+  font-weight: 700;
+}
+
+.wire-tile {
+  background: linear-gradient(90deg, #7d1f17 0 25%, #b88923 25% 50%, #275c93 50% 75%, #e7dfce 75%);
+  color: #15120f;
+}
+
+.symbol-tile {
+  background: #314236;
+}
+
+.keypad-tile {
+  background: #3b3547;
+}
+
+.debug-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.result-screen {
+  display: grid;
+  place-items: center;
+}
+
+.result-panel {
+  width: min(680px, 100%);
+  padding: 32px;
+}
+
+.result-panel.solved {
+  border-color: var(--green);
+}
+
+.result-panel.exploded {
+  border-color: var(--danger);
+}
+
+.result-panel p {
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  max-width: min(360px, calc(100vw - 36px));
+  border: 1px solid var(--amber);
+  border-radius: 6px;
+  padding: 12px 14px;
+  color: #fff7e8;
+  background: #33240d;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.36);
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+@media (max-width: 760px) {
+  .screen {
+    width: min(100vw - 24px, 560px);
+    padding: 22px 0;
+  }
+
+  .menu-screen,
+  .player-grid,
+  .manual-layout,
+  .module-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .top-bar,
+  .game-header,
+  .room-code-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .timer {
+    width: 100%;
+  }
+}
