@@ -38,12 +38,18 @@ export function startCountdownTimer(onExpired) {
   stopCountdownTimer()
   countdownTimer = setInterval(() => {
     const room = getRoom()
-    if (!room || room.phase !== GAME_PHASES.PLAYING) return
+    if (!room) return
+    if (room.phase !== GAME_PHASES.PLAYING) {
+      stopCountdownTimer()
+      return
+    }
     checkEndCondition(room)
     updateLocalState(room)
     if (room.phase === GAME_PHASES.EXPLODED) {
       stopCountdownTimer()
       onExpired?.()
+    } else if (room.phase !== GAME_PHASES.PLAYING) {
+      stopCountdownTimer()
     }
   }, 500)
 }

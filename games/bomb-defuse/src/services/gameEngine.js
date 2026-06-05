@@ -219,19 +219,19 @@ export function checkEndCondition(room, now = Date.now()) {
   if (room.phase !== GAME_PHASES.PLAYING) return { room }
 
   if (room.gameState.strikes.length >= room.gameState.strikeLimit) {
-    finishRoom(room, GAME_PHASES.EXPLODED, 'exploded')
+    finishRoom(room, GAME_PHASES.EXPLODED, 'exploded', now)
     return { room }
   }
 
   if (room.gameState.deadlineAt && now >= room.gameState.deadlineAt) {
-    finishRoom(room, GAME_PHASES.EXPLODED, 'exploded')
+    finishRoom(room, GAME_PHASES.EXPLODED, 'exploded', now)
     return { room }
   }
 
   const allModulesSolved = room.gameState.modules.length > 0 &&
     room.gameState.modules.every(module => module.status === MODULE_STATUS.SOLVED)
   if (allModulesSolved) {
-    finishRoom(room, GAME_PHASES.SOLVED, 'solved')
+    finishRoom(room, GAME_PHASES.SOLVED, 'solved', now)
   }
 
   return { room }
@@ -281,11 +281,11 @@ function createSerialNumber(seed) {
   return `${base.slice(0, 2).padEnd(2, 'X')}-${base.slice(-4).padStart(4, '0')}`
 }
 
-function finishRoom(room, phase, result) {
+function finishRoom(room, phase, result, endedAt = Date.now()) {
   room.phase = phase
   room.status = phase
   room.gameState.result = result
-  room.gameState.endedAt = Date.now()
+  room.gameState.endedAt = endedAt
   touch(room)
 }
 

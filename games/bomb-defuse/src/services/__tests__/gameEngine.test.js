@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   GAME_PHASES,
   addPlayerToRoom,
+  checkEndCondition,
   createInitialRoom,
   getPlayerRole,
   recordStrike,
@@ -66,7 +67,7 @@ describe('bomb defuse game engine', () => {
 
   it('starts with two players, assigns different roles, and creates three modules', () => {
     const room = createTwoPlayerRoom()
-    const result = startGame(room, { seed: 'test-seed' })
+    const result = startGame(room, { seed: 'test-seed', now: 1000, durationMs: 120000 })
 
     expect(result.error).toBeUndefined()
     expect(room.phase).toBe(GAME_PHASES.PLAYING)
@@ -74,6 +75,8 @@ describe('bomb defuse game engine', () => {
     expect(room.players.map(player => player.role).sort()).toEqual(['defuser', 'expert'])
     expect(getPlayerRole(room, 'p1')).not.toBe(getPlayerRole(room, 'p2'))
     expect(room.gameState.seed).toBe('test-seed')
+    expect(room.gameState.startedAt).toBe(1000)
+    expect(room.gameState.deadlineAt).toBe(121000)
     expect(room.gameState.modules).toHaveLength(3)
   })
 
@@ -118,6 +121,42 @@ describe('bomb defuse game engine', () => {
     expect(room.phase).toBe(GAME_PHASES.SOLVED)
     expect(room.status).toBe(GAME_PHASES.SOLVED)
     expect(room.gameState.result).toBe('solved')
+  })
+
+  it('explodes when the timer expires', () => {
+    const room = createTwoPlayerRoom()
+    startGame(room, { seed: 'timer-test', now: 1000, durationMs: 3000 })
+
+    checkEndCondition(room, 4000)
+
+    expect(room.phase).toBe(GAME_PHASES.EXPLODED)
+    expect(room.status).toBe(GAME_PHASES.EXPLODED)
+    expect(room.gameState.result).toBe('exploded')
+    expect(room.gameState.endedAt).toBe(4000)
+  })
+
+  it('solves before the timer expires', () => {
+    const room = createTwoPlayerRoom()
+    startGame(room, { seed: 'solve-before-expiry', now: Date.now(), durationMs: 60000 })
+
+    for (const module of room.gameState.modules) {
+      const result = submitModuleAction(room, 'p1', module.id, module.solution.action)
+      expect(result.error).toBeUndefined()
+    }
+
+    expect(room.phase).toBe(GAME_PHASES.SOLVED)
+    expect(room.gameState.result).toBe('solved')
+  })
+
+  it('rejects module actions after the game has ended', () => {
+    const room = createTwoPlayerRoom()
+    startGame(room, { seed: 'ended-test' })
+    checkEndCondition(room, room.gameState.deadlineAt)
+
+    const result = submitModuleAction(room, 'p1', 'wires-1', room.gameState.modules[0].solution.action)
+
+    expect(result.error).toBe('当前任务不接受操作')
+    expect(room.gameState.actionLog).toEqual([])
   })
 
   it('resets active game data on restart', () => {
