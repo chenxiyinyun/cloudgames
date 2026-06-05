@@ -181,33 +181,29 @@ export class P2PService {
     this._emitModeChange({ phase: 'trying-direct', mode: 'direct-or-relay' });
 
     try {
-      // 有中继兜底时，直连用较短超时以尽快放弃、进入中继；
-      // 没有兜底时这是唯一一次机会，给足时间避免高延迟下误超时。
-      // _joinRoom 内部监听 ICE 状态，failed 时会立即 reject 一个 'ice-failed'
-      // 错误，让我们在不依赖 timeout 的情况下无缝切 TURN。
       return await this._joinRoom(roomCode, {
         forceRelay: false,
-        timeout: canRelay ? 12000 : 20000
+        timeout: canRelay ? 4000 : 20000
       });
     } catch (err) {
       const isIceFailed = err && err.code === 'ICE_FAILED';
       const isTimeout = err && err.code === 'JOIN_TIMEOUT';
+      const isNoCandidates = err && err.code === 'NO_SRFLX_CANDIDATES';
       if (!canRelay) {
-        // 没 TURN 兜底，老实把错误抛上去
         throw err;
       }
+      const reason = isNoCandidates
+        ? 'STUN 未返回候选地址，直连不可用，切到 TURN 中继'
+        : isIceFailed
+          ? '直连 ICE 失败，切到 TURN 中继'
+          : '直连超时，切到 TURN 中继';
       this.log.warn(
         'Room join failed, switching to relay-only TURN',
-        { roomCode, reason: isIceFailed ? 'ice-failed' : isTimeout ? 'timeout' : 'other', error: err }
+        { roomCode, reason, error: err }
       );
-      this._emitModeChange({
-        phase: 'switching-to-relay',
-        mode: 'relay',
-        reason: isIceFailed ? '直连 ICE 失败（很可能是 NAT/防火墙问题），切到 TURN 中继' : '直连超时，切到 TURN 中继'
-      });
+      this._emitModeChange({ phase: 'switching-to-relay', mode: 'relay', reason });
       this._destroyPeerOnly();
-      // 中继节点多在境外、RTT 高，relay 路径给足时间。
-      return this._joinRoom(roomCode, { forceRelay: true, timeout: 25000 });
+      return this._joinRoom(roomCode, { forceRelay: true, timeout: 15000 });
     }
   }
 
@@ -251,8 +247,6 @@ export class P2PService {
           settle(reject, new Error('无法连接到房间'));
         });
 
-        // ICE 状态快速失败通道：不靠 12s 超时，浏览器明确告诉你过不去时立刻切
-        // 对称 NAT / 防火墙阻挡时，ICE 大约 5-10s 内会进 'failed'，比 timeout 更早
         const onIceStateChange = () => {
           const pc = conn.peerConnection;
           if (!pc) return;
@@ -271,10 +265,32 @@ export class P2PService {
             });
           }
         };
-        // peerConnection 还没就绪时，open 之后才挂监听
+
+        // srflx 候选早期检测：直连模式下，2s 内没收到 server-reflexive 候选
+        // 说明 STUN 不通（防火墙/对称 NAT），立即放弃直连切中继
+        const setupCandidateWatch = (pc) => {
+          if (forceRelay) return;
+          let hasSrflx = false;
+          const candidateTimer = setTimeout(() => {
+            if (!hasSrflx && !settled) {
+              this.log.warn('No srflx candidates within 2s, bailing to relay', { hostPeerId });
+              const err = new Error('No server-reflexive candidates');
+              err.code = 'NO_SRFLX_CANDIDATES';
+              settle(reject, err);
+            }
+          }, 2000);
+          conn.on('open', () => clearTimeout(candidateTimer));
+          pc.addEventListener?.('icecandidate', (e) => {
+            if (e.candidate && e.candidate.type === 'srflx') {
+              hasSrflx = true;
+            }
+          });
+        };
+
         const attachWhenReady = () => {
           if (conn.peerConnection) {
             conn.peerConnection.addEventListener?.('iceconnectionstatechange', onIceStateChange);
+            setupCandidateWatch(conn.peerConnection);
           } else {
             setTimeout(attachWhenReady, 50);
           }

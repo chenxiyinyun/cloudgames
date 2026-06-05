@@ -244,7 +244,7 @@ describe('bomb defuse game store networking', () => {
     })
 
     expect(sent).toBe(true)
-    expect(p2pMock.broadcast).toHaveBeenCalledWith('SUBMIT_MODULE_ACTION', {
+    expect(p2pMock.sendTo).toHaveBeenCalledWith('bombdefuse-ABC123', 'SUBMIT_MODULE_ACTION', {
       roomCode: 'ABC123',
       playerId: store.gameState.playerId,
       moduleId: 'wires-1',
@@ -300,5 +300,95 @@ describe('bomb defuse game store networking', () => {
     expect(store.gameState.error).toBe('房间已满，需要刚好 2 名玩家')
     expect(store.gameState.connectionStatus).toBe('error')
     expect(store.gameState.connectionMessage).toBe('房间已满，需要刚好 2 名玩家')
+  })
+
+  it('clears stale errors on a successful JOIN_RESPONSE', () => {
+    store.gameState.error = 'Player name was empty; using Player.'
+    store.gameState.connectionStatus = 'error'
+    store.gameState.connectionMessage = 'Player name was empty; using Player.'
+
+    network.handleGuestMessage({
+      type: 'JOIN_RESPONSE',
+      payload: {
+        success: true,
+        room: {
+          id: 'ABC123',
+          code: 'ABC123',
+          hostId: 'p1',
+          players: [],
+          phase: 'waiting',
+          status: 'waiting',
+          gameState: { modules: [], strikes: [], solvedModuleIds: [], actionLog: [] },
+          disconnectedPlayers: []
+        }
+      }
+    })
+
+    expect(store.gameState.error).toBe(null)
+    expect(store.gameState.connectionStatus).toBe('connected')
+  })
+
+  it('falls back to peer-id reconnect when the room is already full', async () => {
+    await store.createRoom('Host')
+    // First guest joins via a peer
+    network.handleHostMessage({
+      type: 'JOIN_REQUEST',
+      payload: {
+        playerId: 'p2',
+        playerName: 'Guest',
+        originalPeerId: 'guest-peer-original'
+      }
+    }, 'guest-peer-original')
+
+    // Host starts the game
+    expect(store.handleStartGame({ seed: 'reconnect-by-peer' })).toBe(true)
+
+    // A second join attempt arrives with a different playerId but the same
+    // peer (e.g. flaky reconnect that regenerated the id locally) — should be
+    // accepted as a reconnect instead of being rejected with "room full".
+    p2pMock.sendTo.mockClear()
+    p2pMock.broadcast.mockClear()
+
+    network.handleHostMessage({
+      type: 'JOIN_REQUEST',
+      payload: {
+        playerId: 'p2-regenerated',
+        playerName: 'Guest',
+        originalPeerId: 'guest-peer-original',
+        isReconnect: true
+      }
+    }, 'guest-peer-original')
+
+    expect(p2pMock.sendTo).toHaveBeenCalledWith('guest-peer-original', 'JOIN_RESPONSE', {
+      success: true,
+      room: expect.objectContaining({
+        players: expect.arrayContaining([
+          expect.objectContaining({ id: 'p2', isOnline: true })
+        ])
+      })
+    })
+    expect(p2pMock.sendTo).not.toHaveBeenCalledWith('guest-peer-original', 'JOIN_RESPONSE', expect.objectContaining({
+      success: false
+    }))
+  })
+
+  it('clears a stale error when joinRoom is called with a valid name', async () => {
+    store.gameState.error = 'Player name was empty; using Player.'
+
+    const joined = await store.joinRoom('moyu', 'ABC123')
+
+    expect(joined).toBe(true)
+    expect(store.gameState.error).toBe(null)
+    expect(store.gameState.playerName).toBe('moyu')
+  })
+
+  it('clears a stale error when createRoom is called with a valid name', async () => {
+    store.gameState.error = 'Player name was empty; using Player.'
+
+    const created = await store.createRoom('Host')
+
+    expect(created).toBe(true)
+    expect(store.gameState.error).toBe(null)
+    expect(store.gameState.playerName).toBe('Host')
   })
 })

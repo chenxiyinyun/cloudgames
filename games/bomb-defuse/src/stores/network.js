@@ -48,7 +48,7 @@ export function resetBroadcastState() {
 }
 
 export function sendModuleAction(moduleId, action) {
-  return p2p.broadcast(MSG.SUBMIT_MODULE_ACTION, {
+  return p2p.sendTo(p2p.getHostPeerId(gameState.roomCode), MSG.SUBMIT_MODULE_ACTION, {
     roomCode: gameState.roomCode,
     playerId: gameState.playerId,
     moduleId,
@@ -82,10 +82,20 @@ export function handleHostMessage(data, peerId) {
     case MSG.JOIN_REQUEST:
       handleJoinRequest(payload, peerId)
       break
-    case MSG.SUBMIT_MODULE_ACTION:
+    case MSG.SUBMIT_MODULE_ACTION: {
+      const sender = room.players.find(p => p._peerId === peerId)
+      if (!sender || sender.id !== payload.playerId) {
+        log.warn('Rejecting module action: playerId does not match sender peer', {
+          peerId,
+          claimedPlayerId: payload.playerId,
+          actualPlayerId: sender?.id
+        })
+        return
+      }
       if (isDuplicateOp(type, payload, room.code)) return
       handleRemoteModuleAction(payload)
       break
+    }
     case MSG.REQUEST_STATE:
       if (isDuplicateOp(type, payload, room.code)) return
       p2p.sendTo(peerId, MSG.ROOM_STATE, { room: deepClone(room), detail: getRoomStateDedupeDetail(room) })
@@ -115,6 +125,7 @@ export function handleGuestMessage(data) {
       clearJoinTimeout()
       gameState.connected = true
       gameState.connecting = false
+      gameState.error = null
       setConnectionStatus('connected', 'Mission joined.')
       setRoom(payload.room)
       updateLocalState(payload.room)
@@ -132,6 +143,25 @@ function handleJoinRequest(payload, peerId) {
   const result = addPlayerToRoom(room, payload.playerName, payload.playerId)
 
   if (result.error) {
+    // Defensive reconnect: if the room is full but the same peer is asking to
+    // join (e.g. playerId got regenerated on the guest after a flaky reconnect,
+    // or the guest's retry is still in flight when the host already has 2
+    // players), mark that peer as online again instead of rejecting.
+    if (result.error === '房间已满，需要刚好 2 名玩家') {
+      const originalPeerId = payload.originalPeerId || peerId
+      const existingByPeer = room.players.find(candidate => candidate._peerId === originalPeerId)
+      if (existingByPeer) {
+        existingByPeer.name = payload.playerName
+        existingByPeer.isOnline = true
+        room.updatedAt = Date.now()
+        p2p.sendTo(peerId, MSG.JOIN_RESPONSE, {
+          success: true,
+          room: deepClone(room)
+        })
+        broadcastState()
+        return
+      }
+    }
     p2p.sendTo(peerId, MSG.JOIN_RESPONSE, {
       success: false,
       error: result.error

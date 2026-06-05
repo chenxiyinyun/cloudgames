@@ -7,7 +7,6 @@ import {
   submitModuleAction
 } from '../services/gameEngine'
 import p2p from '../services/p2p'
-import { MSG } from '../services/online'
 import { sanitizeModuleAction, sanitizePlayerName, sanitizeRoomCode } from '../services/sanitize'
 import { clearCache, flushCache, hasRestoreableState, restoreFromCache } from './cache'
 import { gameState, getRoom, resetLocalState, setConnectionStatus, setRoom, updateLocalState } from './state'
@@ -30,8 +29,16 @@ import {
 } from './timers'
 
 export async function createRoom(name) {
+  // Clear any stale error from a previous attempt so the menu doesn't keep
+  // showing "Player name was empty" after the user has fixed their input.
+  gameState.error = null
+  setConnectionStatus('disconnected', '')
+
   const { value: playerName, error } = sanitizePlayerName(name)
-  if (error) gameState.error = error
+  if (error) {
+    gameState.error = error
+    return false
+  }
 
   gameState.connecting = true
   setConnectionStatus('connecting', 'Creating mission...')
@@ -66,6 +73,11 @@ export async function createRoom(name) {
 }
 
 export async function joinRoom(name, code) {
+  // Clear any stale error from a previous attempt so the menu doesn't keep
+  // showing "Player name was empty" after the user has fixed their input.
+  gameState.error = null
+  setConnectionStatus('disconnected', '')
+
   const { value: playerName, error: nameError } = sanitizePlayerName(name)
   const { value: roomCode, error: codeError } = sanitizeRoomCode(code)
   if (nameError || codeError) {
@@ -135,6 +147,21 @@ export async function reconnectRoom() {
     await p2p.joinRoom(gameState.roomCode, gameState.playerName)
     setupGuestHandlers()
     sendJoinRequest(gameState.playerId, gameState.playerName, true)
+    startJoinRetryInterval(() => {
+      if (gameState.connected) {
+        stopJoinRetry()
+        return
+      }
+      sendJoinRequest(gameState.playerId, gameState.playerName, true)
+    })
+    startJoinTimeout(() => {
+      if (!gameState.connected) {
+        gameState.error = 'Reconnect timed out.'
+        setConnectionStatus('error', 'Reconnect timed out.')
+        stopJoinRetry()
+        gameState.connecting = false
+      }
+    })
     gameState.connecting = false
     return true
   } catch (error) {
@@ -158,7 +185,6 @@ export function handleStartGame(options = {}) {
   }
   startCountdownTimer(() => broadcastState())
   broadcastState()
-  p2p.broadcast(MSG.START_GAME, { playerId: gameState.playerId, options })
   return true
 }
 
@@ -171,7 +197,6 @@ export function handleAssignRoles(roleByPlayerId) {
   room.updatedAt = Date.now()
   updateLocalState(room)
   broadcastState()
-  p2p.broadcast(MSG.ASSIGN_ROLE, { playerId: gameState.playerId, roleByPlayerId })
   return true
 }
 
@@ -206,7 +231,6 @@ export function handleRestartGame() {
   stopCountdownTimer()
   resetBroadcastState()
   broadcastState()
-  p2p.broadcast(MSG.RESTART_GAME, { playerId: gameState.playerId, at: Date.now() })
   return true
 }
 
@@ -219,7 +243,6 @@ export function handleEndGame() {
   room.updatedAt = Date.now()
   stopCountdownTimer()
   broadcastState()
-  p2p.broadcast(MSG.END_GAME, { playerId: gameState.playerId, at: Date.now() })
   return true
 }
 
