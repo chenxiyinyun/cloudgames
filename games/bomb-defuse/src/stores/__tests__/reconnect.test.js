@@ -81,6 +81,31 @@ describe('bomb defuse game store networking', () => {
     }))
   })
 
+  it('ignores remote start requests from guests', async () => {
+    await store.createRoom('Host')
+    network.handleHostMessage({
+      type: 'JOIN_REQUEST',
+      payload: {
+        playerId: 'p2',
+        playerName: 'Guest',
+        originalPeerId: 'guest-peer'
+      }
+    }, 'guest-peer')
+
+    network.handleHostMessage({
+      type: 'START_GAME',
+      payload: {
+        roomCode: 'ABC123',
+        playerId: 'p2',
+        options: { seed: 'guest-forged-start' }
+      }
+    }, 'guest-peer')
+
+    expect(state.getRoom().phase).toBe('waiting')
+    expect(state.getRoom().gameState.modules).toEqual([])
+    expect(p2pMock.broadcast).not.toHaveBeenCalledWith('START_GAME', expect.anything())
+  })
+
   it('accepts a repeated join request for the same cached player id as a reconnect', async () => {
     await store.createRoom('Host')
     network.handleHostMessage({

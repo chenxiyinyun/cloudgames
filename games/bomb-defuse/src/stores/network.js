@@ -1,7 +1,6 @@
 import {
   addPlayerToRoom,
   removePlayerFromRoom,
-  startGame,
   submitModuleAction
 } from '../services/gameEngine'
 import p2p from '../services/p2p'
@@ -15,7 +14,7 @@ import {
   isDuplicateOp
 } from '../services/online'
 import { gameState, getRoom, setConnectionStatus, setRoom, updateLocalState } from './state'
-import { startCountdownTimer, stopCountdownTimer } from './timers'
+import { stopCountdownTimer } from './timers'
 
 const log = createLogger('BombDefuse:Network')
 
@@ -87,9 +86,6 @@ export function handleHostMessage(data, peerId) {
     case MSG.SUBMIT_MODULE_ACTION:
       handleRemoteModuleAction(payload)
       break
-    case MSG.START_GAME:
-      handleRemoteStart(payload)
-      break
     case MSG.REQUEST_STATE:
       p2p.sendTo(peerId, MSG.ROOM_STATE, { room: deepClone(room), detail: getRoomStateDedupeDetail(room) })
       break
@@ -158,17 +154,6 @@ function handleRemoteModuleAction(payload) {
   if (room.phase === 'exploded' || room.phase === 'solved') {
     stopCountdownTimer()
   }
-  broadcastState()
-}
-
-function handleRemoteStart(payload) {
-  const room = getRoom()
-  const result = startGame(room, payload.options || {})
-  if (result.error) {
-    broadcastState({ error: result.error })
-    return
-  }
-  startCountdownTimer(() => broadcastState())
   broadcastState()
 }
 
