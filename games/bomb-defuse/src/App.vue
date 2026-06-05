@@ -17,6 +17,7 @@
       :is-host="gameState.isHost"
       :connected="gameState.connected"
       @start-game="handleStartGame"
+      @swap-roles="handleSwapRoles"
       @leave-room="handleLeaveRoom"
     />
     <GameScreen
@@ -61,6 +62,7 @@ import {
   RECONNECT_METADATA,
   createRoom,
   gameState,
+  handleAssignRoles,
   handleEndGame as endGame,
   handleRestartGame,
   handleStartGame as startGame,
@@ -100,6 +102,16 @@ async function handleRestoreRoom() {
 
 function handleStartGame() {
   startGame()
+}
+
+function handleSwapRoles() {
+  const players = gameState.room.players
+  if (players.length !== 2) return
+  const roleByPlayerId = {}
+  players.forEach(p => {
+    roleByPlayerId[p.id] = p.role === 'defuser' ? 'expert' : 'defuser'
+  })
+  handleAssignRoles(roleByPlayerId)
 }
 
 function handleModuleAction({ moduleId, action }) {

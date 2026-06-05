@@ -148,7 +148,7 @@ function syncScreenToPhase(room) {
     room.phase === GAME_PHASES.ENDED
   ) {
     gameState.screen = 'result'
-  } else if (gameState.connected && gameState.screen !== 'menu') {
+  } else if (gameState.connected && gameState.screen !== 'game' && gameState.screen !== 'result') {
     gameState.screen = 'lobby'
   }
 }

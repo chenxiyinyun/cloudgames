@@ -39,6 +39,15 @@
     </section>
 
     <button
+      v-if="canSwapRoles"
+      class="ghost-button wide"
+      type="button"
+      @click="$emit('swap-roles')"
+    >
+      交换身份
+    </button>
+
+    <button
       class="primary-button wide"
       type="button"
       :disabled="!canStart"
@@ -75,7 +84,7 @@ const props = defineProps({
   }
 })
 
-defineEmits(['start-game', 'leave-room'])
+defineEmits(['start-game', 'swap-roles', 'leave-room'])
 
 const playerSlots = computed(() => {
   const slots = [...props.players]
@@ -92,6 +101,12 @@ const playerSlots = computed(() => {
 
 const canStart = computed(() =>
   props.isHost && props.connected && props.players.filter(player => player.isOnline).length === 2
+)
+
+const canSwapRoles = computed(() =>
+  props.isHost &&
+  props.players.length === 2 &&
+  props.players.every(p => p.role)
 )
 
 function roleLabel(role) {

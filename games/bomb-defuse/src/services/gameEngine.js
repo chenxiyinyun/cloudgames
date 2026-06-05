@@ -72,6 +72,10 @@ export function addPlayerToRoom(room, playerName, playerId) {
     order: room.players.length,
     role: null
   })
+
+  if (room.players.length === 2 && room.players.every(p => !p.role)) {
+    assignRoles(room)
+  }
   touch(room)
 
   return { room, reconnected: false }
@@ -114,7 +118,9 @@ export function startGame(room, options = {}) {
   const durationMs = options.durationMs ?? DEFAULT_DURATION_MS
   const seed = options.seed ?? createSeed(room.code, startedAt)
 
-  assignRoles(room, options.roleByPlayerId)
+  if (options.roleByPlayerId || room.players.some(p => !p.role)) {
+    assignRoles(room, options.roleByPlayerId)
+  }
   room.status = GAME_PHASES.PLAYING
   room.phase = GAME_PHASES.PLAYING
   room.gameState = {
