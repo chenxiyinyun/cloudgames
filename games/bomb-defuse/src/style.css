@@ -34,6 +34,12 @@ body {
   background-size: 34px 34px, 34px 34px, auto;
 }
 
+body,
+button,
+input {
+  overflow-wrap: anywhere;
+}
+
 button,
 input {
   font: inherit;
@@ -55,7 +61,7 @@ button:disabled {
 }
 
 .screen {
-  width: min(1060px, calc(100vw - 32px));
+  width: min(1160px, calc(100vw - 32px));
   min-height: 100vh;
   margin: 0 auto;
   padding: 36px 0;
@@ -76,6 +82,7 @@ button:disabled {
   font-size: clamp(2.4rem, 6vw, 5.8rem);
   line-height: 0.95;
   letter-spacing: 0;
+  text-wrap: balance;
 }
 
 .brief-copy {
@@ -212,8 +219,11 @@ button:disabled {
 
 .room-code-panel strong {
   font-family: 'Courier Prime', monospace;
-  font-size: clamp(2rem, 7vw, 4.4rem);
-  letter-spacing: 0.16em;
+  font-size: clamp(2rem, 6vw, 4.2rem);
+  letter-spacing: 0.12em;
+  min-width: 0;
+  overflow-wrap: normal;
+  word-break: keep-all;
 }
 
 .player-grid {
@@ -261,6 +271,7 @@ button:disabled {
 
 .timer {
   min-width: 148px;
+  width: 180px;
   border: 2px solid var(--danger);
   padding: 10px 16px;
   color: #ffe5df;
@@ -281,9 +292,12 @@ button:disabled {
 }
 
 .status-strip span {
+  min-height: 38px;
   border: 1px solid var(--line);
   padding: 8px 10px;
   background: rgba(0, 0, 0, 0.22);
+  display: inline-flex;
+  align-items: center;
 }
 
 .manual-layout {
@@ -293,7 +307,8 @@ button:disabled {
 }
 
 .manual-page {
-  min-height: 240px;
+  min-height: 220px;
+  border-radius: 6px;
   padding: 20px;
   color: var(--paper-ink);
   background: var(--paper);
@@ -301,11 +316,17 @@ button:disabled {
 
 .manual-page h2 {
   margin: 0 0 14px;
+  font-size: 1.2rem;
 }
 
 .manual-page li,
 .manual-page p {
-  line-height: 1.7;
+  line-height: 1.55;
+}
+
+.manual-page ol {
+  margin: 0;
+  padding-left: 20px;
 }
 
 .manual-overview {
@@ -315,13 +336,20 @@ button:disabled {
 .manual-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
   font-family: 'Courier Prime', monospace;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
+}
+
+.manual-columns ol {
+  border: 1px solid rgba(40, 33, 20, 0.28);
+  padding: 8px 8px 8px 26px;
+  background: rgba(255, 255, 255, 0.22);
 }
 
 .bomb-shell {
   padding: 22px;
+  border-radius: 6px;
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent),
     #2a2a27;
@@ -349,15 +377,16 @@ button:disabled {
 
 .module-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
   gap: 14px;
 }
 
 .module-tile {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: 38px minmax(0, 1fr);
   gap: 12px;
-  aspect-ratio: 1 / 0.82;
+  min-height: 260px;
+  aspect-ratio: 1 / 0.9;
   border: 2px solid #1b1916;
   border-radius: 8px;
   padding: 14px;
@@ -372,11 +401,13 @@ button:disabled {
   justify-content: space-between;
   gap: 10px;
   min-height: 32px;
+  min-width: 0;
 }
 
 .module-tile h2 {
   margin: 0;
   font-size: 1.05rem;
+  white-space: nowrap;
 }
 
 .module-tile.solved {
@@ -401,12 +432,14 @@ button:disabled {
 .keypad-grid {
   display: grid;
   gap: 8px;
+  min-height: 0;
 }
 
 .wire-button,
 .symbol-button,
 .key-button,
 .mini-button {
+  min-width: 0;
   border: 1px solid rgba(0, 0, 0, 0.45);
   border-radius: 6px;
   color: #fff7e8;
@@ -416,7 +449,7 @@ button:disabled {
 }
 
 .wire-button {
-  min-height: 32px;
+  min-height: 38px;
   color: #15120f;
 }
 
@@ -448,7 +481,12 @@ button:disabled {
 
 .symbol-button,
 .key-button {
-  min-height: 58px;
+  min-height: 64px;
+  padding: 6px;
+}
+
+.key-button {
+  font-size: clamp(0.82rem, 1.4vw, 1rem);
 }
 
 .symbol-button small {
@@ -458,11 +496,15 @@ button:disabled {
 }
 
 .display-readout {
+  max-width: 96px;
   border: 1px solid #17130f;
   padding: 4px 7px;
   color: #182915;
   background: #9bd26c;
   font-family: 'Courier Prime', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mini-button {
@@ -485,6 +527,7 @@ button:disabled {
 
 .result-panel {
   width: min(680px, 100%);
+  border-radius: 6px;
   padding: 32px;
 }
 
@@ -633,6 +676,10 @@ button:disabled {
     padding: 22px 0;
   }
 
+  .game-screen {
+    padding-top: 0;
+  }
+
   .menu-screen,
   .player-grid,
   .manual-layout,
@@ -648,7 +695,50 @@ button:disabled {
     flex-direction: column;
   }
 
+  .game-header {
+    position: sticky;
+    top: 0;
+    z-index: 8;
+    margin: 0 -12px 14px;
+    border-bottom: 1px solid var(--line);
+    padding: 14px 12px;
+    background: rgba(21, 18, 15, 0.96);
+    backdrop-filter: blur(10px);
+  }
+
   .timer {
     width: 100%;
+    min-width: 0;
+  }
+
+  .room-code-panel strong {
+    font-size: clamp(1.8rem, 14vw, 3.6rem);
+    letter-spacing: 0.08em;
+  }
+
+  .module-tile {
+    min-height: 236px;
+    aspect-ratio: auto;
+  }
+
+  .manual-page {
+    min-height: 0;
+    padding: 16px;
+  }
+
+  .manual-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .diagnostics-panel {
+    position: static;
+    width: min(100vw - 24px, 560px);
+    margin: 0 auto 14px;
+  }
+}
+
+@media (min-width: 761px) and (max-width: 1040px) {
+  .module-grid {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
   }
 }
