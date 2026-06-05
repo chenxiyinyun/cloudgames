@@ -71,13 +71,24 @@
           </ol>
         </div>
       </template>
-      <template v-else>
+      <template v-else-if="module.type === 'keypad'">
         <ol>
           <li>显示 READY 且序列号为偶数时，按 SAFE。</li>
           <li>电池不少于 3 个且有 CUT 时，按 CUT。</li>
           <li>有 HOLD 时，按 HOLD。</li>
           <li>其他情况按第一个按钮。</li>
         </ol>
+      </template>
+      <template v-else-if="module.type === 'password'">
+        <p>拆弹员逐列报出可选字母，从下方词表中找到唯一能拼出的单词，再让拆弹员拼出并提交。</p>
+        <ul class="manual-words">
+          <li
+            v-for="word in module.manualView.words"
+            :key="word"
+          >
+            {{ word }}
+          </li>
+        </ul>
       </template>
     </article>
 
@@ -119,7 +130,8 @@ const moduleTabs = [
   { type: 'all', label: '全部' },
   { type: 'wires', label: '电线' },
   { type: 'symbols', label: '符号' },
-  { type: 'keypad', label: '键盘' }
+  { type: 'keypad', label: '键盘' },
+  { type: 'password', label: '密码' }
 ]
 
 const normalizedQuery = computed(() => searchQuery.value.trim().toLowerCase())
@@ -141,6 +153,7 @@ const showOverview = computed(() =>
 function moduleTitle(type) {
   if (type === 'wires') return '电线模块'
   if (type === 'symbols') return '符号模块'
+  if (type === 'password') return '密码模块'
   return '密码键盘'
 }
 
@@ -152,6 +165,9 @@ function moduleSearchText(module) {
   } else if (module.type === 'symbols') {
     chunks.push('符号 顺序 列')
     chunks.push(...Object.values(module.manualView.labels || {}))
+  } else if (module.type === 'password') {
+    chunks.push('密码 单词 字母 词表 password')
+    chunks.push(...(module.manualView.words || []))
   } else {
     chunks.push('READY ALERT HOLD COUNT SAFE CUT SEND VENT ARM 电池 序列号 偶数')
     chunks.push(...(module.manualView.rules || []))

@@ -229,7 +229,7 @@ describe('bomb defuse game store networking', () => {
 
     expect(state.getRoom().phase).toBe('solved')
     expect(state.getRoom().gameState.result).toBe('solved')
-    expect(state.getRoom().gameState.solvedModuleIds).toEqual(['wires-1', 'symbols-1', 'keypad-1'])
+    expect(state.getRoom().gameState.solvedModuleIds).toEqual(['wires-1', 'symbols-1', 'keypad-1', 'password-1'])
     expect(p2pMock.broadcast).toHaveBeenCalledWith('ROOM_STATE', expect.objectContaining({
       room: expect.objectContaining({ phase: 'solved' })
     }))

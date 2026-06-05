@@ -26,6 +26,12 @@
           :module="module"
           @module-action="$emit('module-action', $event)"
         />
+        <PasswordModule
+          v-for="module in passwordModules"
+          :key="module.id"
+          :module="module"
+          @module-action="$emit('module-action', $event)"
+        />
       </div>
     </article>
   </section>
@@ -34,6 +40,7 @@
 <script setup>
 import { computed } from 'vue'
 import KeypadModule from './modules/KeypadModule.vue'
+import PasswordModule from './modules/PasswordModule.vue'
 import SymbolsModule from './modules/SymbolsModule.vue'
 import WiresModule from './modules/WiresModule.vue'
 
@@ -61,4 +68,5 @@ defineEmits(['module-action'])
 const wiresModules = computed(() => props.modules.filter(module => module.type === 'wires'))
 const symbolsModules = computed(() => props.modules.filter(module => module.type === 'symbols'))
 const keypadModules = computed(() => props.modules.filter(module => module.type === 'keypad'))
+const passwordModules = computed(() => props.modules.filter(module => module.type === 'password'))
 </script>

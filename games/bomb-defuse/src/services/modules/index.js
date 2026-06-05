@@ -1,11 +1,13 @@
 import { generateKeypadModule, validateKeypadAction } from './keypad'
+import { generatePasswordModule, validatePasswordAction } from './password'
 import { generateSymbolsModule, validateSymbolsAction } from './symbols'
 import { generateWiresModule, validateWiresAction } from './wires'
 
 const MODULE_VALIDATORS = {
   wires: validateWiresAction,
   symbols: validateSymbolsAction,
-  keypad: validateKeypadAction
+  keypad: validateKeypadAction,
+  password: validatePasswordAction
 }
 
 export function generateBombModules(context) {
@@ -19,7 +21,8 @@ export function generateBombModules(context) {
   return [
     generateWiresModule({ ...moduleContext, id: 'wires-1' }, random),
     generateSymbolsModule({ ...moduleContext, id: 'symbols-1' }, random),
-    generateKeypadModule({ ...moduleContext, id: 'keypad-1' }, random)
+    generateKeypadModule({ ...moduleContext, id: 'keypad-1' }, random),
+    generatePasswordModule({ ...moduleContext, id: 'password-1' }, random)
   ]
 }
 
@@ -47,5 +50,6 @@ function hashSeed(seed) {
 }
 
 export { generateKeypadModule, validateKeypadAction } from './keypad'
+export { generatePasswordModule, validatePasswordAction } from './password'
 export { generateSymbolsModule, validateSymbolsAction } from './symbols'
 export { generateWiresModule, validateWiresAction } from './wires'

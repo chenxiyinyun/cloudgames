@@ -50,7 +50,7 @@ describe('bomb defuse room state mirror', () => {
     updateLocalState(room)
 
     expect(gameState.screen).toBe('game')
-    expect(gameState.room.gameState.modules).toHaveLength(3)
+    expect(gameState.room.gameState.modules).toHaveLength(4)
   })
 
   it('moves to the result screen when the room has ended', () => {

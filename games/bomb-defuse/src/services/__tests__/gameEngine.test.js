@@ -85,7 +85,7 @@ describe('bomb defuse game engine', () => {
     expect(room.phase).toBe(GAME_PHASES.WAITING)
   })
 
-  it('starts with two players, assigns different roles, and creates three modules', () => {
+  it('starts with two players, assigns different roles, and creates four modules', () => {
     const room = createTwoPlayerRoom()
     const result = startGame(room, { seed: 'test-seed', now: 1000, durationMs: 120000 })
 
@@ -97,7 +97,7 @@ describe('bomb defuse game engine', () => {
     expect(room.gameState.seed).toBe('test-seed')
     expect(room.gameState.startedAt).toBe(1000)
     expect(room.gameState.deadlineAt).toBe(121000)
-    expect(room.gameState.modules).toHaveLength(3)
+    expect(room.gameState.modules).toHaveLength(4)
   })
 
   it('adds a strike for a wrong module action', () => {
@@ -137,7 +137,7 @@ describe('bomb defuse game engine', () => {
       expect(result.correct).toBe(true)
     }
 
-    expect(room.gameState.solvedModuleIds).toEqual(['wires-1', 'symbols-1', 'keypad-1'])
+    expect(room.gameState.solvedModuleIds).toEqual(['wires-1', 'symbols-1', 'keypad-1', 'password-1'])
     expect(room.phase).toBe(GAME_PHASES.SOLVED)
     expect(room.status).toBe(GAME_PHASES.SOLVED)
     expect(room.gameState.result).toBe('solved')
