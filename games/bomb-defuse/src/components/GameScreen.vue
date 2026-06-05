@@ -11,84 +11,40 @@
         class="timer"
         aria-label="倒计时"
       >
-        05:00
+        {{ countdown }}
       </div>
     </header>
 
     <section class="status-strip">
-      <span>错误次数 0 / 3</span>
-      <span>{{ currentRole === 'expert' ? '只显示规则' : '只显示模块' }}</span>
+      <span>错误次数 {{ strikes.length }} / {{ room.gameState.strikeLimit }}</span>
+      <span>{{ roleCopy }}</span>
       <span>{{ onlineNames }}</span>
     </section>
 
-    <section
-      v-if="currentRole === 'expert'"
-      class="manual-layout"
-    >
-      <article class="manual-page">
-        <h2>电线模块</h2>
-        <ol>
-          <li>没有红线时，剪第二根线。</li>
-          <li>最后一根是白线且序列号为奇数时，剪最后一根。</li>
-          <li>蓝线超过一根时，剪最后一根蓝线。</li>
-          <li>其他情况，剪最后一根线。</li>
-        </ol>
-      </article>
-      <article class="manual-page">
-        <h2>符号模块</h2>
-        <p>找到包含全部四个符号的列，再按说明书从上到下的顺序按下按钮。</p>
-      </article>
-      <article class="manual-page">
-        <h2>密码键盘</h2>
-        <p>根据显示屏、按钮标签和炸弹序列号奇偶性，选择唯一正确按钮。</p>
-      </article>
-    </section>
-
-    <section
+    <BombPanel
+      v-if="currentRole === 'defuser'"
+      :modules="modules"
+      :serial-number="room.gameState.serialNumber"
+      :batteries="room.gameState.batteries"
+      :indicators="room.gameState.indicators"
+      @module-action="$emit('module-action', $event)"
+    />
+    <ManualPanel
       v-else
-      class="bomb-layout"
-    >
-      <article class="bomb-shell">
-        <div class="serial">
-          SN: VX-2049
-        </div>
-        <div class="module-grid">
-          <button
-            class="module-tile wire-tile"
-            type="button"
-          >
-            红 黄 蓝 白
-          </button>
-          <button
-            class="module-tile symbol-tile"
-            type="button"
-          >
-            符号面板
-          </button>
-          <button
-            class="module-tile keypad-tile"
-            type="button"
-          >
-            数字键盘
-          </button>
-        </div>
-      </article>
-    </section>
+      :modules="modules"
+      :serial-number="room.gameState.serialNumber"
+      :batteries="room.gameState.batteries"
+      :indicators="room.gameState.indicators"
+    />
 
     <footer class="debug-actions">
       <button
-        class="secondary-button"
-        type="button"
-        @click="$emit('solve')"
-      >
-        模拟解除
-      </button>
-      <button
+        v-if="isHost"
         class="danger-button"
         type="button"
-        @click="$emit('explode')"
+        @click="$emit('end-game')"
       >
-        模拟爆炸
+        结束任务
       </button>
       <button
         class="ghost-button"
@@ -102,29 +58,67 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import BombPanel from './BombPanel.vue'
+import ManualPanel from './ManualPanel.vue'
 
 const props = defineProps({
+  room: {
+    type: Object,
+    required: true
+  },
   roomCode: {
     type: String,
     required: true
   },
-  players: {
-    type: Array,
-    required: true
-  },
-  currentRole: {
+  playerId: {
     type: String,
-    required: true
+    default: null
+  },
+  isHost: {
+    type: Boolean,
+    default: false
   }
 })
 
-defineEmits(['solve', 'explode', 'leave-room'])
+defineEmits(['module-action', 'end-game', 'leave-room'])
 
+const now = ref(Date.now())
+let tickTimer = null
+
+const currentPlayer = computed(() =>
+  props.room.players.find(player => player.id === props.playerId)
+)
+
+const currentRole = computed(() => currentPlayer.value?.role || 'expert')
+const modules = computed(() => props.room.gameState.modules || [])
+const strikes = computed(() => props.room.gameState.strikes || [])
+const roleCopy = computed(() =>
+  currentRole.value === 'defuser' ? '你负责操作模块' : '你负责阅读说明书'
+)
 const onlineNames = computed(() =>
-  props.players
+  props.room.players
     .filter(player => player.isOnline)
-    .map(player => player.name)
+    .map(player => `${player.name} · ${player.role === 'expert' ? '专家' : '拆弹员'}`)
     .join(' / ')
 )
+const countdown = computed(() => {
+  const deadlineAt = props.room.gameState.deadlineAt
+  if (!deadlineAt) return '05:00'
+  const remainingMs = Math.max(0, deadlineAt - now.value)
+  const totalSeconds = Math.ceil(remainingMs / 1000)
+  const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0')
+  const seconds = String(totalSeconds % 60).padStart(2, '0')
+  return `${minutes}:${seconds}`
+})
+
+onMounted(() => {
+  tickTimer = window.setInterval(() => {
+    now.value = Date.now()
+  }, 250)
+})
+
+onUnmounted(() => {
+  window.clearInterval(tickTimer)
+})
 </script>

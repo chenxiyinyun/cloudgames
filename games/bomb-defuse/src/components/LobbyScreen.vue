@@ -26,14 +26,15 @@
       aria-label="玩家席位"
     >
       <article
-        v-for="player in players"
-        :key="player.id"
+        v-for="slot in playerSlots"
+        :key="slot.id"
         class="player-slot"
-        :class="{ offline: !player.isOnline }"
+        :class="{ offline: !slot.isOnline }"
       >
-        <span class="role-label">{{ roleLabel(player.role) }}</span>
-        <h2>{{ player.name }}</h2>
-        <p>{{ player.isOnline ? '已连接' : '等待连接' }}</p>
+        <span class="role-label">{{ roleLabel(slot.role) }}</span>
+        <h2>{{ slot.name }}</h2>
+        <p>{{ slot.isOnline ? '已连接' : '等待连接' }}</p>
+        <small v-if="slot.id === playerId">你</small>
       </article>
     </section>
 
@@ -43,7 +44,7 @@
       :disabled="!canStart"
       @click="$emit('start-game')"
     >
-      开始拆弹
+      {{ isHost ? '开始拆弹' : '等待房主开始' }}
     </button>
   </main>
 </template>
@@ -60,7 +61,15 @@ const props = defineProps({
     type: Array,
     required: true
   },
+  playerId: {
+    type: String,
+    default: null
+  },
   isHost: {
+    type: Boolean,
+    default: false
+  },
+  connected: {
     type: Boolean,
     default: false
   }
@@ -68,7 +77,22 @@ const props = defineProps({
 
 defineEmits(['start-game', 'leave-room'])
 
-const canStart = computed(() => props.isHost && props.players.filter(player => player.isOnline).length >= 1)
+const playerSlots = computed(() => {
+  const slots = [...props.players]
+  while (slots.length < 2) {
+    slots.push({
+      id: `empty-${slots.length}`,
+      name: slots.length === 0 ? '等待拆弹员' : '等待说明书专家',
+      role: slots.length === 0 ? 'defuser' : 'expert',
+      isOnline: false
+    })
+  }
+  return slots.slice(0, 2)
+})
+
+const canStart = computed(() =>
+  props.isHost && props.connected && props.players.filter(player => player.isOnline).length === 2
+)
 
 function roleLabel(role) {
   return role === 'expert' ? '说明书专家' : '现场拆弹员'

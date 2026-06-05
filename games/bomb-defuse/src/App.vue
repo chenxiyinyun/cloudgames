@@ -1,127 +1,124 @@
 <template>
   <div id="bomb-defuse-app">
     <MenuScreen
-      v-if="screen === 'menu'"
+      v-if="gameState.screen === 'menu'"
+      :connecting="gameState.connecting"
+      :error="gameState.error"
+      :has-restoreable-state="hasRestoreableState()"
       @create-room="handleCreateRoom"
       @join-room="handleJoinRoom"
+      @restore-room="handleRestoreRoom"
     />
     <LobbyScreen
-      v-else-if="screen === 'lobby'"
-      :room-code="roomCode"
-      :players="players"
-      :is-host="isHost"
+      v-else-if="gameState.screen === 'lobby'"
+      :room-code="gameState.roomCode || ''"
+      :players="gameState.room.players"
+      :player-id="gameState.playerId"
+      :is-host="gameState.isHost"
+      :connected="gameState.connected"
       @start-game="handleStartGame"
       @leave-room="handleLeaveRoom"
     />
     <GameScreen
-      v-else-if="screen === 'game'"
-      :room-code="roomCode"
-      :players="players"
-      :current-role="currentRole"
-      @solve="handleSolve"
-      @explode="handleExplode"
+      v-else-if="gameState.screen === 'game'"
+      :room="gameState.room"
+      :room-code="gameState.roomCode || ''"
+      :player-id="gameState.playerId"
+      :is-host="gameState.isHost"
+      @module-action="handleModuleAction"
+      @end-game="handleEndGame"
       @leave-room="handleLeaveRoom"
     />
     <ResultScreen
       v-else
-      :result="result"
-      :room-code="roomCode"
+      :room="gameState.room"
+      :room-code="gameState.roomCode || ''"
+      :is-host="gameState.isHost"
       @restart="handleRestart"
       @back-to-menu="handleLeaveRoom"
     />
-    <ToastNotification :message="toastMessage" />
+
+    <ToastNotification :message="gameState.error || gameState.connectionMessage" />
+    <DiagnosticsPanel
+      v-if="gameState.screen !== 'menu'"
+      :diagnostics="gameState.diagnostics"
+    />
+    <ConnectionOverlay
+      v-if="showConnectionOverlay"
+      :status="gameState.connectionStatus"
+      :message="gameState.connectionMessage"
+      :attempt="RECONNECT_METADATA.attempt"
+      :max-attempts="RECONNECT_METADATA.MAX_ATTEMPTS"
+      @retry="handleReconnect"
+      @leave="handleLeaveRoom"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
-import MenuScreen from './components/MenuScreen.vue'
-import LobbyScreen from './components/LobbyScreen.vue'
+import { computed } from 'vue'
+import {
+  RECONNECT_METADATA,
+  createRoom,
+  gameState,
+  handleEndGame as endGame,
+  handleRestartGame,
+  handleStartGame as startGame,
+  handleSubmitModuleAction,
+  hasRestoreableState,
+  joinRoom,
+  leaveRoom,
+  reconnectRoom,
+  restoreFromCache
+} from './stores/gameStore'
+import ConnectionOverlay from './components/ConnectionOverlay.vue'
+import DiagnosticsPanel from './components/DiagnosticsPanel.vue'
 import GameScreen from './components/GameScreen.vue'
+import LobbyScreen from './components/LobbyScreen.vue'
+import MenuScreen from './components/MenuScreen.vue'
 import ResultScreen from './components/ResultScreen.vue'
 import ToastNotification from './components/ToastNotification.vue'
 
-const screen = ref('menu')
-const roomCode = ref('')
-const isHost = ref(false)
-const result = ref('solved')
-const toastMessage = ref('')
-const players = ref([])
+const showConnectionOverlay = computed(() =>
+  gameState.screen !== 'menu' &&
+  ['connecting', 'reconnecting', 'error'].includes(gameState.connectionStatus)
+)
 
-const currentRole = computed(() => {
-  const currentPlayer = players.value.find(player => player.isCurrent)
-  return currentPlayer?.role || 'defuser'
-})
+async function handleCreateRoom(playerName) {
+  await createRoom(playerName)
+}
 
-function createRoomCode() {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  let code = ''
-  for (let index = 0; index < 4; index += 1) {
-    code += alphabet[Math.floor(Math.random() * alphabet.length)]
+async function handleJoinRoom(payload) {
+  await joinRoom(payload.playerName, payload.code)
+}
+
+async function handleRestoreRoom() {
+  if (restoreFromCache()) {
+    await reconnectRoom()
   }
-  return code
-}
-
-function showToast(message) {
-  toastMessage.value = message
-  window.setTimeout(() => {
-    if (toastMessage.value === message) {
-      toastMessage.value = ''
-    }
-  }, 2200)
-}
-
-function handleCreateRoom(playerName) {
-  const name = playerName.trim() || '拆弹员'
-  roomCode.value = createRoomCode()
-  isHost.value = true
-  players.value = [
-    { id: 'local-host', name, role: 'defuser', isHost: true, isOnline: true, isCurrent: true },
-    { id: 'waiting-expert', name: '等待专家加入', role: 'expert', isHost: false, isOnline: false, isCurrent: false }
-  ]
-  screen.value = 'lobby'
-  showToast('任务房间已创建')
-}
-
-function handleJoinRoom({ playerName, code }) {
-  const name = playerName.trim() || '说明书专家'
-  roomCode.value = code.trim().toUpperCase() || createRoomCode()
-  isHost.value = false
-  players.value = [
-    { id: 'remote-host', name: '房主', role: 'defuser', isHost: true, isOnline: true, isCurrent: false },
-    { id: 'local-guest', name, role: 'expert', isHost: false, isOnline: true, isCurrent: true }
-  ]
-  screen.value = 'lobby'
-  showToast('已加入任务房间')
 }
 
 function handleStartGame() {
-  players.value = players.value.map(player => ({
-    ...player,
-    isOnline: true,
-    name: player.name === '等待专家加入' ? '说明书专家' : player.name
-  }))
-  screen.value = 'game'
+  startGame()
 }
 
-function handleSolve() {
-  result.value = 'solved'
-  screen.value = 'result'
-}
-
-function handleExplode() {
-  result.value = 'exploded'
-  screen.value = 'result'
+function handleModuleAction({ moduleId, action }) {
+  handleSubmitModuleAction(moduleId, action)
 }
 
 function handleRestart() {
-  screen.value = 'lobby'
+  handleRestartGame()
 }
 
-function handleLeaveRoom() {
-  screen.value = 'menu'
-  roomCode.value = ''
-  players.value = []
-  isHost.value = false
+function handleEndGame() {
+  endGame()
+}
+
+async function handleReconnect() {
+  await reconnectRoom()
+}
+
+async function handleLeaveRoom() {
+  await leaveRoom()
 }
 </script>

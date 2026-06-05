@@ -23,15 +23,14 @@
         >
       </label>
 
-      <div class="action-row">
-        <button
-          class="primary-button"
-          type="button"
-          @click="$emit('create-room', playerName)"
-        >
-          创建任务
-        </button>
-      </div>
+      <button
+        class="primary-button"
+        type="button"
+        :disabled="connecting"
+        @click="$emit('create-room', playerName)"
+      >
+        创建任务
+      </button>
 
       <div class="divider">
         或
@@ -43,7 +42,7 @@
           v-model="roomCode"
           class="code-input"
           maxlength="6"
-          placeholder="ABCD"
+          placeholder="ABC123"
           @input="roomCode = roomCode.toUpperCase()"
         >
       </label>
@@ -51,10 +50,28 @@
       <button
         class="secondary-button"
         type="button"
+        :disabled="connecting"
         @click="$emit('join-room', { playerName, code: roomCode })"
       >
         加入任务
       </button>
+
+      <button
+        v-if="hasRestoreableState"
+        class="ghost-button"
+        type="button"
+        :disabled="connecting"
+        @click="$emit('restore-room')"
+      >
+        恢复上次任务
+      </button>
+
+      <p
+        v-if="error"
+        class="form-error"
+      >
+        {{ error }}
+      </p>
     </section>
   </main>
 </template>
@@ -62,7 +79,22 @@
 <script setup>
 import { ref } from 'vue'
 
-defineEmits(['create-room', 'join-room'])
+defineProps({
+  connecting: {
+    type: Boolean,
+    default: false
+  },
+  error: {
+    type: String,
+    default: ''
+  },
+  hasRestoreableState: {
+    type: Boolean,
+    default: false
+  }
+})
+
+defineEmits(['create-room', 'join-room', 'restore-room'])
 
 const playerName = ref('')
 const roomCode = ref('')
