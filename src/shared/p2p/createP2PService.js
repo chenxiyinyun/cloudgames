@@ -498,6 +498,7 @@ export class P2PService {
       mode: this._lastConnectionMode,
       // 信令源信息（启动时确定）
       signaling: this.signalingInfo,
+      hasTurnRelay: HAS_TURN_RELAY,
       // TURN 中继信息（启动时确定）
       turnRelay: this.turnRelayInfo,
       // 最近的模式变更事件

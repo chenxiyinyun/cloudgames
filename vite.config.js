@@ -26,6 +26,7 @@ export default defineConfig({
     include: [
       'games/codenames/src/**/*.test.js',
       'games/catguess/src/**/*.test.js',
+      'games/bomb-defuse/src/**/*.test.js',
       'src/shared/**/*.test.js'
     ]
   }
