@@ -145,6 +145,27 @@ describe('bomb defuse game engine', () => {
     expect(room.gameState.result).toBe('solved')
   })
 
+  it('advances a maze on a valid step and strikes on a wall', () => {
+    const room = createTwoPlayerRoom()
+    startGame(room, { seed: 'maze-engine', moduleTypes: ['maze'] })
+    const maze = room.gameState.modules[0]
+    const start = maze.bombView.position
+    const startCell = maze.solution.cells[start.y][start.x]
+    const directions = ['up', 'down', 'left', 'right']
+
+    const wallDir = directions.find(dir => !startCell[dir])
+    if (wallDir) {
+      const blocked = submitModuleAction(room, 'p1', maze.id, { type: 'move', direction: wallDir })
+      expect(blocked.correct).toBe(false)
+      expect(room.gameState.strikes).toHaveLength(1)
+    }
+
+    const openDir = directions.find(dir => startCell[dir])
+    const moved = submitModuleAction(room, 'p1', maze.id, { type: 'move', direction: openDir })
+    expect(moved.correct).toBe(true)
+    expect(maze.bombView.position).not.toEqual(start)
+  })
+
   it('explodes when the timer expires', () => {
     const room = createTwoPlayerRoom()
     startGame(room, { seed: 'timer-test', now: 1000, durationMs: 3000 })
@@ -243,6 +264,16 @@ describe('bomb defuse difficulty', () => {
 
     expect(room.gameState.modules).toHaveLength(4)
     expect(room.gameState.deadlineAt).toBe(1000 + 240000)
+    expect(room.gameState.strikeLimit).toBe(2)
+  })
+
+  it('applies the hell preset with five modules including the maze', () => {
+    const room = createTwoPlayerRoom()
+    setRoomDifficulty(room, 'hell')
+    startGame(room, { seed: 'hell-seed', now: 1000 })
+
+    expect(room.gameState.modules).toHaveLength(5)
+    expect(room.gameState.modules.map(module => module.type)).toContain('maze')
     expect(room.gameState.strikeLimit).toBe(2)
   })
 

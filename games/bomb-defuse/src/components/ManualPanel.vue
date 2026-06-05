@@ -90,6 +90,22 @@
           </li>
         </ul>
       </template>
+      <template v-else-if="module.type === 'maze'">
+        <p>● 是拆弹员当前位置，⚑ 是终点。沿没有墙的方向逐步指挥拆弹员到达终点，撞墙会记一次错误。</p>
+        <div
+          class="maze-board manual-maze"
+          :style="`grid-template-columns: repeat(${module.manualView.size}, 1fr)`"
+        >
+          <div
+            v-for="cell in mazeCells(module)"
+            :key="cell.key"
+            class="maze-cell"
+            :class="cell.classes"
+          >
+            <span v-if="cell.marker">{{ cell.marker }}</span>
+          </div>
+        </div>
+      </template>
     </article>
 
     <p
@@ -131,7 +147,8 @@ const moduleTabs = [
   { type: 'wires', label: '电线' },
   { type: 'symbols', label: '符号' },
   { type: 'keypad', label: '键盘' },
-  { type: 'password', label: '密码' }
+  { type: 'password', label: '密码' },
+  { type: 'maze', label: '迷宫' }
 ]
 
 const normalizedQuery = computed(() => searchQuery.value.trim().toLowerCase())
@@ -154,7 +171,34 @@ function moduleTitle(type) {
   if (type === 'wires') return '电线模块'
   if (type === 'symbols') return '符号模块'
   if (type === 'password') return '密码模块'
+  if (type === 'maze') return '迷宫模块'
   return '密码键盘'
+}
+
+function mazeCells(module) {
+  const { size, cells, goal } = module.manualView
+  const position = module.bombView?.position
+  const out = []
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const cell = cells[y][x]
+      const isPlayer = position && position.x === x && position.y === y
+      const isGoal = goal.x === x && goal.y === y
+      out.push({
+        key: `${x}-${y}`,
+        classes: {
+          'wall-up': !cell.up,
+          'wall-down': !cell.down,
+          'wall-left': !cell.left,
+          'wall-right': !cell.right,
+          'cell-player': isPlayer,
+          'cell-goal': isGoal
+        },
+        marker: isPlayer ? '●' : isGoal ? '⚑' : ''
+      })
+    }
+  }
+  return out
 }
 
 function moduleSearchText(module) {
@@ -168,6 +212,8 @@ function moduleSearchText(module) {
   } else if (module.type === 'password') {
     chunks.push('密码 单词 字母 词表 password')
     chunks.push(...(module.manualView.words || []))
+  } else if (module.type === 'maze') {
+    chunks.push('迷宫 墙 路径 方向 上 下 左 右 终点 maze')
   } else {
     chunks.push('READY ALERT HOLD COUNT SAFE CUT SEND VENT ARM 电池 序列号 偶数')
     chunks.push(...(module.manualView.rules || []))

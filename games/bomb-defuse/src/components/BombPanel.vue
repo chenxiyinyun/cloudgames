@@ -32,6 +32,12 @@
           :module="module"
           @module-action="$emit('module-action', $event)"
         />
+        <MazeModule
+          v-for="module in mazeModules"
+          :key="module.id"
+          :module="module"
+          @module-action="$emit('module-action', $event)"
+        />
       </div>
     </article>
   </section>
@@ -40,6 +46,7 @@
 <script setup>
 import { computed } from 'vue'
 import KeypadModule from './modules/KeypadModule.vue'
+import MazeModule from './modules/MazeModule.vue'
 import PasswordModule from './modules/PasswordModule.vue'
 import SymbolsModule from './modules/SymbolsModule.vue'
 import WiresModule from './modules/WiresModule.vue'
@@ -69,4 +76,5 @@ const wiresModules = computed(() => props.modules.filter(module => module.type =
 const symbolsModules = computed(() => props.modules.filter(module => module.type === 'symbols'))
 const keypadModules = computed(() => props.modules.filter(module => module.type === 'keypad'))
 const passwordModules = computed(() => props.modules.filter(module => module.type === 'password'))
+const mazeModules = computed(() => props.modules.filter(module => module.type === 'maze'))
 </script>

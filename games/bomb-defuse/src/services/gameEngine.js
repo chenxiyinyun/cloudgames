@@ -1,4 +1,4 @@
-import { generateBombModules, validateModuleAction } from './modules'
+import { generateBombModules, resolveModuleAction } from './modules'
 
 export const GAME_PHASES = {
   WAITING: 'waiting',
@@ -23,8 +23,8 @@ export const DIFFICULTY_PRESETS = {
   rookie: { label: '新手', moduleTypes: ['wires', 'symbols', 'keypad'], durationMs: 420000, strikeLimit: 3 },
   normal: { label: '标准', moduleTypes: ['wires', 'symbols', 'keypad', 'password'], durationMs: 300000, strikeLimit: 3 },
   hard: { label: '困难', moduleTypes: ['wires', 'symbols', 'keypad', 'password'], durationMs: 240000, strikeLimit: 2 },
-  // 迷宫模块上线后将追加到地狱档 moduleTypes，届时地狱档变为 5 模块。
-  hell: { label: '地狱', moduleTypes: ['wires', 'symbols', 'keypad', 'password'], durationMs: 210000, strikeLimit: 1 }
+  // 地狱档加入迷宫（5 模块）；迷宫撞墙极易触发错误，故容错保留 2 次而非更低。
+  hell: { label: '地狱', moduleTypes: ['wires', 'symbols', 'keypad', 'password', 'maze'], durationMs: 210000, strikeLimit: 2 }
 }
 
 export const DEFAULT_DIFFICULTY = 'normal'
@@ -220,7 +220,8 @@ export function submitModuleAction(room, playerId, moduleId, action) {
     return { error: '模块已经解除' }
   }
 
-  const correct = validateModuleAction(module, action)
+  const outcome = resolveModuleAction(module, action)
+  const correct = outcome.result !== 'strike'
   room.gameState.actionLog.push({
     playerId,
     moduleId,
@@ -229,9 +230,19 @@ export function submitModuleAction(room, playerId, moduleId, action) {
     at: Date.now()
   })
 
-  if (!correct) {
+  if (outcome.result === 'strike') {
     recordStrike(room, playerId, moduleId, action)
     return { room, correct: false }
+  }
+
+  // Stateful modules (e.g. the maze) patch their bomb view as they advance.
+  if (outcome.bombView) {
+    module.bombView = { ...module.bombView, ...outcome.bombView }
+  }
+
+  if (outcome.result === 'progress') {
+    touch(room)
+    return { room, correct: true, solved: false }
   }
 
   module.status = MODULE_STATUS.SOLVED
@@ -239,7 +250,7 @@ export function submitModuleAction(room, playerId, moduleId, action) {
   checkEndCondition(room)
   touch(room)
 
-  return { room, correct: true }
+  return { room, correct: true, solved: true }
 }
 
 export function recordStrike(room, playerId, moduleId, action) {
