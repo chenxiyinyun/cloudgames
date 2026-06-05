@@ -38,6 +38,39 @@
       </article>
     </section>
 
+    <section
+      class="difficulty-panel"
+      aria-label="难度设置"
+    >
+      <div class="difficulty-head">
+        <span class="role-label">难度</span>
+        <span class="difficulty-summary">{{ activeSummary }}</span>
+      </div>
+      <div
+        class="difficulty-options"
+        role="group"
+      >
+        <button
+          v-for="option in difficultyOptions"
+          :key="option.key"
+          class="difficulty-chip"
+          :class="{ active: option.key === difficulty }"
+          type="button"
+          :disabled="!isHost"
+          :aria-pressed="option.key === difficulty"
+          @click="$emit('set-difficulty', option.key)"
+        >
+          {{ option.label }}
+        </button>
+      </div>
+      <p
+        v-if="!isHost"
+        class="difficulty-hint"
+      >
+        由房主选择难度
+      </p>
+    </section>
+
     <button
       v-if="canSwapRoles"
       class="ghost-button wide"
@@ -60,6 +93,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { DIFFICULTY_PRESETS } from '../services/gameEngine'
 
 const props = defineProps({
   roomCode: {
@@ -81,10 +115,24 @@ const props = defineProps({
   connected: {
     type: Boolean,
     default: false
+  },
+  difficulty: {
+    type: String,
+    default: 'normal'
   }
 })
 
-defineEmits(['start-game', 'swap-roles', 'leave-room'])
+defineEmits(['start-game', 'swap-roles', 'leave-room', 'set-difficulty'])
+
+const difficultyOptions = computed(() =>
+  Object.entries(DIFFICULTY_PRESETS).map(([key, preset]) => ({ key, ...preset }))
+)
+
+const activeSummary = computed(() => {
+  const preset = DIFFICULTY_PRESETS[props.difficulty] || DIFFICULTY_PRESETS.normal
+  const minutes = Math.round(preset.durationMs / 60000)
+  return `${preset.moduleTypes.length} 模块 · ${minutes} 分钟 · 容错 ${preset.strikeLimit}`
+})
 
 const playerSlots = computed(() => {
   const slots = [...props.players]

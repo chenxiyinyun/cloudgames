@@ -269,6 +269,67 @@ button:disabled {
   background: rgba(0, 0, 0, 0.28);
 }
 
+.difficulty-panel {
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: rgba(36, 32, 27, 0.92);
+}
+
+.difficulty-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.difficulty-summary {
+  color: var(--muted);
+  font-family: 'Courier Prime', monospace;
+  font-size: 0.9rem;
+}
+
+.difficulty-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.difficulty-chip {
+  flex: 1 1 auto;
+  min-width: 64px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 9px 12px;
+  color: #f6eee1;
+  background: rgba(0, 0, 0, 0.22);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.difficulty-chip.active {
+  border-color: var(--amber);
+  color: #1c160e;
+  background: var(--amber);
+}
+
+.difficulty-chip:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.difficulty-chip:disabled:not(.active) {
+  opacity: 0.5;
+}
+
+.difficulty-hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .timer {
   min-width: 148px;
   width: 180px;

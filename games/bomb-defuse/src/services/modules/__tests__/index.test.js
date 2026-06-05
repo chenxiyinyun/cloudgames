@@ -16,6 +16,31 @@ describe('bomb module generation', () => {
     expect(modules.every(module => module.solution.action)).toBe(true)
   })
 
+  it('generates only the requested module types in order', () => {
+    const modules = generateBombModules({
+      seed: 'subset-seed',
+      serialNumber: 'TE-2468',
+      batteries: 2,
+      indicators: ['CAR'],
+      moduleTypes: ['wires', 'symbols', 'keypad']
+    })
+
+    expect(modules.map(module => module.id)).toEqual(['wires-1', 'symbols-1', 'keypad-1'])
+    expect(modules.some(module => module.type === 'password')).toBe(false)
+  })
+
+  it('skips unknown module types gracefully', () => {
+    const modules = generateBombModules({
+      seed: 'unknown-seed',
+      serialNumber: 'TE-2468',
+      batteries: 2,
+      indicators: ['CAR'],
+      moduleTypes: ['wires', 'maze', 'keypad']
+    })
+
+    expect(modules.map(module => module.type)).toEqual(['wires', 'keypad'])
+  })
+
   it('uses the seed to keep module generation repeatable', () => {
     const context = {
       seed: 'repeatable-seed',

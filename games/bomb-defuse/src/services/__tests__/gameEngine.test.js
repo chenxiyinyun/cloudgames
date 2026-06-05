@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_DIFFICULTY,
   GAME_PHASES,
   addPlayerToRoom,
   checkEndCondition,
@@ -8,6 +9,7 @@ import {
   recordStrike,
   removePlayerFromRoom,
   restartGame,
+  setRoomDifficulty,
   startGame,
   submitModuleAction
 } from '../gameEngine'
@@ -190,5 +192,66 @@ describe('bomb defuse game engine', () => {
     expect(room.players.every(player => player.role === null)).toBe(true)
     expect(room.gameState.strikes).toEqual([])
     expect(room.gameState.modules).toEqual([])
+  })
+})
+
+describe('bomb defuse difficulty', () => {
+  it('defaults a new room to the standard difficulty', () => {
+    const room = createInitialRoom('p1', 'Host', 'ABCD')
+    expect(room.settings.difficulty).toBe(DEFAULT_DIFFICULTY)
+  })
+
+  it('lets the host change difficulty while waiting', () => {
+    const room = createTwoPlayerRoom()
+    const result = setRoomDifficulty(room, 'rookie')
+
+    expect(result.error).toBeUndefined()
+    expect(room.settings.difficulty).toBe('rookie')
+  })
+
+  it('rejects an unknown difficulty', () => {
+    const room = createTwoPlayerRoom()
+    const result = setRoomDifficulty(room, 'nightmare')
+
+    expect(result.error).toBe('未知难度')
+    expect(room.settings.difficulty).toBe(DEFAULT_DIFFICULTY)
+  })
+
+  it('rejects difficulty changes once the game is playing', () => {
+    const room = createTwoPlayerRoom()
+    startGame(room, { seed: 'difficulty-lock' })
+    const result = setRoomDifficulty(room, 'hell')
+
+    expect(result.error).toBe('任务进行中无法修改难度')
+  })
+
+  it('applies the rookie preset: three modules, no password, longer timer', () => {
+    const room = createTwoPlayerRoom()
+    setRoomDifficulty(room, 'rookie')
+    startGame(room, { seed: 'rookie-seed', now: 1000 })
+
+    expect(room.gameState.difficulty).toBe('rookie')
+    expect(room.gameState.modules.map(module => module.type)).toEqual(['wires', 'symbols', 'keypad'])
+    expect(room.gameState.deadlineAt).toBe(1000 + 420000)
+    expect(room.gameState.strikeLimit).toBe(3)
+  })
+
+  it('applies the hard preset: tighter timer and lower strike limit', () => {
+    const room = createTwoPlayerRoom()
+    setRoomDifficulty(room, 'hard')
+    startGame(room, { seed: 'hard-seed', now: 1000 })
+
+    expect(room.gameState.modules).toHaveLength(4)
+    expect(room.gameState.deadlineAt).toBe(1000 + 240000)
+    expect(room.gameState.strikeLimit).toBe(2)
+  })
+
+  it('lets explicit start options override the difficulty preset', () => {
+    const room = createTwoPlayerRoom()
+    setRoomDifficulty(room, 'hell')
+    startGame(room, { seed: 'override', now: 0, durationMs: 99000, strikeLimit: 5 })
+
+    expect(room.gameState.deadlineAt).toBe(99000)
+    expect(room.gameState.strikeLimit).toBe(5)
   })
 })

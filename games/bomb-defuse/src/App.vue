@@ -16,8 +16,10 @@
       :player-id="gameState.playerId"
       :is-host="gameState.isHost"
       :connected="gameState.connected"
+      :difficulty="gameState.room.settings?.difficulty || 'normal'"
       @start-game="handleStartGame"
       @swap-roles="handleSwapRoles"
+      @set-difficulty="handleSetDifficulty"
       @leave-room="handleLeaveRoom"
     />
     <GameScreen
@@ -65,6 +67,7 @@ import {
   handleAssignRoles,
   handleEndGame as endGame,
   handleRestartGame,
+  handleSetDifficulty as setDifficulty,
   handleStartGame as startGame,
   handleSubmitModuleAction,
   hasRestoreableState,
@@ -102,6 +105,10 @@ async function handleRestoreRoom() {
 
 function handleStartGame() {
   startGame()
+}
+
+function handleSetDifficulty(difficulty) {
+  setDifficulty(difficulty)
 }
 
 function handleSwapRoles() {

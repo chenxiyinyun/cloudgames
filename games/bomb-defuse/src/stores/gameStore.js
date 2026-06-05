@@ -3,6 +3,7 @@ import {
   createInitialRoom,
   generatePlayerId,
   restartGame,
+  setRoomDifficulty,
   startGame,
   submitModuleAction
 } from '../services/gameEngine'
@@ -184,6 +185,19 @@ export function handleStartGame(options = {}) {
     return false
   }
   startCountdownTimer(() => broadcastState())
+  broadcastState()
+  return true
+}
+
+export function handleSetDifficulty(difficulty) {
+  const room = getRoom()
+  if (!gameState.isHost || !room) return false
+  const result = setRoomDifficulty(room, difficulty)
+  if (result.error) {
+    gameState.error = result.error
+    return false
+  }
+  updateLocalState(room)
   broadcastState()
   return true
 }

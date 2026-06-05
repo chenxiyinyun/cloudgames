@@ -3,12 +3,21 @@ import { generatePasswordModule, validatePasswordAction } from './password'
 import { generateSymbolsModule, validateSymbolsAction } from './symbols'
 import { generateWiresModule, validateWiresAction } from './wires'
 
+const MODULE_GENERATORS = {
+  wires: generateWiresModule,
+  symbols: generateSymbolsModule,
+  keypad: generateKeypadModule,
+  password: generatePasswordModule
+}
+
 const MODULE_VALIDATORS = {
   wires: validateWiresAction,
   symbols: validateSymbolsAction,
   keypad: validateKeypadAction,
   password: validatePasswordAction
 }
+
+const DEFAULT_MODULE_TYPES = ['wires', 'symbols', 'keypad', 'password']
 
 export function generateBombModules(context) {
   const random = createSeededRandom(context.seed)
@@ -18,12 +27,17 @@ export function generateBombModules(context) {
     indicators: context.indicators
   }
 
-  return [
-    generateWiresModule({ ...moduleContext, id: 'wires-1' }, random),
-    generateSymbolsModule({ ...moduleContext, id: 'symbols-1' }, random),
-    generateKeypadModule({ ...moduleContext, id: 'keypad-1' }, random),
-    generatePasswordModule({ ...moduleContext, id: 'password-1' }, random)
-  ]
+  const types = context.moduleTypes?.length ? context.moduleTypes : DEFAULT_MODULE_TYPES
+  const counts = {}
+
+  return types
+    .map(type => {
+      const generate = MODULE_GENERATORS[type]
+      if (!generate) return null
+      counts[type] = (counts[type] || 0) + 1
+      return generate({ ...moduleContext, id: `${type}-${counts[type]}` }, random)
+    })
+    .filter(Boolean)
 }
 
 export function validateModuleAction(module, action) {

@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { GAME_PHASES } from '../services/gameEngine'
+import { DEFAULT_DIFFICULTY, GAME_PHASES } from '../services/gameEngine'
 import p2p from '../services/p2p'
 import { createLogger } from '../services/logger'
 
@@ -51,6 +51,7 @@ export function updateLocalState(room) {
     id: room.id,
     code: room.code,
     hostId: room.hostId,
+    settings: room.settings ? { ...room.settings } : { difficulty: DEFAULT_DIFFICULTY },
     players: (room.players || []).map(player => ({ ...player })),
     phase: room.phase || GAME_PHASES.WAITING,
     status: room.status || GAME_PHASES.WAITING,
@@ -60,6 +61,7 @@ export function updateLocalState(room) {
       deadlineAt: room.gameState.deadlineAt || null,
       durationMs: room.gameState.durationMs || 300000,
       strikeLimit: room.gameState.strikeLimit || 3,
+      difficulty: room.gameState.difficulty || DEFAULT_DIFFICULTY,
       strikes: room.gameState.strikes ? [...room.gameState.strikes] : [],
       serialNumber: room.gameState.serialNumber || '',
       batteries: room.gameState.batteries || 0,
@@ -119,12 +121,14 @@ function createEmptyRoomMirror() {
     phase: GAME_PHASES.WAITING,
     status: GAME_PHASES.WAITING,
     hostId: null,
+    settings: { difficulty: DEFAULT_DIFFICULTY },
     gameState: {
       seed: null,
       startedAt: null,
       deadlineAt: null,
       durationMs: 300000,
       strikeLimit: 3,
+      difficulty: DEFAULT_DIFFICULTY,
       strikes: [],
       serialNumber: '',
       batteries: 0,
