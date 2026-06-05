@@ -144,6 +144,41 @@ describe('bomb defuse game store networking', () => {
     })
   })
 
+  it('responds to repeated join retries without adding duplicate players', async () => {
+    await store.createRoom('Host')
+    const joinRequest = {
+      type: 'JOIN_REQUEST',
+      payload: {
+        playerId: 'p2',
+        playerName: 'Guest',
+        originalPeerId: 'guest-peer'
+      }
+    }
+
+    network.handleHostMessage(joinRequest, 'guest-peer')
+    p2pMock.sendTo.mockClear()
+    p2pMock.broadcast.mockClear()
+
+    network.handleHostMessage(joinRequest, 'guest-peer')
+
+    expect(state.getRoom().players).toHaveLength(2)
+    expect(p2pMock.sendTo).toHaveBeenCalledWith('guest-peer', 'JOIN_RESPONSE', {
+      success: true,
+      room: expect.objectContaining({
+        players: expect.arrayContaining([
+          expect.objectContaining({ id: 'p2', name: 'Guest' })
+        ])
+      })
+    })
+    expect(p2pMock.broadcast).toHaveBeenCalledWith('ROOM_STATE', expect.objectContaining({
+      room: expect.objectContaining({
+        players: expect.arrayContaining([
+          expect.objectContaining({ id: 'p2', name: 'Guest' })
+        ])
+      })
+    }))
+  })
+
   it('handles a remote defuser flow from strike to solved result and broadcasts updates', async () => {
     await store.createRoom('Host')
     network.handleHostMessage({

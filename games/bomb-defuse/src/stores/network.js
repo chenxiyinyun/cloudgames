@@ -77,16 +77,17 @@ export function handleHostMessage(data, peerId) {
   const room = getRoom()
 
   if (!room) return
-  if (isDuplicateOp(type, payload, room.code)) return
 
   switch (type) {
     case MSG.JOIN_REQUEST:
       handleJoinRequest(payload, peerId)
       break
     case MSG.SUBMIT_MODULE_ACTION:
+      if (isDuplicateOp(type, payload, room.code)) return
       handleRemoteModuleAction(payload)
       break
     case MSG.REQUEST_STATE:
+      if (isDuplicateOp(type, payload, room.code)) return
       p2p.sendTo(peerId, MSG.ROOM_STATE, { room: deepClone(room), detail: getRoomStateDedupeDetail(room) })
       break
     default:
