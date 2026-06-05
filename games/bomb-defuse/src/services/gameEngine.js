@@ -1,3 +1,5 @@
+import { generateBombModules, validateModuleAction } from './modules'
+
 export const GAME_PHASES = {
   WAITING: 'waiting',
   ROLE_SELECT: 'role_select',
@@ -118,11 +120,16 @@ export function startGame(room, options = {}) {
     deadlineAt: startedAt + durationMs,
     durationMs,
     strikeLimit: options.strikeLimit ?? DEFAULT_STRIKE_LIMIT,
-    serialNumber: createSerialNumber(seed),
-    batteries: 2,
-    indicators: ['CAR'],
-    modules: createMvpModules()
+    serialNumber: options.serialNumber ?? createSerialNumber(seed),
+    batteries: options.batteries ?? 2,
+    indicators: options.indicators ?? ['CAR']
   }
+  room.gameState.modules = generateBombModules({
+    seed: room.gameState.seed,
+    serialNumber: room.gameState.serialNumber,
+    batteries: room.gameState.batteries,
+    indicators: room.gameState.indicators
+  })
   touch(room)
 
   return { room }
@@ -169,7 +176,7 @@ export function submitModuleAction(room, playerId, moduleId, action) {
     return { error: '模块已经解除' }
   }
 
-  const correct = actionMatches(module.solution.action, action)
+  const correct = validateModuleAction(module, action)
   room.gameState.actionLog.push({
     playerId,
     moduleId,
@@ -263,84 +270,6 @@ function createEmptyGameState() {
     actionLog: [],
     result: null
   }
-}
-
-function createMvpModules() {
-  return [
-    {
-      id: 'wires-1',
-      type: MODULE_TYPES.WIRES,
-      status: MODULE_STATUS.UNSOLVED,
-      bombView: {
-        wires: [
-          { id: 'wire-1', color: 'red' },
-          { id: 'wire-2', color: 'yellow' },
-          { id: 'wire-3', color: 'blue' },
-          { id: 'wire-4', color: 'white' }
-        ]
-      },
-      manualView: {
-        ruleSet: 'mvp-wires'
-      },
-      solution: {
-        action: { type: 'cut_wire', wireId: 'wire-4' }
-      }
-    },
-    {
-      id: 'symbols-1',
-      type: MODULE_TYPES.SYMBOLS,
-      status: MODULE_STATUS.UNSOLVED,
-      bombView: {
-        symbols: ['lambda', 'omega', 'spiral', 'star']
-      },
-      manualView: {
-        column: ['omega', 'lambda', 'star', 'spiral']
-      },
-      solution: {
-        action: { type: 'press_symbols', symbolIds: ['omega', 'lambda', 'star', 'spiral'] }
-      }
-    },
-    {
-      id: 'keypad-1',
-      type: MODULE_TYPES.KEYPAD,
-      status: MODULE_STATUS.UNSOLVED,
-      bombView: {
-        display: 'READY',
-        keys: [
-          { id: 'key-1', label: 'HOLD' },
-          { id: 'key-2', label: 'CUT' },
-          { id: 'key-3', label: 'SEND' },
-          { id: 'key-4', label: 'SAFE' }
-        ]
-      },
-      manualView: {
-        ruleSet: 'mvp-keypad'
-      },
-      solution: {
-        action: { type: 'press_key', keyId: 'key-4' }
-      }
-    }
-  ]
-}
-
-function actionMatches(expected, actual) {
-  if (!expected || !actual || expected.type !== actual.type) return false
-
-  if (expected.wireId) {
-    return expected.wireId === actual.wireId
-  }
-
-  if (expected.keyId) {
-    return expected.keyId === actual.keyId
-  }
-
-  if (expected.symbolIds) {
-    return Array.isArray(actual.symbolIds) &&
-      expected.symbolIds.length === actual.symbolIds.length &&
-      expected.symbolIds.every((symbolId, index) => symbolId === actual.symbolIds[index])
-  }
-
-  return true
 }
 
 function createSeed(roomCode, timestamp) {
