@@ -246,4 +246,24 @@ describe('bomb defuse game store networking', () => {
     expect(store.gameState.connectionMessage).toBe('Mission joined.')
     expect(state.getRoom()).toEqual(room)
   })
+
+  it('surfaces rejected join responses and stops connecting', () => {
+    store.gameState.connecting = true
+    store.gameState.connected = false
+    state.setConnectionStatus('connecting', 'Joining mission...')
+
+    network.handleGuestMessage({
+      type: 'JOIN_RESPONSE',
+      payload: {
+        success: false,
+        error: '房间已满，需要刚好 2 名玩家'
+      }
+    })
+
+    expect(store.gameState.connected).toBe(false)
+    expect(store.gameState.connecting).toBe(false)
+    expect(store.gameState.error).toBe('房间已满，需要刚好 2 名玩家')
+    expect(store.gameState.connectionStatus).toBe('error')
+    expect(store.gameState.connectionMessage).toBe('房间已满，需要刚好 2 名玩家')
+  })
 })

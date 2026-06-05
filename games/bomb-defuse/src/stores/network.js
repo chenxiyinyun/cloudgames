@@ -14,7 +14,7 @@ import {
   isDuplicateOp
 } from '../services/online'
 import { gameState, getRoom, setConnectionStatus, setRoom, updateLocalState } from './state'
-import { stopCountdownTimer } from './timers'
+import { clearJoinTimeout, stopCountdownTimer, stopJoinRetry } from './timers'
 
 const log = createLogger('BombDefuse:Network')
 
@@ -101,10 +101,17 @@ export function handleGuestMessage(data) {
   switch (type) {
     case MSG.JOIN_RESPONSE:
       if (!payload.success) {
-        gameState.error = payload.error || 'Join rejected.'
+        const message = payload.error || 'Join rejected.'
+        stopJoinRetry()
+        clearJoinTimeout()
+        gameState.error = message
         gameState.connected = false
+        gameState.connecting = false
+        setConnectionStatus('error', message)
         return
       }
+      stopJoinRetry()
+      clearJoinTimeout()
       gameState.connected = true
       gameState.connecting = false
       setConnectionStatus('connected', 'Mission joined.')
