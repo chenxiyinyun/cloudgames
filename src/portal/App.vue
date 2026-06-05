@@ -13,6 +13,13 @@ const games = [
     description: '在线 Dixit 猜词游戏。讲故事者出题，众人猜词投票，先满 10 分者获胜！',
     href: 'games/catguess/',
     color: '#ff9a76'
+  },
+  {
+    name: '双人拆弹',
+    englishName: 'Bomb Defuse',
+    description: '一人看炸弹，一人看说明书，在倒计时内合作解除模块。',
+    href: 'games/bomb-defuse/',
+    color: '#f0523d'
   }
 ]
 </script>

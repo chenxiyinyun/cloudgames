@@ -15,7 +15,8 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         codenames: resolve(__dirname, 'games/codenames/index.html'),
-        catguess: resolve(__dirname, 'games/catguess/index.html')
+        catguess: resolve(__dirname, 'games/catguess/index.html'),
+        bombDefuse: resolve(__dirname, 'games/bomb-defuse/index.html')
       }
     }
   },
