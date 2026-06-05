@@ -52,8 +52,12 @@ export function createInitialRoom(hostPlayerId, hostName, roomCode) {
 }
 
 export function addPlayerToRoom(room, playerName, playerId) {
-  if (room.players.some(player => player.id === playerId)) {
-    return { error: '玩家已在房间中' }
+  const existingPlayer = room.players.find(player => player.id === playerId)
+  if (existingPlayer) {
+    existingPlayer.name = playerName
+    existingPlayer.isOnline = true
+    touch(room)
+    return { room, reconnected: true }
   }
 
   if (room.players.length >= 2) {

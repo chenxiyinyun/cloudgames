@@ -81,6 +81,100 @@ describe('bomb defuse game store networking', () => {
     }))
   })
 
+  it('accepts a repeated join request for the same cached player id as a reconnect', async () => {
+    await store.createRoom('Host')
+    network.handleHostMessage({
+      type: 'JOIN_REQUEST',
+      payload: {
+        playerId: 'p2',
+        playerName: 'Guest',
+        originalPeerId: 'guest-peer'
+      }
+    }, 'guest-peer')
+
+    network.handleHostMessage({
+      type: 'JOIN_REQUEST',
+      payload: {
+        playerId: 'p2',
+        playerName: 'Guest Back',
+        originalPeerId: 'guest-peer-reconnect',
+        isReconnect: true
+      }
+    }, 'guest-peer-reconnect')
+
+    expect(state.getRoom().players).toHaveLength(2)
+    expect(state.getRoom().players[1]).toEqual(expect.objectContaining({
+      id: 'p2',
+      name: 'Guest Back',
+      isOnline: true,
+      _peerId: 'guest-peer-reconnect'
+    }))
+    expect(p2pMock.sendTo).toHaveBeenLastCalledWith('guest-peer-reconnect', 'JOIN_RESPONSE', {
+      success: true,
+      room: expect.objectContaining({
+        players: expect.arrayContaining([
+          expect.objectContaining({ id: 'p2', name: 'Guest Back' })
+        ])
+      })
+    })
+  })
+
+  it('handles a remote defuser flow from strike to solved result and broadcasts updates', async () => {
+    await store.createRoom('Host')
+    network.handleHostMessage({
+      type: 'JOIN_REQUEST',
+      payload: {
+        playerId: 'p2',
+        playerName: 'Guest',
+        originalPeerId: 'guest-peer'
+      }
+    }, 'guest-peer')
+
+    const started = store.handleStartGame({
+      seed: 'remote-flow',
+      roleByPlayerId: {
+        [store.gameState.playerId]: 'expert',
+        p2: 'defuser'
+      }
+    })
+    expect(started).toBe(true)
+
+    network.handleHostMessage({
+      type: 'SUBMIT_MODULE_ACTION',
+      payload: {
+        roomCode: 'ABC123',
+        playerId: 'p2',
+        moduleId: 'wires-1',
+        action: {
+          type: 'cut_wire',
+          wireId: 'wrong-wire'
+        }
+      }
+    }, 'guest-peer')
+
+    expect(state.getRoom().gameState.strikes).toHaveLength(1)
+    expect(state.getRoom().phase).toBe('playing')
+
+    for (const module of state.getRoom().gameState.modules) {
+      network.handleHostMessage({
+        type: 'SUBMIT_MODULE_ACTION',
+        payload: {
+          roomCode: 'ABC123',
+          playerId: 'p2',
+          moduleId: module.id,
+          action: module.solution.action
+        }
+      }, 'guest-peer')
+    }
+
+    expect(state.getRoom().phase).toBe('solved')
+    expect(state.getRoom().gameState.result).toBe('solved')
+    expect(state.getRoom().gameState.solvedModuleIds).toEqual(['wires-1', 'symbols-1', 'keypad-1'])
+    expect(p2pMock.broadcast).toHaveBeenCalledWith('ROOM_STATE', expect.objectContaining({
+      room: expect.objectContaining({ phase: 'solved' })
+    }))
+  })
+
   it('sends module actions to the host when current player is a guest', async () => {
     await store.joinRoom('Guest', 'ABC123')
 
@@ -122,6 +216,9 @@ describe('bomb defuse game store networking', () => {
     })
 
     expect(store.gameState.connected).toBe(true)
+    expect(store.gameState.connecting).toBe(false)
+    expect(store.gameState.connectionStatus).toBe('connected')
+    expect(store.gameState.connectionMessage).toBe('Mission joined.')
     expect(state.getRoom()).toEqual(room)
   })
 })

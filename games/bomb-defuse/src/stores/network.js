@@ -14,7 +14,7 @@ import {
   getRoomStateDedupeDetail,
   isDuplicateOp
 } from '../services/online'
-import { gameState, getRoom, setRoom, updateLocalState } from './state'
+import { gameState, getRoom, setConnectionStatus, setRoom, updateLocalState } from './state'
 import { startCountdownTimer, stopCountdownTimer } from './timers'
 
 const log = createLogger('BombDefuse:Network')
@@ -110,6 +110,8 @@ export function handleGuestMessage(data) {
         return
       }
       gameState.connected = true
+      gameState.connecting = false
+      setConnectionStatus('connected', 'Mission joined.')
       setRoom(payload.room)
       updateLocalState(payload.room)
       break

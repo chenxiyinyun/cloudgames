@@ -1,11 +1,37 @@
+import { watch } from 'vue'
 import { gameState, getRoom, setRoom, updateLocalState } from './state'
 import {
+  cancelPendingSave,
   clearStateCache,
   flushStateCache,
   hasCachedState,
   loadStateFromCache,
   saveStateToCache
 } from '../services/stateCache'
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    flushStateCache(gameState)
+  })
+}
+
+watch(() => ({
+  screen: gameState.screen,
+  playerId: gameState.playerId,
+  playerName: gameState.playerName,
+  roomCode: gameState.roomCode,
+  isHost: gameState.isHost,
+  connectionStatus: gameState.connectionStatus,
+  room: gameState.room
+}), newState => {
+  if (newState.screen === 'menu') {
+    cancelPendingSave()
+    return
+  }
+  if (newState.playerId) {
+    saveStateToCache(gameState)
+  }
+}, { deep: true })
 
 export function flushCache() {
   flushStateCache(gameState)

@@ -6,6 +6,7 @@ import {
   createInitialRoom,
   getPlayerRole,
   recordStrike,
+  removePlayerFromRoom,
   restartGame,
   startGame,
   submitModuleAction
@@ -46,6 +47,25 @@ describe('bomb defuse game engine', () => {
       name: 'Guest',
       isHost: false,
       isOnline: true
+    }))
+  })
+
+  it('reconnects an existing player id without adding a duplicate slot', () => {
+    const room = createTwoPlayerRoom()
+    startGame(room, { seed: 'reconnect-test' })
+    const roleBeforeDisconnect = getPlayerRole(room, 'p2')
+
+    removePlayerFromRoom(room, 'p2')
+    const result = addPlayerToRoom(room, 'Guest Again', 'p2')
+
+    expect(result.error).toBeUndefined()
+    expect(result.reconnected).toBe(true)
+    expect(room.players).toHaveLength(2)
+    expect(room.players[1]).toEqual(expect.objectContaining({
+      id: 'p2',
+      name: 'Guest Again',
+      isOnline: true,
+      role: roleBeforeDisconnect
     }))
   })
 
