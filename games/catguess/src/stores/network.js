@@ -19,6 +19,7 @@ import {
   getRoomStateDedupeDetail,
   isDuplicateOp
 } from '../services/online';
+import { createDedupeHandler } from '../../../../src/shared/online/dedupeHandler';
 import { createHostMigrationHandler } from '../../../../src/shared/online/useHostMigration';
 import { showToast } from '../components/ToastNotification.vue';
 import { gameState, getRoom, setRoom, updateLocalState } from './state';
@@ -60,42 +61,18 @@ export function broadcastState() {
   roomBroadcaster.broadcastState();
 }
 
-// ── Host Message Helper ──────────────────────────────────────────────────────────
+// ── Dedupe Handler (shared) ───────────────────────────────────────────────────
 
-/**
- * 通用消息处理辅助：生成去重 key → 检查重复 → 执行业务逻辑 → 广播。
- *
- * @param {string} msgType - 消息类型
- * @param {object} payload - 消息载荷（含 playerId 等）
- * @param {string} peerId  - 发送者 peer ID
- * @param {function} fn    - 业务函数，接收 (room) 返回 { error? }
- * @param {object} [opts]  - 可选配置
- * @param {string} opts.dupeMessage - 重复时的提示语
- * @param {function} opts.afterBroadcast - 广播后的回调
- */
-function withDedupe(msgType, payload, peerId, fn, opts = {}) {
-  const room = getRoom();
-  const key = generateOpKey(msgType, { ...payload, roomCode: room?.code });
-  if (isDuplicateOp(key)) {
-    log.debug(`Duplicate ${msgType} ignored`, { key });
-    p2p.sendTo(peerId, MSG.ROOM_STATE, {
-      room,
-      error: opts.dupeMessage || '请勿重复操作'
-    });
-    return;
-  }
-
-  const result = fn(room);
-  if (result?.error) {
-    p2p.sendTo(peerId, MSG.ROOM_STATE, { room: getRoom(), error: result.error });
-    return;
-  }
-
-  broadcastState();
-  if (typeof opts.afterBroadcast === 'function') {
-    opts.afterBroadcast(getRoom());
-  }
-}
+const withDedupe = createDedupeHandler({
+  generateOpKey,
+  isDuplicateOp,
+  p2p,
+  broadcastState: () => { broadcastState(); },
+  log,
+  getRoom,
+  getRoomCode: () => getRoom()?.code,
+  roomStateType: MSG.ROOM_STATE
+});
 
 // ── Host Handlers ─────────────────────────────────────────────────────────────
 

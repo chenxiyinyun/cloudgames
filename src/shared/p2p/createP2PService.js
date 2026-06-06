@@ -108,7 +108,7 @@ export class P2PService {
       this.peer.on('open', (id) => {
         clearTimeout(timeout);
         opened = true;
-        console.log('Host peer created:', id);
+        this.log.info('Host peer created:', { id });
         resolve(id);
       });
 
@@ -151,7 +151,7 @@ export class P2PService {
           this.log.warn('Ignoring peer-unavailable on host (guest left signaling before negotiation finished)', { message: err?.message });
           return;
         }
-        console.error('Host peer error:', err);
+        this.log.error('Host peer error:', { error: err });
         // peer 已建立后才出现的其它错误，promise 早已 settle，仅记录不再 reject
         if (!opened) {
           clearTimeout(timeout);
@@ -160,7 +160,7 @@ export class P2PService {
       });
 
       this.peer.on('connection', (conn) => {
-        console.log('New connection from:', conn.peer);
+        this.log.info('New connection from:', { peer: conn.peer });
         this._setupConnection(conn);
         if (this.onPlayerConnected) {
           this.onPlayerConnected(conn);
@@ -230,7 +230,7 @@ export class P2PService {
       this.peer = new Peer(guestPeerId, this._getPeerOptions({ forceRelay }));
 
       this.peer.on('open', (id) => {
-        console.log('Guest peer created:', id);
+        this.log.info('Guest peer created:', { id });
 
         const conn = this.peer.connect(hostPeerId, {
           reliable: true
@@ -238,12 +238,12 @@ export class P2PService {
 
         conn.on('open', () => {
           settle(resolve, id);
-          console.log('Connected to host:', hostPeerId);
+          this.log.info('Connected to host:', { hostPeerId });
           this._setupConnection(conn);
         });
 
         conn.on('error', (err) => {
-          console.error('Connection error:', err);
+          this.log.error('Connection error:', { error: err });
           settle(reject, new Error('无法连接到房间'));
         });
 
@@ -299,12 +299,12 @@ export class P2PService {
       });
 
       this.peer.on('error', (err) => {
-        console.error('Guest peer error:', err);
+        this.log.error('Guest peer error:', { error: err });
         settle(reject, new Error('加入房间失败：' + translatePeerError(err)));
       });
 
       this.peer.on('connection', (conn) => {
-        console.log('Direct connection from peer:', conn.peer);
+        this.log.info('Direct connection from peer:', { peer: conn.peer });
         this._setupConnection(conn);
         if (this.onPlayerConnected) {
           this.onPlayerConnected(conn);
@@ -343,14 +343,14 @@ export class P2PService {
 
       conn.on('open', () => {
         clearTimeout(timeout);
-        console.log('Connected to peer:', peerId);
+        this.log.info('Connected to peer:', { peerId });
         this._setupConnection(conn);
         resolve(conn);
       });
 
       conn.on('error', (err) => {
         clearTimeout(timeout);
-        console.error('Peer connection error:', err);
+        this.log.error('Peer connection error:', { error: err });
         reject(err);
       });
     });
@@ -370,14 +370,14 @@ export class P2PService {
         this.handleHeartbeat(data, conn.peer);
         return;
       }
-      console.log('Received message:', data.type, 'from:', conn.peer);
+      this.log.debug('Received message:', { type: data.type, from: conn.peer });
       if (this.onMessage) {
         this.onMessage(data, conn.peer);
       }
     });
 
     conn.on('close', () => {
-      console.log('Connection closed:', conn.peer);
+      this.log.info('Connection closed:', { peer: conn.peer });
       this._disconnectedPeers.add(conn.peer);
       this._missedHeartbeats.delete(conn.peer);
       this._peerLastSeen.delete(conn.peer);
@@ -391,7 +391,7 @@ export class P2PService {
     });
 
     conn.on('error', (err) => {
-      console.error('Connection error:', err);
+      this.log.error('Connection error:', { peer: conn.peer, error: err });
       if (this._disconnectedPeers.has(conn.peer)) return;
       this._disconnectedPeers.add(conn.peer);
       this._missedHeartbeats.delete(conn.peer);
