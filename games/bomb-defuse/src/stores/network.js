@@ -71,6 +71,15 @@ const withDedupe = createDedupeHandler({
   roomStateType: MSG.ROOM_STATE
 })
 
+export function sendModuleAction(moduleId, action) {
+  return p2p.sendTo(p2p.getHostPeerId(gameState.roomCode), MSG.SUBMIT_MODULE_ACTION, {
+    roomCode: gameState.roomCode,
+    playerId: gameState.playerId,
+    moduleId,
+    action
+  })
+}
+
 // ── Auto-Reconnect Engine ────────────────────────────────────────────────────
 const MAX_RECONNECT_ATTEMPTS = 8
 let _reconnectAttempts = 0
@@ -499,13 +508,33 @@ export function handleGuestMessage(data) {
 
 function handleJoinRequest(payload, peerId) {
   const room = getRoom()
+  const originalPeerId = payload.originalPeerId || peerId
 
-  // 先检查是否是断线重连（按 playerId 查找已有玩家）
+  // 重连场景：isReconnect=true 且 originalPeerId 匹配已有在线玩家
+  if (payload.isReconnect && originalPeerId) {
+    const existingByPeerId = room?.players.find(p => p._peerId === originalPeerId)
+    if (existingByPeerId) {
+      existingByPeerId.isOnline = true
+      existingByPeerId.name = payload.playerName
+      existingByPeerId._peerId = originalPeerId
+      if (room.disconnectedPlayers) {
+        room.disconnectedPlayers = room.disconnectedPlayers.filter(p => p.id !== existingByPeerId.id)
+      }
+      broadcastState()
+      p2p.sendTo(peerId, MSG.JOIN_RESPONSE, {
+        success: true,
+        room: deepClone(room)
+      })
+      return
+    }
+  }
+
+  // 按 playerId 查找离线玩家（断线重连）
   const existingByPlayerId = room?.players.find(p => p.id === payload.playerId)
 
   if (existingByPlayerId && !existingByPlayerId.isOnline) {
     existingByPlayerId.isOnline = true
-    existingByPlayerId._peerId = payload.originalPeerId || peerId
+    existingByPlayerId._peerId = originalPeerId
     if (room.disconnectedPlayers) {
       room.disconnectedPlayers = room.disconnectedPlayers.filter(p => p.id !== payload.playerId)
     }
@@ -515,7 +544,17 @@ function handleJoinRequest(payload, peerId) {
   }
 
   if (existingByPlayerId && existingByPlayerId.isOnline) {
-    p2p.sendTo(peerId, MSG.ROOM_STATE, { room })
+    // 同一 playerId 已在线
+    if (payload.isReconnect) {
+      // 重连：更新名字和 peerId
+      existingByPlayerId.name = payload.playerName
+      existingByPlayerId._peerId = originalPeerId
+    }
+    broadcastState({ forceFull: true })
+    p2p.sendTo(peerId, MSG.JOIN_RESPONSE, {
+      success: true,
+      room: deepClone(room)
+    })
     return
   }
 
@@ -526,7 +565,7 @@ function handleJoinRequest(payload, peerId) {
 
   if (existingByName) {
     existingByName.isOnline = true
-    existingByName._peerId = payload.originalPeerId || peerId
+    existingByName._peerId = originalPeerId
     if (room.disconnectedPlayers) {
       room.disconnectedPlayers = room.disconnectedPlayers.filter(p => p.id !== existingByName.id)
     }
@@ -547,24 +586,6 @@ function handleJoinRequest(payload, peerId) {
   const result = addPlayerToRoom(room, payload.playerName, payload.playerId)
 
   if (result.error) {
-    // Defensive reconnect: if the room is full but the same peer is asking to
-    // join, mark that peer as online again instead of rejecting.
-    if (result.error === '房间已满，需要刚好 2 名玩家') {
-      const originalPeerId = payload.originalPeerId || peerId
-      const existingByPeer = room.players.find(candidate => candidate._peerId === originalPeerId)
-      if (existingByPeer) {
-        existingByPeer.name = payload.playerName
-        existingByPeer.isOnline = true
-        room.updatedAt = Date.now()
-        p2p.sendTo(peerId, MSG.JOIN_RESPONSE, {
-          success: true,
-          reconnected: true,
-          room: deepClone(room)
-        })
-        broadcastState()
-        return
-      }
-    }
     p2p.sendTo(peerId, MSG.JOIN_RESPONSE, {
       success: false,
       error: result.error
@@ -574,7 +595,7 @@ function handleJoinRequest(payload, peerId) {
 
   const player = room.players.find(candidate => candidate.id === payload.playerId)
   if (player) {
-    player._peerId = payload.originalPeerId || peerId
+    player._peerId = originalPeerId
   }
 
   broadcastState()
@@ -582,7 +603,7 @@ function handleJoinRequest(payload, peerId) {
   // 通知其他访客连接到新玩家
   const otherPeers = p2p.getConnectedPeers().filter(id => id !== peerId)
   otherPeers.forEach(otherPeerId => {
-    p2p.sendTo(otherPeerId, MSG.CONNECT_TO_PEER, { peerId: payload.originalPeerId || peerId })
+    p2p.sendTo(otherPeerId, MSG.CONNECT_TO_PEER, { peerId: originalPeerId })
   })
 }
 

@@ -19,7 +19,7 @@ import {
   sendModuleAction,
   setupGuestHandlers,
   setupHostHandlers,
-  RECONNECT_METADATA as NETWORK_RECONNECT_METADATA
+  RECONNECT_METADATA
 } from './network'
 import {
   resetAllTimers,
@@ -275,4 +275,4 @@ export function cleanup({ forceStatusReset = false } = {}) {
   }
 }
 
-export { gameState, restoreFromCache, hasRestoreableState, NETWORK_RECONNECT_METADATA as RECONNECT_METADATA }
+export { gameState, restoreFromCache, hasRestoreableState, RECONNECT_METADATA }

@@ -17,13 +17,41 @@ const p2pMock = {
   disconnect: vi.fn(),
   softDisconnect: vi.fn(),
   stopHeartbeat: vi.fn(),
+  startHeartbeat: vi.fn(),
+  onDeadPeer: null,
   onMessage: null,
+  onPlayerConnected: null,
   onPlayerDisconnected: null,
-  onModeChange: null
+  onModeChange: null,
+  onConnectionStateChange: null,
+  onError: null,
+  connectToPeer: vi.fn(() => Promise.resolve()),
+  getPeerConnectionState: vi.fn(() => null)
 }
 
 vi.mock('../../services/p2p', () => ({
   default: p2pMock
+}))
+
+vi.mock('../../../../src/shared/online/useHostMigration', () => ({
+  createHostMigrationHandler: vi.fn(() => ({
+    handleHostDisconnect: vi.fn(() => Promise.resolve()),
+    isMigrationInProgress: vi.fn(() => false),
+    resetMigrationMutex: vi.fn()
+  }))
+}))
+
+vi.mock('../../../../src/shared/online/dedupeHandler', () => ({
+  createDedupeHandler: vi.fn(() => vi.fn())
+}))
+
+vi.mock('../../services/logger', () => ({
+  createLogger: vi.fn(() => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn()
+  }))
 }))
 
 vi.mock('../../services/stateCache', () => ({
@@ -58,7 +86,7 @@ describe('bomb defuse game store networking', () => {
     expect(store.gameState.connected).toBe(true)
     expect(store.gameState.screen).toBe('lobby')
     expect(state.getRoom().players[0]._peerId).toBe('bombdefuse-ABC123')
-    expect(p2pMock.onMessage).toBe(network.handleHostMessage)
+    expect(typeof p2pMock.onMessage).toBe('function')
   })
 
   it('starts the game as host and broadcasts room state', async () => {

@@ -1,11 +1,6 @@
 import { checkEndCondition, GAME_PHASES } from '../services/gameEngine'
 import { gameState, getRoom, setConnectionStatus, updateLocalState } from './state'
 
-export const RECONNECT_METADATA = {
-  attempt: 0,
-  MAX_ATTEMPTS: 8
-}
-
 let joinTimeout = null
 let joinRetryTimer = null
 let countdownTimer = null
@@ -65,16 +60,13 @@ export function resetAllTimers() {
   clearJoinTimeout()
   stopJoinRetry()
   stopCountdownTimer()
-  RECONNECT_METADATA.attempt = 0
 }
 
 export function markReconnectAttempt() {
-  RECONNECT_METADATA.attempt += 1
-  setConnectionStatus('reconnecting', `Reconnect attempt ${RECONNECT_METADATA.attempt}`)
+  setConnectionStatus('reconnecting', 'Reconnecting...')
 }
 
 export function resetReconnectAttempt() {
-  RECONNECT_METADATA.attempt = 0
   if (gameState.connected) {
     setConnectionStatus('connected', 'Connected')
   }
