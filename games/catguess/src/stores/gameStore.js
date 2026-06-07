@@ -362,4 +362,4 @@ export function cleanup({ forceStatusReset = false } = {}) {
 // ── Re-exports（保持组件 import 路径与公共 API 稳定） ──────────────────────────
 export { gameState, restoreFromCache, hasRestoreableState };
 export { GAME_PHASES };
-export { RECONNECT_METADATA } from './timers';
+export { RECONNECT_METADATA } from './network';
