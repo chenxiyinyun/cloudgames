@@ -69,7 +69,7 @@ const net = createNetworkLayer({
   removePlayerFromRoom,
   isLobbyPhase: (room) => room?.phase === 'waiting' || room?.status === 'waiting',
 
-  handleJoinRequest: (payload, peerId, ctx) => {
+  handleJoinRequest: (payload, peerId) => {
     handleJoinRequest(payload, peerId)
   },
 
@@ -91,13 +91,13 @@ const net = createNetworkLayer({
     }
   },
 
-  onGuestJoinRejected: (errMsg) => {
+  onGuestJoinRejected: () => {
     stopJoinRetry()
     clearJoinTimeout()
     // 默认行为（error/connectionStatus）已由 createNetworkLayer 处理
   },
 
-  onGuestJoinAccepted: (payload) => {
+  onGuestJoinAccepted: () => {
     // 默认行为（connected/error/room 设置）已由 createNetworkLayer 处理
   },
 

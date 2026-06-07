@@ -46,13 +46,14 @@ vi.mock('../../../../src/shared/online/dedupeHandler', () => ({
 }))
 
 vi.mock('../../../../src/shared/online/createNetworkLayer', () => {
-  const { vi } = require('vitest')
-  const { createHostMigrationHandler } = require('../../../../src/shared/online/useHostMigration')
-
   // createNetworkLayer 需要真正执行，但内部依赖的 createHostMigrationHandler 已被 mock
   // 所以我们提供一个简化版的 createNetworkLayer，只 mock auto-reconnect 和 offline manager
   function createNetworkLayer(opts) {
-    const hostMigrator = createHostMigrationHandler({ gameId: opts.gameId, p2p: opts.p2p, log: opts.log })
+    const hostMigrator = {
+      handleHostDisconnect: () => Promise.resolve(),
+      isMigrationInProgress: () => false,
+      resetMigrationMutex: () => {}
+    }
 
     function setupHostHandlers() {
       opts.p2p.onPlayerConnected = (conn) => {
@@ -171,7 +172,7 @@ vi.mock('../../../../src/shared/online/createNetworkLayer', () => {
           const { peers } = payload
           if (peers && peers.length > 0) {
             peers.forEach(async (targetPeerId) => {
-              try { await opts.p2p.connectToPeer(targetPeerId) } catch (err) { /* ignore */ }
+              try { await opts.p2p.connectToPeer(targetPeerId) } catch { /* ignore */ }
             })
           }
           break

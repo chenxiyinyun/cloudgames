@@ -15,6 +15,7 @@ import {
   cleanupOps,
   createJoinRequestSenderForGame,
   createRoomBroadcasterForGame,
+  deepClone,
   generateOpKey,
   getRoomStateDedupeDetail,
   isDuplicateOp
@@ -78,7 +79,7 @@ const net = createNetworkLayer({
   resetOps: null,
   getRoomStateDedupeDetail,
   MSG,
-  deepClone: null,
+  deepClone,
   removePlayerFromRoom,
   isLobbyPhase: (room) => room?.status === GAME_PHASES.WAITING || room?.phase === GAME_PHASES.WAITING,
 
@@ -91,11 +92,11 @@ const net = createNetworkLayer({
     }
   },
 
-  handleJoinRequest: (payload, peerId, ctx) => {
+  handleJoinRequest: (payload, peerId) => {
     handleJoinRequest(payload, peerId);
   },
 
-  handleHostBusinessMessage: (type, payload, peerId, ctx) => {
+  handleHostBusinessMessage: (type, payload, peerId) => {
     handleHostBusinessMessage(type, payload, peerId);
   },
 

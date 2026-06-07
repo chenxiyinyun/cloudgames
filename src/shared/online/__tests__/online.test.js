@@ -6,6 +6,7 @@ import {
   createRoomBroadcaster,
   deepClone
 } from '../index';
+import { createNetworkLayer } from '../createNetworkLayer';
 import { createHostMigrationHandler } from '../useHostMigration';
 
 describe('shared online foundation', () => {
@@ -79,6 +80,58 @@ describe('shared online foundation', () => {
       a: 1,
       nested: { b: 3 }
     });
+  });
+
+  it('responds to REQUEST_STATE with a cloned room snapshot', () => {
+    const MSG = createMessageTypes({ REQUEST_STATE: 'REQUEST_STATE' });
+    const room = {
+      code: 'ABCDEF',
+      phase: 'waiting',
+      players: [{ id: 'p1', name: 'Host', _peerId: 'game-ABCDEF' }],
+      nested: { value: 1 }
+    };
+    const p2p = {
+      sendTo: vi.fn(),
+      startHeartbeat: vi.fn(),
+      getConnectedPeers: vi.fn(() => []),
+      getPeerConnectionState: vi.fn(() => null),
+      getMyPeerId: vi.fn(() => 'game-ABCDEF')
+    };
+
+    const net = createNetworkLayer({
+      gameId: 'game',
+      p2p,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      getRoom: () => room,
+      setRoom: vi.fn(),
+      updateLocalState: vi.fn(),
+      setConnectionStatus: vi.fn(),
+      gameState: { roomCode: 'ABCDEF', isHost: true },
+      roomBroadcaster: { broadcastState: vi.fn(), resetBroadcastState: vi.fn() },
+      sendJoinRequestBase: vi.fn(),
+      generateOpKey: vi.fn((type, payload) => `${type}:${payload.roomCode || payload.playerId || ''}`),
+      isDuplicateOp: vi.fn(() => false),
+      cleanupOps: vi.fn(),
+      resetOps: vi.fn(),
+      getRoomStateDedupeDetail: vi.fn(() => 'detail-1'),
+      MSG,
+      deepClone,
+      removePlayerFromRoom: vi.fn()
+    });
+
+    net.dispatchHostMessage({
+      type: MSG.REQUEST_STATE,
+      payload: { playerId: 'guest-1', roomCode: 'ABCDEF' }
+    }, 'guest-peer');
+
+    expect(p2p.sendTo).toHaveBeenCalledWith('guest-peer', MSG.ROOM_STATE, {
+      room: expect.objectContaining({
+        code: 'ABCDEF',
+        nested: { value: 1 }
+      }),
+      detail: 'detail-1'
+    });
+    expect(p2p.sendTo.mock.calls[0][2].room).not.toBe(room);
   });
 
   it('elects the current player when they are the lowest-order online host candidate', async () => {

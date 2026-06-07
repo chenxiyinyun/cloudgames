@@ -17,6 +17,7 @@ import {
   cleanupOps,
   createJoinRequestSenderForGame,
   createRoomBroadcasterForGame,
+  deepClone,
   generateOpKey,
   getRoomStateDedupeDetail,
   isDuplicateOp
@@ -73,7 +74,7 @@ const net = createNetworkLayer({
   resetOps: null,
   getRoomStateDedupeDetail,
   MSG,
-  deepClone: null,
+  deepClone,
   removePlayerFromRoom,
   isLobbyPhase: (room) => room?.status === GAME_PHASES.WAITING || room?.phase === GAME_PHASES.WAITING,
 
@@ -86,11 +87,11 @@ const net = createNetworkLayer({
     enableWaitBranch: false
   },
 
-  handleJoinRequest: (payload, peerId, ctx) => {
+  handleJoinRequest: (payload, peerId) => {
     handleJoinRequest(payload, peerId);
   },
 
-  handleHostBusinessMessage: (type, payload, peerId, ctx) => {
+  handleHostBusinessMessage: (type, payload, peerId) => {
     handleHostBusinessMessage(type, payload, peerId);
   },
 
@@ -98,7 +99,7 @@ const net = createNetworkLayer({
     gameState.screen = 'lobby';
   },
 
-  onGuestJoinRejected: (errMsg) => {
+  onGuestJoinRejected: () => {
     stopJoinRetry();
     // 默认行为（error/connectionStatus）已由 createNetworkLayer 处理
     // 动态 import 避免 network ↔ connection 循环（cleanup 在 connection.js）
@@ -106,7 +107,7 @@ const net = createNetworkLayer({
     gameState.screen = 'menu';
   },
 
-  onGuestJoinAccepted: (payload) => {
+  onGuestJoinAccepted: () => {
     stopJoinRetry();
     // 重连场景由 createNetworkLayer 默认行为处理（connected/error/room 设置）
   },
