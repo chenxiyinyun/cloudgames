@@ -1,6 +1,6 @@
-// ── Timers & Auto-Reconnect Engine ────────────────────────────────────────────
-// 所有 setTimeout / setInterval 调度 + auto-reconnect 状态机。
-// 与 codenames/src/stores/connection.js 的 auto-reconnect 块对齐。
+// ── Timers ────────────────────────────────────────────────────────────────────
+// 所有 setTimeout / setInterval 调度。
+// Auto-reconnect 已移到共享 createNetworkLayer 工厂。
 
 import {
   GAME_PHASES, calculateScores, submitStorySelection, submitCard,
@@ -10,10 +10,19 @@ import p2p from '../services/p2p';
 import { createLogger } from '../services/logger';
 import { MSG } from '../services/online';
 import { gameState, getRoom } from './state';
-// 循环 import（timers ↔ network ↔ gameStore），仅函数体内引用，ES module live binding 可容忍
-import { broadcastState, sendJoinRequest, setupGuestHandlers } from './network';
 
 const log = createLogger('GameStore');
+
+// ── Late-binding for broadcastState ──────────────────────────────────────────
+// 避免 timers ↔ network 循环依赖：timers 不再静态导入 network，
+// 而是通过 setBroadcastStateFn 在初始化时注入。
+let _broadcastStateFn = null;
+export function setBroadcastStateFn(fn) {
+  _broadcastStateFn = fn;
+}
+function broadcastState() {
+  if (_broadcastStateFn) _broadcastStateFn();
+}
 
 // ── Timeout Constants ─────────────────────────────────────────────────────────
 
@@ -49,12 +58,7 @@ let _pickingTimer = null;
 let _othersPickingTimer = null;
 let _votingTimer = null;
 let _offlineTickTimer = null;
-let _autoReconnectTimer = null;
-let _iceCheckingTimer = null;
 let _roomDestroyTimer = null;
-let _reconnectAttempts = 0;
-
-const MAX_RECONNECT_ATTEMPTS = 8;
 
 // ── Offline Player Tick (unified) ─────────────────────────────────────────────
 // 合并了原 cleanupDisconnectedPlayers + scheduleDisconnectedSkipCheck：
@@ -464,123 +468,6 @@ export function startJoinTimeout(fn, ms) {
   _joinTimeout = setTimeout(fn, ms);
 }
 
-// ── Auto-Reconnect Engine ─────────────────────────────────────────────────────
-
-export function registerAutoReconnectHandlers() {
-  p2p.onConnectionStateChange = ({ peerId, iceConnectionState: iceState }) => {
-    const hostPeerId = `catguess-${gameState.roomCode}`;
-
-    if (iceState === 'disconnected' || iceState === 'failed') {
-      if ((peerId === hostPeerId || gameState.isHost) && !_autoReconnectTimer) {
-        setConnectionStatus('reconnecting', '检测到连接断开，正在自动重连...');
-        startAutoReconnect();
-      }
-    } else if (iceState === 'connected' || iceState === 'completed') {
-      cancelAutoReconnect();
-      if (_iceCheckingTimer) { clearTimeout(_iceCheckingTimer); _iceCheckingTimer = null; }
-      if (gameState.connectionStatus === 'reconnecting') {
-        setConnectionStatus('connected', '已连接');
-      }
-      _reconnectAttempts = 0;
-    } else if (iceState === 'checking') {
-      // ICE checking 超时保护：如果持续 checking 超过 10s，触发重连
-      if (_iceCheckingTimer) clearTimeout(_iceCheckingTimer);
-      _iceCheckingTimer = setTimeout(() => {
-        const state = p2p.getPeerConnectionState(hostPeerId);
-        if (state?.iceConnectionState === 'checking' && !_autoReconnectTimer) {
-          setConnectionStatus('reconnecting', '连接建立超时，正在重试...');
-          startAutoReconnect();
-        }
-      }, 10000);
-    }
-  };
-}
-
-async function startAutoReconnect() {
-  if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-    setConnectionStatus('error', '连接失败，请检查网络后手动重连');
-    cancelAutoReconnect();
-    return;
-  }
-
-  _reconnectAttempts++;
-
-  // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s (capped), with ±25% jitter
-  const baseDelay = Math.min(1000 * Math.pow(2, _reconnectAttempts - 1), 32000);
-  const jitter = baseDelay * (0.75 + Math.random() * 0.5);
-
-  _autoReconnectTimer = setTimeout(async () => {
-    _autoReconnectTimer = null;
-    try {
-      if (gameState.isHost) {
-        const connectedPeers = p2p.getConnectedPeers();
-        if (connectedPeers.length > 0) {
-          cancelAutoReconnect();
-          setConnectionStatus('connected', '已连接');
-          _reconnectAttempts = 0;
-          return;
-        }
-        startAutoReconnect();
-      } else {
-        const ok = await reconnectRoomInternal();
-        if (!ok) {
-          log.warn('Auto-reconnect attempt timed out', { attempt: _reconnectAttempts });
-          startAutoReconnect();
-        }
-      }
-    } catch (err) {
-      log.warn('Auto-reconnect attempt failed', { attempt: _reconnectAttempts, error: err?.message });
-      startAutoReconnect();
-    }
-  }, jitter);
-}
-
-export function cancelAutoReconnect() {
-  if (_autoReconnectTimer) {
-    clearTimeout(_autoReconnectTimer);
-    _autoReconnectTimer = null;
-  }
-  if (_iceCheckingTimer) {
-    clearTimeout(_iceCheckingTimer);
-    _iceCheckingTimer = null;
-  }
-}
-
-async function reconnectRoomInternal() {
-  if (!gameState.roomCode || !gameState.playerName) return false;
-
-  p2p.softDisconnect();
-  gameState.connected = false;
-
-  await p2p.joinRoom(gameState.roomCode, gameState.playerName);
-  setupGuestHandlers();
-
-  sendJoinRequest(gameState.playerId, gameState.playerName, true);
-
-  // Send REQUEST_STATE to get full snapshot
-  try { p2p.broadcast(MSG.REQUEST_STATE, { playerId: gameState.playerId }); } catch { /* ignore */ }
-
-  // Wait up to 10s for connection to stabilize
-  return new Promise((resolve) => {
-    let settled = false;
-    let timeout = null;
-    let checkInterval = null;
-    const finish = (ok) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      clearInterval(checkInterval);
-      resolve(ok);
-    };
-    timeout = setTimeout(() => finish(false), 10000);
-    checkInterval = setInterval(() => {
-      if (gameState.connected) {
-        finish(true);
-      }
-    }, 500);
-  });
-}
-
 // ── Reset on cleanup ──────────────────────────────────────────────────────────
 
 export function resetAllTimers() {
@@ -590,15 +477,10 @@ export function resetAllTimers() {
   clearVotingTimer();
   clearOfflineTickTimer();
   clearRoomAutoDestroyTimer();
-  cancelAutoReconnect();
   stopJoinRetry();
-  _reconnectAttempts = 0;
 }
 
-export const RECONNECT_METADATA = {
-  get attempt() { return _reconnectAttempts; },
-  MAX_ATTEMPTS: MAX_RECONNECT_ATTEMPTS
-};
+// RECONNECT_METADATA 已移到 network.js（由 createNetworkLayer 提供）
 
 // 暴露给 network.js 在 setupHost/setupGuest 时调用，以及 gameStore.js 高层 API
 export {

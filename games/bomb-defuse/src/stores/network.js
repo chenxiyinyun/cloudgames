@@ -10,9 +10,14 @@ import {
   createJoinRequestSenderForGame,
   createRoomBroadcasterForGame,
   deepClone,
+  generateOpKey,
   getRoomStateDedupeDetail,
-  isDuplicateOp
+  isDuplicateOp,
+  cleanupOps,
+  resetOps
 } from '../services/online'
+import { createDedupeHandler } from '../../../../src/shared/online/dedupeHandler'
+import { createNetworkLayer } from '../../../../src/shared/online/createNetworkLayer'
 import { gameState, getRoom, setConnectionStatus, setRoom, updateLocalState } from './state'
 import { clearJoinTimeout, stopCountdownTimer, stopJoinRetry } from './timers'
 
@@ -30,21 +35,106 @@ const roomBroadcaster = createRoomBroadcasterForGame({
   updateLocalState
 })
 
-export function sendJoinRequest(playerId, playerName, isReconnect = false) {
-  return sendJoinRequestBase(playerId, playerName, isReconnect)
-}
+const withDedupe = createDedupeHandler({
+  generateOpKey,
+  isDuplicateOp,
+  p2p,
+  broadcastState: () => { broadcastState() },
+  log,
+  getRoom,
+  getRoomCode: () => getRoom()?.code,
+  roomStateType: MSG.ROOM_STATE
+})
+
+// ── Create Network Layer (shared) ────────────────────────────────────────────
+
+const net = createNetworkLayer({
+  gameId: 'bombdefuse',
+  p2p,
+  log,
+  getRoom,
+  setRoom,
+  updateLocalState,
+  setConnectionStatus,
+  gameState,
+  roomBroadcaster,
+  sendJoinRequestBase,
+  generateOpKey,
+  isDuplicateOp,
+  cleanupOps,
+  resetOps,
+  getRoomStateDedupeDetail,
+  MSG,
+  deepClone,
+  removePlayerFromRoom,
+  isLobbyPhase: (room) => room?.phase === 'waiting' || room?.status === 'waiting',
+
+  handleJoinRequest: (payload, peerId, ctx) => {
+    handleJoinRequest(payload, peerId)
+  },
+
+  handleHostBusinessMessage: (type, payload, peerId, ctx) => {
+    if (type === MSG.SUBMIT_MODULE_ACTION) {
+      const sender = ctx.room.players.find(p => p._peerId === peerId)
+      if (!sender || sender.id !== payload.playerId) {
+        log.warn('Rejecting module action: playerId does not match sender peer', {
+          peerId,
+          claimedPlayerId: payload.playerId,
+          actualPlayerId: sender?.id
+        })
+        return
+      }
+      withDedupe(MSG.SUBMIT_MODULE_ACTION, payload, peerId,
+        () => handleRemoteModuleAction(payload),
+        { dupeMessage: '请勿重复操作' }
+      )
+    }
+  },
+
+  onGuestJoinRejected: (errMsg) => {
+    stopJoinRetry()
+    clearJoinTimeout()
+    // 默认行为（error/connectionStatus）已由 createNetworkLayer 处理
+  },
+
+  onGuestJoinAccepted: (payload) => {
+    // 默认行为（connected/error/room 设置）已由 createNetworkLayer 处理
+  },
+
+  onGuestConnected: () => {
+    gameState.screen = 'lobby'
+  },
+
+  cleanupExtra: () => {
+    roomBroadcaster.resetBroadcastState()
+  }
+})
+
+// ── Re-exports from network layer ────────────────────────────────────────────
+
+export const setupHostHandlers = net.setupHostHandlers
+export const setupGuestHandlers = net.setupGuestHandlers
+export const hostMigrator = net.hostMigrator
+export const RECONNECT_METADATA = net.RECONNECT_METADATA
+
+// 消息分发 — 委托给共享层
+export const handleHostMessage = net.dispatchHostMessage
+export const handleGuestMessage = net.dispatchGuestMessage
 
 export function broadcastState(options = {}) {
-  const room = getRoom()
-  if (!room) return null
-  return roomBroadcaster.broadcastState({
-    forceFull: options.forceFull ?? true,
-    error: options.error || null
-  })
+  return net.broadcastState(options)
 }
 
 export function resetBroadcastState() {
-  roomBroadcaster.resetBroadcastState()
+  net.resetBroadcastState()
+}
+
+export function cleanupNetwork() {
+  net.cleanupNetwork()
+}
+
+export function sendJoinRequest(playerId, playerName, isReconnect = false) {
+  return sendJoinRequestBase(playerId, playerName, isReconnect)
 }
 
 export function sendModuleAction(moduleId, action) {
@@ -56,112 +146,86 @@ export function sendModuleAction(moduleId, action) {
   })
 }
 
-export function setupHostHandlers() {
-  p2p.onMessage = handleHostMessage
-  p2p.onPlayerDisconnected = peerId => {
-    const room = getRoom()
-    const player = room?.players?.find(candidate => candidate._peerId === peerId)
-    if (!room || !player) return
-    removePlayerFromRoom(room, player.id)
-    broadcastState()
-  }
-}
-
-export function setupGuestHandlers() {
-  p2p.onMessage = handleGuestMessage
-}
-
-export function handleHostMessage(data, peerId) {
-  const type = data?.type
-  const payload = data?.payload || {}
-  const room = getRoom()
-
-  if (!room) return
-
-  switch (type) {
-    case MSG.JOIN_REQUEST:
-      handleJoinRequest(payload, peerId)
-      break
-    case MSG.SUBMIT_MODULE_ACTION: {
-      const sender = room.players.find(p => p._peerId === peerId)
-      if (!sender || sender.id !== payload.playerId) {
-        log.warn('Rejecting module action: playerId does not match sender peer', {
-          peerId,
-          claimedPlayerId: payload.playerId,
-          actualPlayerId: sender?.id
-        })
-        return
-      }
-      if (isDuplicateOp(type, payload, room.code)) return
-      handleRemoteModuleAction(payload)
-      break
-    }
-    case MSG.REQUEST_STATE:
-      if (isDuplicateOp(type, payload, room.code)) return
-      p2p.sendTo(peerId, MSG.ROOM_STATE, { room: deepClone(room), detail: getRoomStateDedupeDetail(room) })
-      break
-    default:
-      log.debug('Unhandled host message', { type, peerId })
-  }
-}
-
-export function handleGuestMessage(data) {
-  const type = data?.type
-  const payload = data?.payload || {}
-
-  switch (type) {
-    case MSG.JOIN_RESPONSE:
-      if (!payload.success) {
-        const message = payload.error || 'Join rejected.'
-        stopJoinRetry()
-        clearJoinTimeout()
-        gameState.error = message
-        gameState.connected = false
-        gameState.connecting = false
-        setConnectionStatus('error', message)
-        return
-      }
-      stopJoinRetry()
-      clearJoinTimeout()
-      gameState.connected = true
-      gameState.connecting = false
-      gameState.error = null
-      setConnectionStatus('connected', 'Mission joined.')
-      setRoom(payload.room)
-      updateLocalState(payload.room)
-      break
-    case MSG.ROOM_STATE:
-      applyRoomStatePayload(payload)
-      break
-    default:
-      log.debug('Unhandled guest message', { type })
-  }
-}
+// ── Game-specific: Join Request Handler ──────────────────────────────────────
 
 function handleJoinRequest(payload, peerId) {
   const room = getRoom()
+  const originalPeerId = payload.originalPeerId || peerId
+
+  // 重连场景：isReconnect=true 且 originalPeerId 匹配已有在线玩家
+  if (payload.isReconnect && originalPeerId) {
+    const existingByPeerId = room?.players.find(p => p._peerId === originalPeerId)
+    if (existingByPeerId) {
+      existingByPeerId.isOnline = true
+      existingByPeerId.name = payload.playerName
+      existingByPeerId._peerId = originalPeerId
+      if (room.disconnectedPlayers) {
+        room.disconnectedPlayers = room.disconnectedPlayers.filter(p => p.id !== existingByPeerId.id)
+      }
+      broadcastState()
+      p2p.sendTo(peerId, MSG.JOIN_RESPONSE, {
+        success: true,
+        room: deepClone(room)
+      })
+      return
+    }
+  }
+
+  // 按 playerId 查找离线玩家（断线重连）
+  const existingByPlayerId = room?.players.find(p => p.id === payload.playerId)
+
+  if (existingByPlayerId && !existingByPlayerId.isOnline) {
+    existingByPlayerId.isOnline = true
+    existingByPlayerId._peerId = originalPeerId
+    if (room.disconnectedPlayers) {
+      room.disconnectedPlayers = room.disconnectedPlayers.filter(p => p.id !== payload.playerId)
+    }
+    broadcastState()
+    p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: true, reconnected: true, originalPlayerId: payload.playerId })
+    return
+  }
+
+  if (existingByPlayerId && existingByPlayerId.isOnline) {
+    if (payload.isReconnect) {
+      existingByPlayerId.name = payload.playerName
+      existingByPlayerId._peerId = originalPeerId
+    }
+    broadcastState({ forceFull: true })
+    p2p.sendTo(peerId, MSG.JOIN_RESPONSE, {
+      success: true,
+      room: deepClone(room)
+    })
+    return
+  }
+
+  // playerId 未匹配，按 playerName 查找已有离线玩家
+  const existingByName = room?.players.find(
+    p => p.name === payload.playerName && !p.isOnline
+  )
+
+  if (existingByName) {
+    existingByName.isOnline = true
+    existingByName._peerId = originalPeerId
+    if (room.disconnectedPlayers) {
+      room.disconnectedPlayers = room.disconnectedPlayers.filter(p => p.id !== existingByName.id)
+    }
+    broadcastState()
+    p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: true, reconnected: true, originalPlayerId: existingByName.id })
+    return
+  }
+
+  const existingOnlineByName = room?.players.find(
+    p => p.name === payload.playerName && p.isOnline
+  )
+  if (existingOnlineByName) {
+    p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: false, error: '该名字的玩家已在线' })
+    return
+  }
+
+  // 完全没有匹配 → 新玩家
   const result = addPlayerToRoom(room, payload.playerName, payload.playerId)
 
   if (result.error) {
-    // Defensive reconnect: if the room is full but the same peer is asking to
-    // join (e.g. playerId got regenerated on the guest after a flaky reconnect,
-    // or the guest's retry is still in flight when the host already has 2
-    // players), mark that peer as online again instead of rejecting.
-    if (result.error === '房间已满，需要刚好 2 名玩家') {
-      const originalPeerId = payload.originalPeerId || peerId
-      const existingByPeer = room.players.find(candidate => candidate._peerId === originalPeerId)
-      if (existingByPeer) {
-        existingByPeer.name = payload.playerName
-        existingByPeer.isOnline = true
-        room.updatedAt = Date.now()
-        p2p.sendTo(peerId, MSG.JOIN_RESPONSE, {
-          success: true,
-          room: deepClone(room)
-        })
-        broadcastState()
-        return
-      }
-    }
     p2p.sendTo(peerId, MSG.JOIN_RESPONSE, {
       success: false,
       error: result.error
@@ -171,36 +235,28 @@ function handleJoinRequest(payload, peerId) {
 
   const player = room.players.find(candidate => candidate.id === payload.playerId)
   if (player) {
-    player._peerId = payload.originalPeerId || peerId
+    player._peerId = originalPeerId
   }
 
-  p2p.sendTo(peerId, MSG.JOIN_RESPONSE, {
-    success: true,
-    room: deepClone(room)
-  })
   broadcastState()
+
+  const otherPeers = p2p.getConnectedPeers().filter(id => id !== peerId)
+  otherPeers.forEach(otherPeerId => {
+    p2p.sendTo(otherPeerId, MSG.CONNECT_TO_PEER, { peerId: originalPeerId })
+  })
 }
+
+// ── Game-specific: Module Action Handler ─────────────────────────────────────
 
 function handleRemoteModuleAction(payload) {
   const room = getRoom()
   const result = submitModuleAction(room, payload.playerId, payload.moduleId, payload.action)
   if (result.error) {
-    broadcastState({ error: result.error })
-    return
+    return result
   }
 
   if (room.phase === 'exploded' || room.phase === 'solved') {
     stopCountdownTimer()
   }
-  broadcastState()
-}
-
-function applyRoomStatePayload(payload) {
-  const currentRoom = getRoom()
-  const nextRoom = payload.room
-    ? payload.room
-    : { ...currentRoom, ...payload.delta }
-
-  setRoom(nextRoom)
-  updateLocalState(nextRoom)
+  return {}
 }

@@ -1,16 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+// ── Mocks ──────────────────────────────────────────────────────────────────────
+
 const p2pMock = {
-  generateRoomCode: vi.fn(() => 'ABC123'),
-  getHostPeerId: vi.fn(code => `bombdefuse-${code}`),
+  generateRoomCode: vi.fn(() => 'CG456'),
+  getHostPeerId: vi.fn(code => `catguess-${code}`),
   getConnectionDiagnostics: vi.fn(() => ({
     mode: 'direct-or-relay',
     hasTurnRelay: false,
     peers: {}
   })),
-  getConnectedPeers: vi.fn(() => ['bombdefuse-ABC123']),
+  getConnectedPeers: vi.fn(() => ['catguess-CG456']),
   getMyPeerId: vi.fn(() => 'local-peer'),
-  createHost: vi.fn(() => Promise.resolve('bombdefuse-ABC123')),
+  createHost: vi.fn(() => Promise.resolve('catguess-CG456')),
   joinRoom: vi.fn(() => Promise.resolve('guest-peer')),
   sendTo: vi.fn(() => true),
   broadcast: vi.fn(() => true),
@@ -49,8 +51,6 @@ vi.mock('../../../../src/shared/online/createNetworkLayer', () => {
   const { vi } = require('vitest')
   const { createHostMigrationHandler } = require('../../../../src/shared/online/useHostMigration')
 
-  // createNetworkLayer 需要真正执行，但内部依赖的 createHostMigrationHandler 已被 mock
-  // 所以我们提供一个简化版的 createNetworkLayer，只 mock auto-reconnect 和 offline manager
   function createNetworkLayer(opts) {
     const hostMigrator = createHostMigrationHandler({ gameId: opts.gameId, p2p: opts.p2p, log: opts.log })
 
@@ -81,7 +81,7 @@ vi.mock('../../../../src/shared/online/createNetworkLayer', () => {
             broadcastState,
             setupHostHandlers,
             setConnectionStatus: opts.setConnectionStatus,
-            enableWaitBranch: false
+            enableWaitBranch: true
           })
         }
       }
@@ -96,7 +96,7 @@ vi.mock('../../../../src/shared/online/createNetworkLayer', () => {
             broadcastState,
             setupHostHandlers,
             setConnectionStatus: opts.setConnectionStatus,
-            enableWaitBranch: false
+            enableWaitBranch: true
           })
         }
       }
@@ -128,7 +128,7 @@ vi.mock('../../../../src/shared/online/createNetworkLayer', () => {
           break
         case opts.MSG.REQUEST_STATE:
           if (opts.isDuplicateOp(type, payload, room.code)) return
-          opts.p2p.sendTo(peerId, opts.MSG.ROOM_STATE, { room: opts.deepClone(room), detail: opts.getRoomStateDedupeDetail(room) })
+          opts.p2p.sendTo(peerId, opts.MSG.ROOM_STATE, { room: opts.deepClone ? opts.deepClone(room) : room, detail: opts.getRoomStateDedupeDetail(room) })
           break
         default:
           if (opts.handleHostBusinessMessage) opts.handleHostBusinessMessage(type, payload, peerId, { room, p2p: opts.p2p, MSG: opts.MSG, deepClone: opts.deepClone, broadcastState, generateOpKey: opts.generateOpKey, isDuplicateOp: opts.isDuplicateOp, getRoom: opts.getRoom, log: opts.log })
@@ -144,17 +144,35 @@ vi.mock('../../../../src/shared/online/createNetworkLayer', () => {
           if (payload.room) {
             opts.setRoom(payload.room)
             opts.updateLocalState(opts.getRoom())
+            if (opts.onRoomStateReceived) opts.onRoomStateReceived(payload)
+            if (!opts.gameState.connected) {
+              opts.gameState.connected = true
+              if (opts.onGuestConnected) opts.onGuestConnected()
+            }
           } else if (payload.delta) {
             const currentRoom = opts.getRoom()
             if (!currentRoom) return
             Object.keys(payload.delta).forEach(key => { currentRoom[key] = payload.delta[key] })
             opts.updateLocalState(currentRoom)
+            if (opts.onRoomStateReceived) opts.onRoomStateReceived(payload)
           }
           break
         case opts.MSG.JOIN_RESPONSE:
           if (payload.success === false) {
-            if (opts.onGuestJoinRejected) opts.onGuestJoinRejected(payload.error)
+            opts.gameState.connected = false
+            opts.gameState.connecting = false
+            opts.gameState.error = payload.error || '加入房间失败'
+            opts.setConnectionStatus('error', payload.error || '加入房间失败')
+            if (opts.onGuestJoinRejected) opts.onGuestJoinRejected(payload.error || '加入房间失败')
           } else {
+            opts.gameState.connected = true
+            opts.gameState.connecting = false
+            opts.gameState.error = null
+            opts.setConnectionStatus('connected', 'Mission joined.')
+            if (payload.room) {
+              opts.setRoom(payload.room)
+              opts.updateLocalState(opts.getRoom())
+            }
             if (opts.onGuestJoinAccepted) opts.onGuestJoinAccepted(payload)
           }
           break
@@ -200,7 +218,9 @@ vi.mock('../../../../src/shared/online/createNetworkLayer', () => {
       cleanupNetwork,
       hostMigrator,
       RECONNECT_METADATA: { get attempt() { return 0 }, MAX_ATTEMPTS: 8 },
-      getHostPeerId: () => `${opts.gameId}-${opts.gameState.roomCode}`
+      getHostPeerId: () => `${opts.gameId}-${opts.gameState.roomCode}`,
+      dispatchHostMessage,
+      dispatchGuestMessage
     }
   }
 
@@ -225,10 +245,17 @@ vi.mock('../../services/stateCache', () => ({
   hasCachedState: vi.fn(() => false)
 }))
 
-describe('bomb defuse game store networking', () => {
+vi.mock('../components/ToastNotification.vue', () => ({
+  showToast: vi.fn()
+}))
+
+// ── Tests ──────────────────────────────────────────────────────────────────────
+
+describe('catguess game store networking', () => {
   let store
   let state
   let network
+  let timers
 
   beforeEach(async () => {
     vi.clearAllMocks()
@@ -236,23 +263,23 @@ describe('bomb defuse game store networking', () => {
     store = await import('../gameStore')
     state = await import('../state')
     network = await import('../network')
-    state.resetLocalState()
+    timers = await import('../timers')
   })
 
   it('creates a host room and installs host handlers', async () => {
     const created = await store.createRoom('Host')
 
     expect(created).toBe(true)
-    expect(p2pMock.createHost).toHaveBeenCalledWith('ABC123', 'Host')
+    expect(p2pMock.createHost).toHaveBeenCalledWith('CG456', 'Host')
     expect(store.gameState.isHost).toBe(true)
     expect(store.gameState.connected).toBe(true)
     expect(store.gameState.screen).toBe('lobby')
-    expect(state.getRoom().players[0]._peerId).toBe('bombdefuse-ABC123')
     expect(typeof p2pMock.onMessage).toBe('function')
   })
 
-  it('starts the game as host and broadcasts room state', async () => {
+  it('accepts a join request and adds a new player', async () => {
     await store.createRoom('Host')
+
     network.handleHostMessage({
       type: 'JOIN_REQUEST',
       payload: {
@@ -262,323 +289,160 @@ describe('bomb defuse game store networking', () => {
       }
     }, 'guest-peer')
 
-    const started = store.handleStartGame({ seed: 'network-test' })
-
-    expect(started).toBe(true)
-    expect(state.getRoom().phase).toBe('playing')
-    expect(p2pMock.broadcast).toHaveBeenCalledWith('ROOM_STATE', expect.objectContaining({
-      room: expect.objectContaining({ phase: 'playing' })
-    }))
+    const room = state.getRoom()
+    expect(room.players.length).toBe(2)
+    expect(room.players[1]._peerId).toBe('guest-peer')
+    // CONNECT_TO_PEER is sent to other peers to connect to the new player
+    expect(p2pMock.sendTo).toHaveBeenCalledWith(
+      expect.any(String),
+      'CONNECT_TO_PEER',
+      { peerId: 'guest-peer' }
+    )
   })
 
-  it('ignores remote start requests from guests', async () => {
+  it('rejects a join request when the game has already started', async () => {
     await store.createRoom('Host')
-    network.handleHostMessage({
-      type: 'JOIN_REQUEST',
-      payload: {
-        playerId: 'p2',
-        playerName: 'Guest',
-        originalPeerId: 'guest-peer'
-      }
-    }, 'guest-peer')
-
-    network.handleHostMessage({
-      type: 'START_GAME',
-      payload: {
-        roomCode: 'ABC123',
-        playerId: 'p2',
-        options: { seed: 'guest-forged-start' }
-      }
-    }, 'guest-peer')
-
-    expect(state.getRoom().phase).toBe('waiting')
-    expect(state.getRoom().gameState.modules).toEqual([])
-    expect(p2pMock.broadcast).not.toHaveBeenCalledWith('START_GAME', expect.anything())
-  })
-
-  it('accepts a repeated join request for the same cached player id as a reconnect', async () => {
-    await store.createRoom('Host')
-    network.handleHostMessage({
-      type: 'JOIN_REQUEST',
-      payload: {
-        playerId: 'p2',
-        playerName: 'Guest',
-        originalPeerId: 'guest-peer'
-      }
-    }, 'guest-peer')
+    const room = state.getRoom()
+    room.status = 'PLAYING'
+    room.phase = 'STORYTELLER_PICKING'
 
     network.handleHostMessage({
       type: 'JOIN_REQUEST',
       payload: {
         playerId: 'p2',
-        playerName: 'Guest Back',
-        originalPeerId: 'guest-peer-reconnect',
-        isReconnect: true
+        playerName: 'LateGuest',
+        originalPeerId: 'late-peer'
       }
-    }, 'guest-peer-reconnect')
+    }, 'late-peer')
 
-    expect(state.getRoom().players).toHaveLength(2)
-    expect(state.getRoom().players[1]).toEqual(expect.objectContaining({
-      id: 'p2',
-      name: 'Guest Back',
-      isOnline: true,
-      _peerId: 'guest-peer-reconnect'
-    }))
-    expect(p2pMock.sendTo).toHaveBeenLastCalledWith('guest-peer-reconnect', 'JOIN_RESPONSE', {
-      success: true,
-      room: expect.objectContaining({
-        players: expect.arrayContaining([
-          expect.objectContaining({ id: 'p2', name: 'Guest Back' })
-        ])
-      })
+    expect(p2pMock.sendTo).toHaveBeenCalledWith('late-peer', 'JOIN_RESPONSE', {
+      success: false,
+      error: '游戏已经开始，无法加入房间'
     })
   })
 
-  it('responds to repeated join retries without adding duplicate players', async () => {
+  it('accepts a reconnect for an offline player by playerId', async () => {
     await store.createRoom('Host')
-    const joinRequest = {
+
+    // Add a player then mark them offline
+    network.handleHostMessage({
       type: 'JOIN_REQUEST',
-      payload: {
-        playerId: 'p2',
-        playerName: 'Guest',
-        originalPeerId: 'guest-peer'
-      }
-    }
+      payload: { playerId: 'p2', playerName: 'Guest', originalPeerId: 'guest-peer' }
+    }, 'guest-peer')
 
-    network.handleHostMessage(joinRequest, 'guest-peer')
-    p2pMock.sendTo.mockClear()
-    p2pMock.broadcast.mockClear()
+    const room = state.getRoom()
+    const guest = room.players.find(p => p.id === 'p2')
+    guest.isOnline = false
+    room.disconnectedPlayers = [{ id: 'p2', name: 'Guest', disconnectedAt: Date.now() }]
 
-    network.handleHostMessage(joinRequest, 'guest-peer')
+    // Reconnect
+    network.handleHostMessage({
+      type: 'JOIN_REQUEST',
+      payload: { playerId: 'p2', playerName: 'Guest', originalPeerId: 'guest-peer', isReconnect: true }
+    }, 'guest-peer')
 
-    expect(state.getRoom().players).toHaveLength(2)
+    expect(guest.isOnline).toBe(true)
     expect(p2pMock.sendTo).toHaveBeenCalledWith('guest-peer', 'JOIN_RESPONSE', {
       success: true,
-      room: expect.objectContaining({
-        players: expect.arrayContaining([
-          expect.objectContaining({ id: 'p2', name: 'Guest' })
-        ])
-      })
-    })
-    expect(p2pMock.broadcast).toHaveBeenCalledWith('ROOM_STATE', expect.objectContaining({
-      room: expect.objectContaining({
-        players: expect.arrayContaining([
-          expect.objectContaining({ id: 'p2', name: 'Guest' })
-        ])
-      })
-    }))
-  })
-
-  it('handles a remote defuser flow from strike to solved result and broadcasts updates', async () => {
-    await store.createRoom('Host')
-    network.handleHostMessage({
-      type: 'JOIN_REQUEST',
-      payload: {
-        playerId: 'p2',
-        playerName: 'Guest',
-        originalPeerId: 'guest-peer'
-      }
-    }, 'guest-peer')
-
-    const started = store.handleStartGame({
-      seed: 'remote-flow',
-      roleByPlayerId: {
-        [store.gameState.playerId]: 'expert',
-        p2: 'defuser'
-      }
-    })
-    expect(started).toBe(true)
-
-    network.handleHostMessage({
-      type: 'SUBMIT_MODULE_ACTION',
-      payload: {
-        roomCode: 'ABC123',
-        playerId: 'p2',
-        moduleId: 'wires-1',
-        action: {
-          type: 'cut_wire',
-          wireId: 'wrong-wire'
-        }
-      }
-    }, 'guest-peer')
-
-    expect(state.getRoom().gameState.strikes).toHaveLength(1)
-    expect(state.getRoom().phase).toBe('playing')
-
-    for (const module of state.getRoom().gameState.modules) {
-      network.handleHostMessage({
-        type: 'SUBMIT_MODULE_ACTION',
-        payload: {
-          roomCode: 'ABC123',
-          playerId: 'p2',
-          moduleId: module.id,
-          action: module.solution.action
-        }
-      }, 'guest-peer')
-    }
-
-    expect(state.getRoom().phase).toBe('solved')
-    expect(state.getRoom().gameState.result).toBe('solved')
-    expect(state.getRoom().gameState.solvedModuleIds).toEqual(['wires-1', 'symbols-1', 'keypad-1', 'password-1'])
-    expect(p2pMock.broadcast).toHaveBeenCalledWith('ROOM_STATE', expect.objectContaining({
-      room: expect.objectContaining({ phase: 'solved' })
-    }))
-  })
-
-  it('sends module actions to the host when current player is a guest', async () => {
-    await store.joinRoom('Guest', 'ABC123')
-
-    const sent = store.handleSubmitModuleAction('wires-1', {
-      type: 'cut_wire',
-      wireId: 'wire-1'
-    })
-
-    expect(sent).toBe(true)
-    expect(p2pMock.sendTo).toHaveBeenCalledWith('bombdefuse-ABC123', 'SUBMIT_MODULE_ACTION', {
-      roomCode: 'ABC123',
-      playerId: store.gameState.playerId,
-      moduleId: 'wires-1',
-      action: {
-        type: 'cut_wire',
-        wireId: 'wire-1'
-      }
+      reconnected: true,
+      originalPlayerId: 'p2'
     })
   })
 
-  it('applies JOIN_RESPONSE room state on guests', () => {
-    const room = {
-      id: 'ABC123',
-      code: 'ABC123',
-      hostId: 'p1',
-      players: [],
-      phase: 'waiting',
-      status: 'waiting',
-      gameState: { modules: [], strikes: [], solvedModuleIds: [], actionLog: [] },
-      disconnectedPlayers: []
-    }
+  it('applies ROOM_STATE on guests and sets connected', async () => {
+    store.gameState.connected = false
+    store.gameState.connecting = true
 
     network.handleGuestMessage({
-      type: 'JOIN_RESPONSE',
+      type: 'ROOM_STATE',
       payload: {
-        success: true,
-        room
+        room: {
+          code: 'CG456',
+          players: [{ id: 'p1', name: 'Host', isOnline: true }],
+          status: 'WAITING',
+          phase: 'WAITING',
+          gameState: { round: 0 }
+        }
       }
     })
 
     expect(store.gameState.connected).toBe(true)
-    expect(store.gameState.connecting).toBe(false)
-    expect(store.gameState.connectionStatus).toBe('connected')
-    expect(store.gameState.connectionMessage).toBe('Mission joined.')
-    expect(state.getRoom()).toEqual(room)
+    expect(store.gameState.screen).toBe('lobby')
   })
 
-  it('surfaces rejected join responses and stops connecting', () => {
+  it('surfaces rejected join responses and stops connecting', async () => {
     store.gameState.connecting = true
     store.gameState.connected = false
-    state.setConnectionStatus('connecting', 'Joining mission...')
+    timers.setConnectionStatus('connecting', 'Joining...')
 
     network.handleGuestMessage({
       type: 'JOIN_RESPONSE',
       payload: {
         success: false,
-        error: '房间已满，需要刚好 2 名玩家'
+        error: '房间已满'
       }
     })
 
     expect(store.gameState.connected).toBe(false)
     expect(store.gameState.connecting).toBe(false)
-    expect(store.gameState.error).toBe('房间已满，需要刚好 2 名玩家')
+    expect(store.gameState.error).toBe('房间已满')
     expect(store.gameState.connectionStatus).toBe('error')
-    expect(store.gameState.connectionMessage).toBe('房间已满，需要刚好 2 名玩家')
   })
 
-  it('clears stale errors on a successful JOIN_RESPONSE', () => {
-    store.gameState.error = 'Player name was empty; using Player.'
+  it('clears stale errors on a successful JOIN_RESPONSE', async () => {
+    store.gameState.error = 'Previous error'
     store.gameState.connectionStatus = 'error'
-    store.gameState.connectionMessage = 'Player name was empty; using Player.'
 
     network.handleGuestMessage({
       type: 'JOIN_RESPONSE',
       payload: {
         success: true,
         room: {
-          id: 'ABC123',
-          code: 'ABC123',
-          hostId: 'p1',
-          players: [],
-          phase: 'waiting',
-          status: 'waiting',
-          gameState: { modules: [], strikes: [], solvedModuleIds: [], actionLog: [] },
-          disconnectedPlayers: []
+          code: 'CG456',
+          players: [{ id: 'p1', name: 'Host' }],
+          status: 'WAITING',
+          phase: 'WAITING',
+          gameState: { round: 0 }
         }
       }
     })
 
-    expect(store.gameState.error).toBe(null)
-    expect(store.gameState.connectionStatus).toBe('connected')
+    expect(store.gameState.connected).toBe(true)
+    expect(store.gameState.error).toBeNull()
   })
 
-  it('falls back to peer-id reconnect when the room is already full', async () => {
+  it('falls back to peer-id reconnect when player is already online', async () => {
     await store.createRoom('Host')
-    // First guest joins via a peer
-    network.handleHostMessage({
-      type: 'JOIN_REQUEST',
-      payload: {
-        playerId: 'p2',
-        playerName: 'Guest',
-        originalPeerId: 'guest-peer-original'
-      }
-    }, 'guest-peer-original')
-
-    // Host starts the game
-    expect(store.handleStartGame({ seed: 'reconnect-by-peer' })).toBe(true)
-
-    // A second join attempt arrives with a different playerId but the same
-    // peer (e.g. flaky reconnect that regenerated the id locally) — should be
-    // accepted as a reconnect instead of being rejected with "room full".
-    p2pMock.sendTo.mockClear()
-    p2pMock.broadcast.mockClear()
 
     network.handleHostMessage({
       type: 'JOIN_REQUEST',
-      payload: {
-        playerId: 'p2-regenerated',
-        playerName: 'Guest',
-        originalPeerId: 'guest-peer-original',
-        isReconnect: true
-      }
-    }, 'guest-peer-original')
+      payload: { playerId: 'p2', playerName: 'Guest', originalPeerId: 'guest-peer' }
+    }, 'guest-peer')
 
-    expect(p2pMock.sendTo).toHaveBeenCalledWith('guest-peer-original', 'JOIN_RESPONSE', {
-      success: true,
-      room: expect.objectContaining({
-        players: expect.arrayContaining([
-          expect.objectContaining({ id: 'p2', isOnline: true })
-        ])
-      })
-    })
-    expect(p2pMock.sendTo).not.toHaveBeenCalledWith('guest-peer-original', 'JOIN_RESPONSE', expect.objectContaining({
-      success: false
+    // Same player sends another join request while still online
+    network.handleHostMessage({
+      type: 'JOIN_REQUEST',
+      payload: { playerId: 'p2', playerName: 'Guest', originalPeerId: 'guest-peer' }
+    }, 'guest-peer')
+
+    // Should send ROOM_STATE (not another JOIN_RESPONSE)
+    expect(p2pMock.sendTo).toHaveBeenCalledWith('guest-peer', 'ROOM_STATE', expect.objectContaining({
+      room: expect.any(Object)
     }))
   })
 
-  it('clears a stale error when joinRoom is called with a valid name', async () => {
-    store.gameState.error = 'Player name was empty; using Player.'
-
-    const joined = await store.joinRoom('moyu', 'ABC123')
-
-    expect(joined).toBe(true)
-    expect(store.gameState.error).toBe(null)
-    expect(store.gameState.playerName).toBe('moyu')
+  it('RECONNECT_METADATA exposes attempt count and max attempts', async () => {
+    const { RECONNECT_METADATA } = store
+    expect(RECONNECT_METADATA.MAX_ATTEMPTS).toBe(8)
+    expect(typeof RECONNECT_METADATA.attempt).toBe('number')
+    expect(RECONNECT_METADATA.attempt).toBeGreaterThanOrEqual(0)
   })
 
-  it('clears a stale error when createRoom is called with a valid name', async () => {
-    store.gameState.error = 'Player name was empty; using Player.'
+  it('reconnectRoom is an exported async function', async () => {
+    expect(typeof store.reconnectRoom).toBe('function')
+  })
 
-    const created = await store.createRoom('Host')
-
-    expect(created).toBe(true)
-    expect(store.gameState.error).toBe(null)
-    expect(store.gameState.playerName).toBe('Host')
+  it('leaveRoom is an exported async function', async () => {
+    expect(typeof store.leaveRoom).toBe('function')
   })
 })

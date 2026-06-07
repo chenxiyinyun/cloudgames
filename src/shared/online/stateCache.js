@@ -1,7 +1,7 @@
 /**
  * 通用状态缓存工厂 — 用于页面刷新后恢复游戏状态。
  *
- * 两个游戏共享相同机制（localStorage、debounce、版本检查、30 分钟过期），
+ * 三个游戏共享相同机制（localStorage、debounce、版本检查、30 分钟过期），
  * 只是缓存键名和字段列表不同。
  *
  * Usage:
@@ -13,6 +13,8 @@
  *   })
  *   cache.saveStateToCache(state)
  */
+import { toPlainObject } from './stateSync';
+
 export function createStateCache({ cacheKey, cacheVersion = '1', stateFields, roomFields, cacheMaxAgeMs = 30 * 60 * 1000 }) {
   // ─── Debounce engine ──────────────────────────────────────────
   let saveTimer = null;
@@ -29,23 +31,7 @@ export function createStateCache({ cacheKey, cacheVersion = '1', stateFields, ro
     }, SAVE_DEBOUNCE_MS);
   }
 
-  // ─── Serialization ───────────────────────────────────────────
-
-  function toPlainObject(obj) {
-    if (obj === null || obj === undefined) return obj;
-    if (typeof obj !== 'object') return obj;
-    if (obj instanceof Date) return obj.toISOString();
-    if (Array.isArray(obj)) return obj.map(toPlainObject);
-
-    const plain = {};
-    for (const key in obj) {
-      if (Object.prototype.hasOwnProperty.call(obj, key)) {
-        if (key.startsWith('__v_') || key === '_rawValue' || key === '_value') continue;
-        plain[key] = toPlainObject(obj[key]);
-      }
-    }
-    return plain;
-  }
+  // ─── Serialization (uses shared toPlainObject) ─────────────────────
 
   function doSave(state) {
     const cache = {

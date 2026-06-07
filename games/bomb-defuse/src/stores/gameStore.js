@@ -13,14 +13,15 @@ import { clearCache, flushCache, hasRestoreableState, restoreFromCache } from '.
 import { gameState, getRoom, resetLocalState, setConnectionStatus, setRoom, updateLocalState } from './state'
 import {
   broadcastState,
+  cleanupNetwork,
   resetBroadcastState,
   sendJoinRequest,
   sendModuleAction,
   setupGuestHandlers,
-  setupHostHandlers
+  setupHostHandlers,
+  RECONNECT_METADATA
 } from './network'
 import {
-  RECONNECT_METADATA,
   resetAllTimers,
   startCountdownTimer,
   startJoinRetryInterval,
@@ -262,6 +263,7 @@ export function handleEndGame() {
 
 export function cleanup({ forceStatusReset = false } = {}) {
   flushCache()
+  cleanupNetwork()
   p2p.stopHeartbeat()
   p2p.disconnect()
   resetAllTimers()
