@@ -6,6 +6,7 @@ import {
   createInitialRoom,
   dispatchUnits,
   endGame,
+  findPath,
   neutralizeLongOfflinePlayers,
   restartGame,
   setMapSize,
@@ -35,6 +36,19 @@ function findEnemyEdge(room, playerId) {
     }
   }
   return null
+}
+
+function dispatchAndArrive(room, playerId, sourceId, targetId, ratio, now) {
+  const result = dispatchUnits(room, playerId, sourceId, targetId, ratio, now)
+  if (result.error) return result
+  // 推进时间直到所有移动部队到达
+  let safety = 20
+  while (room.gameState.movingTroops.length > 0 && safety > 0) {
+    now += 1000
+    tickProduction(room, now)
+    safety -= 1
+  }
+  return result
 }
 
 describe('territory control engine', () => {
@@ -77,14 +91,20 @@ describe('territory control engine', () => {
     expect(result.error).toBe('需要 2 到 4 名在线玩家')
   })
 
-  it('produces one unit per owned territory every tick', () => {
+  it('produces one unit per owned territory every 2 ticks', () => {
     const room = makeRoom(2)
     startGame(room, { seed: 'production' })
     const owned = room.gameState.territories.filter(t => t.ownerId)
     const before = owned.map(t => t.units)
 
+    // 第1个tick不产出
     tickProduction(room, 2000)
+    owned.forEach((territory, index) => {
+      expect(territory.units).toBe(before[index])
+    })
 
+    // 第2个tick产出
+    tickProduction(room, 3000)
     owned.forEach((territory, index) => {
       expect(territory.units).toBe(before[index] + 1)
     })
@@ -98,11 +118,10 @@ describe('territory control engine', () => {
     pair.target.ownerId = null
     pair.target.units = 6
 
-    const result = dispatchUnits(room, 'p1', pair.source.id, pair.target.id, 0.5, 3000)
+    dispatchAndArrive(room, 'p1', pair.source.id, pair.target.id, 0.5, 3000)
 
-    expect(result.error).toBeUndefined()
-    expect(result.amount).toBe(20)
-    expect(pair.source.units).toBe(20)
+    // 派兵后 source 剩 20，但 dispatchAndArrive 推进了时间(生产+1)
+    expect(pair.source.units).toBe(21)
     expect(pair.target.ownerId).toBe('p1')
     expect(pair.target.units).toBe(14)
   })
@@ -115,27 +134,132 @@ describe('territory control engine', () => {
     pair.target.ownerId = 'p2'
     pair.target.units = 14
 
-    dispatchUnits(room, 'p1', pair.source.id, pair.target.id, 0.5, 3000)
+    dispatchAndArrive(room, 'p1', pair.source.id, pair.target.id, 0.5, 3000)
 
-    expect(pair.source.units).toBe(10)
+    // 派兵后 source 剩 10，但 dispatchAndArrive 推进了时间(生产+1)
+    expect(pair.source.units).toBe(11)
     expect(pair.target.ownerId).toBe('p2')
-    expect(pair.target.units).toBe(4)
+    // 14 - 10 = 4，加上1次生产 = 5
+    expect(pair.target.units).toBe(5)
   })
 
-  it('allows dispatching from owned territory to any other territory', () => {
+  it('allows dispatching to connected territory via edges', () => {
     const room = makeRoom(2)
     startGame(room, { seed: 'long-range' })
-    const source = room.gameState.territories.find(t => t.ownerId === 'p1')
-    const target = room.gameState.territories.find(t => t.id !== source.id)
-    source.units = 30
-    target.ownerId = null
-    target.units = 4
+    const pair = findEnemyEdge(room, 'p1')
+    pair.source.units = 30
+    pair.target.ownerId = null
+    pair.target.units = 4
 
+    const path = findPath(room.gameState.edges, pair.source.id, pair.target.id)
+    expect(path).not.toBeNull()
+
+    dispatchAndArrive(room, 'p1', pair.source.id, pair.target.id, 0.5, 3000)
+
+    expect(pair.target.ownerId).toBe('p1')
+    expect(pair.target.units).toBe(11)
+  })
+
+  it('rejects dispatching to unreachable territory', () => {
+    const room = makeRoom(2)
+    startGame(room, { seed: 'unreachable' })
+    const source = room.gameState.territories.find(t => t.ownerId === 'p1')
+    source.units = 30
+
+    // 清空所有边，使目标不可达
+    room.gameState.edges = []
+
+    const target = room.gameState.territories.find(t => t.id !== source.id)
     const result = dispatchUnits(room, 'p1', source.id, target.id, 0.5, 3000)
+    expect(result.error).toBe('目标领地不可达')
+  })
+
+  it('creates moving troops with path on dispatch', () => {
+    const room = makeRoom(2)
+    startGame(room, { seed: 'moving' })
+    const pair = findEnemyEdge(room, 'p1')
+    pair.source.units = 40
+
+    const result = dispatchUnits(room, 'p1', pair.source.id, pair.target.id, 0.5, 3000)
 
     expect(result.error).toBeUndefined()
+    expect(result.amount).toBe(20)
+    expect(room.gameState.movingTroops).toHaveLength(1)
+    expect(room.gameState.movingTroops[0].amount).toBe(20)
+    expect(room.gameState.movingTroops[0].path[0]).toBe(pair.source.id)
+    expect(room.gameState.movingTroops[0].path[room.gameState.movingTroops[0].path.length - 1]).toBe(pair.target.id)
+  })
+
+  it('moving troops arrive and resolve combat after travel time', () => {
+    const room = makeRoom(2)
+    startGame(room, { seed: 'travel' })
+    const pair = findEnemyEdge(room, 'p1')
+    pair.source.units = 40
+    pair.target.ownerId = null
+    pair.target.units = 6
+
+    dispatchUnits(room, 'p1', pair.source.id, pair.target.id, 0.5, 3000)
+    expect(room.gameState.movingTroops).toHaveLength(1)
+
+    // 还没到时间 → 不结算 (到达时间 = 3000 + 1500 = 4500)
+    tickProduction(room, 4000)
+    expect(room.gameState.movingTroops).toHaveLength(1)
+
+    // 到达时间 → 结算
+    tickProduction(room, 5001)
+    expect(room.gameState.movingTroops).toHaveLength(0)
+    expect(pair.target.ownerId).toBe('p1')
+    expect(pair.target.units).toBe(14)
+  })
+
+  it('moving troops pass through friendly territory', () => {
+    const room = makeRoom(2)
+    startGame(room, { seed: 'pass-through' })
+    // 找一条经过友方领地的路径
+    const p1Territories = room.gameState.territories.filter(t => t.ownerId === 'p1')
+    const p2Territories = room.gameState.territories.filter(t => t.ownerId === 'p2')
+
+    // 找一个 p1 领地能经过另一个 p1 领地到达 p2 领地的路径
+    let source = null
+    let intermediate = null
+    let target = null
+    for (const s of p1Territories) {
+      for (const i of p1Territories) {
+        if (s.id === i.id) continue
+        for (const t of p2Territories) {
+          const path = findPath(room.gameState.edges, s.id, t.id)
+          if (path && path.length >= 3 && path.includes(i.id)) {
+            source = s
+            intermediate = i
+            target = t
+          }
+        }
+      }
+    }
+
+    if (!source || !intermediate || !target) return
+
+    source.units = 40
+    intermediate.units = 10
+    target.units = 5
+
+    const path = findPath(room.gameState.edges, source.id, target.id)
+    expect(path.length).toBeGreaterThanOrEqual(3)
+
+    dispatchUnits(room, 'p1', source.id, target.id, 0.5, 3000)
+    expect(room.gameState.movingTroops).toHaveLength(1)
+
+    // 推进时间直到到达
+    let now = 3000
+    let safety = 20
+    while (room.gameState.movingTroops.length > 0 && safety > 0) {
+      now += 1000
+      tickProduction(room, now)
+      safety -= 1
+    }
+
+    // 部队应到达目标并攻占
     expect(target.ownerId).toBe('p1')
-    expect(target.units).toBe(11)
   })
 
   it('ends when one player controls all remaining owned territory', () => {
@@ -161,6 +285,7 @@ describe('territory control engine', () => {
 
     expect(room.phase).toBe(GAME_PHASES.WAITING)
     expect(room.gameState.territories).toEqual([])
+    expect(room.gameState.movingTroops).toEqual([])
     expect(room.players.every(p => !p.isEliminated)).toBe(true)
   })
 
@@ -176,16 +301,19 @@ describe('territory control engine', () => {
     const p1 = room.players.find(p => p.id === 'p1')
     p1.isOnline = false
 
+    // 需要2个tick才产出1次
     tickProduction(room, 5000)
+    tickProduction(room, 6000)
 
     // p1 离线 → 不 +1
     expect(p1Territory.units).toBe(p1Before)
     // p2 在线 → 正常 +1
     expect(p2Territory.units).toBe(p2Before + 1)
 
-    // p1 恢复在线 → 下一个 tick 应该 +1
+    // p1 恢复在线 → 再过2个tick应该 +1
     p1.isOnline = true
-    tickProduction(room, 6000)
+    tickProduction(room, 7000)
+    tickProduction(room, 8000)
     expect(p1Territory.units).toBe(p1Before + 1)
   })
 
@@ -254,40 +382,38 @@ describe('territory control engine', () => {
     expect(result.error).toBe('战局开始后不能修改地图')
   })
 
-  it('caps dispatched units at MAX_UNITS (99) when capturing a weak enemy', () => {
+  it('caps dispatched units at MAX_UNITS (50) when capturing a weak enemy', () => {
     const room = makeRoom(2)
-    startGame(room, { seed: 'cap-99' })
+    startGame(room, { seed: 'cap-50' })
     const pair = findEnemyEdge(room, 'p1')
-    pair.source.units = 300        // 300 * 0.5 = 150 应被 cap 到 99 - target.units
+    pair.source.units = 300        // 300 * 0.5 = 150 应被 cap 到 50 - target.units
     pair.target.units = 2
     pair.target.ownerId = 'p2'
 
-    dispatchUnits(room, 'p1', pair.source.id, pair.target.id, 0.5, 3000)
+    dispatchAndArrive(room, 'p1', pair.source.id, pair.target.id, 0.5, 3000)
 
-    // 攻占后 territory.units = min(99, 150 - 2) = 99
+    // 攻占后 territory.units = min(50, 150 - 2) = 50
     expect(pair.target.ownerId).toBe('p1')
-    expect(pair.target.units).toBe(99)
+    expect(pair.target.units).toBe(50)
   })
 
-  it('caps friendly reinforcement at MAX_UNITS (99)', () => {
+  it('caps friendly reinforcement at MAX_UNITS (50)', () => {
     const room = makeRoom(2)
     startGame(room, { seed: 'cap-friendly' })
     const own = room.gameState.territories.filter(t => t.ownerId === 'p1')
     const source = own[0]
-    const target = own[1] || own[0] // 第二个自己的,如果没有就自己
+    const target = own[1] || own[0]
     if (target === source) {
-      // createEdges 把 own[0] 连到 own[1] 不一定有,做个稳的:手填
-      // 但如果只有 own[0] 一个就跳过这个断言
       return
     }
     source.units = 200
-    target.units = 90
+    target.units = 45
     target.ownerId = 'p1'
 
-    dispatchUnits(room, 'p1', source.id, target.id, 0.5, 3000)
+    dispatchAndArrive(room, 'p1', source.id, target.id, 0.5, 3000)
 
-    // 友方增援 100 + target.units 90 = 190 → cap 到 99
-    expect(target.units).toBe(99)
+    // 友方增援 100 + target.units 45 = 145 → cap 到 50
+    expect(target.units).toBe(50)
   })
 
   it('rejects dispatching from territory you do not own', () => {
@@ -355,5 +481,35 @@ describe('territory control engine', () => {
     const unique = new Set(samples)
     // 5 次开局应至少出现 2 种不同配对
     expect(unique.size).toBeGreaterThanOrEqual(2)
+  })
+
+  it('findPath returns null for disconnected nodes', () => {
+    const edges = [{ from: 'a', to: 'b' }]
+    expect(findPath(edges, 'a', 'c')).toBeNull()
+  })
+
+  it('findPath returns null for same source and target', () => {
+    const edges = [{ from: 'a', to: 'b' }]
+    expect(findPath(edges, 'a', 'a')).toBeNull()
+  })
+
+  it('findPath finds shortest path', () => {
+    const edges = [
+      { from: 'a', to: 'b' },
+      { from: 'b', to: 'c' },
+      { from: 'a', to: 'c' }
+    ]
+    // a→c 直接连接是最短路径
+    const path = findPath(edges, 'a', 'c')
+    expect(path).toEqual(['a', 'c'])
+  })
+
+  it('findPath finds multi-hop path when no direct edge', () => {
+    const edges = [
+      { from: 'a', to: 'b' },
+      { from: 'b', to: 'c' }
+    ]
+    const path = findPath(edges, 'a', 'c')
+    expect(path).toEqual(['a', 'b', 'c'])
   })
 })

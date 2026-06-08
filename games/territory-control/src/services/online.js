@@ -47,10 +47,8 @@ export { deepClone }
 
 export function getRoomStateDedupeDetail(room) {
   const gs = room.gameState || {}
-  // 注意:不包含 room.updatedAt — touch() 每次业务变更都改它,会让 ROOM_STATE dedupe 永远不命中
-  // 单纯基于内容 hash:同 phase + winnerId + territories(完整状态)= 同一帧状态 → 命中去重
-  // tickProduction 让 units +1 时 hash 变化,正常处理;真正的重复广播(网络重传等)能去重
-  return `${room.phase || ''}_${gs.winnerId || ''}_${gs.territories?.map(t => `${t.id}:${t.ownerId || 'n'}:${t.units}`).join('|') || ''}`
+  const mt = gs.movingTroops?.map(t => `${t.id}:${t.playerId}:${t.amount}:${t.currentStep}`).join(',') || ''
+  return `${room.phase || ''}_${gs.winnerId || ''}_${gs.territories?.map(t => `${t.id}:${t.ownerId || 'n'}:${t.units}`).join('|') || ''}_mt:${mt}`
 }
 
 export function createJoinRequestSenderForGame({ p2p, getRoomCode, logger }) {

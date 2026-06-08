@@ -60,7 +60,13 @@
           </div>
         </div>
         <p class="hint">
-          按住自己的领地，拖到任意其他领地释放。
+          点击自己的领地选中，再点击目标领地派兵。
+        </p>
+        <p
+          v-if="selectedId"
+          class="hint selected-hint"
+        >
+          已选中领地，点击目标派兵（再点一次取消）
         </p>
         <p
           v-if="error"
@@ -77,9 +83,6 @@
           :viewBox="`0 0 ${room.gameState.width} ${room.gameState.height}`"
           role="img"
           aria-label="区域争夺地图"
-          @pointermove="handlePointerMove"
-          @pointerup="handlePointerUp"
-          @pointerleave="handlePointerUp"
         >
           <defs>
             <filter
@@ -103,7 +106,7 @@
             v-for="edge in renderedEdges"
             :key="`${edge.from.id}-${edge.to.id}`"
             class="map-edge"
-            :class="{ active: isEdgeActive(edge) }"
+            :class="{ active: isEdgeOnPath(edge) }"
             :x1="edge.from.x"
             :y1="edge.from.y"
             :x2="edge.to.x"
@@ -116,7 +119,7 @@
             class="territory"
             :class="territoryClasses(territory)"
             :transform="`translate(${territory.x}, ${territory.y})`"
-            @pointerdown="handlePointerDown($event, territory)"
+            @click="handleTerritoryClick(territory)"
           >
             <circle
               class="territory-ring"
@@ -137,14 +140,25 @@
             </text>
           </g>
 
-          <line
-            v-if="dragState.active"
-            class="dispatch-line"
-            :x1="dragState.start.x"
-            :y1="dragState.start.y"
-            :x2="dragState.pointer.x"
-            :y2="dragState.pointer.y"
-          />
+          <g
+            v-for="troop in movingTroopVisuals"
+            :key="troop.id"
+            class="moving-troop"
+            :transform="`translate(${troop.x}, ${troop.y})`"
+          >
+            <circle
+              class="moving-troop-bg"
+              r="18"
+              :fill="ownerColor(troop.playerId)"
+            />
+            <text
+              class="moving-troop-text"
+              text-anchor="middle"
+              dominant-baseline="central"
+            >
+              {{ troop.amount }}
+            </text>
+          </g>
         </svg>
       </section>
     </section>
@@ -152,7 +166,8 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { findPath } from '../services/gameEngine'
 
 const props = defineProps({
   room: {
@@ -176,21 +191,17 @@ const props = defineProps({
 
 const emit = defineEmits(['dispatch', 'end-game', 'leave-room'])
 
-const svgRef = ref(null)
 const dispatchRatio = ref(0.5)
 const seq = ref(0)
 let lastDispatchAt = 0
-const DISPATCH_COOLDOWN_MS = 150
-// 领地圆环 r=42(与模板里 territory-ring 一致),阈值 = r * 1.4,
-// 给玩家 ~16px 容差,改 r 时只需改这一处
+const DISPATCH_COOLDOWN_MS = 400
 const TERRITORY_RING_RADIUS = 42
-const DISPATCH_HIT_RADIUS = TERRITORY_RING_RADIUS * 1.4
-const dragState = reactive({
-  active: false,
-  sourceId: null,
-  start: { x: 0, y: 0 },
-  pointer: { x: 0, y: 0 }
-})
+const TRAVEL_TIME_PER_EDGE = 1500
+
+const selectedId = ref(null)
+const previewPath = ref(null)
+const animFrame = ref(null)
+const now = ref(Date.now())
 
 const ratios = [
   { value: 0.25, label: '25%' },
@@ -199,6 +210,8 @@ const ratios = [
 ]
 
 const territories = computed(() => props.room.gameState.territories || [])
+const edges = computed(() => props.room.gameState.edges || [])
+const movingTroops = computed(() => props.room.gameState.movingTroops || [])
 
 const playersById = computed(() =>
   Object.fromEntries(props.room.players.map(player => [player.id, player]))
@@ -212,13 +225,34 @@ const playerStats = computed(() =>
 )
 
 const renderedEdges = computed(() =>
-  (props.room.gameState.edges || [])
+  edges.value
     .map(edge => ({
       from: territories.value.find(t => t.id === edge.from),
       to: territories.value.find(t => t.id === edge.to)
     }))
     .filter(edge => edge.from && edge.to)
 )
+
+const movingTroopVisuals = computed(() => {
+  return movingTroops.value.map(troop => {
+    const fromId = troop.path[troop.currentStep]
+    const toId = troop.path[Math.min(troop.currentStep + 1, troop.path.length - 1)]
+    const from = territories.value.find(t => t.id === fromId)
+    const to = territories.value.find(t => t.id === toId)
+    if (!from || !to) return null
+
+    const elapsed = now.value - (troop.nextArrivalAt - TRAVEL_TIME_PER_EDGE)
+    const progress = Math.min(1, Math.max(0, elapsed / TRAVEL_TIME_PER_EDGE))
+
+    return {
+      id: troop.id,
+      playerId: troop.playerId,
+      amount: troop.amount,
+      x: from.x + (to.x - from.x) * progress,
+      y: from.y + (to.y - from.y) * progress
+    }
+  }).filter(Boolean)
+})
 
 function ownerColor(ownerId) {
   if (!ownerId) return '#f4f0e7'
@@ -230,74 +264,68 @@ function territoryClasses(territory) {
     owned: territory.ownerId === props.playerId,
     neutral: !territory.ownerId,
     enemy: territory.ownerId && territory.ownerId !== props.playerId,
-    targetable: dragState.active && dragState.sourceId !== territory.id
+    selected: selectedId.value === territory.id,
+    targetable: selectedId.value && selectedId.value !== territory.id
   }
 }
 
-function isEdgeActive(edge) {
-  return dragState.active && (edge.from.id === dragState.sourceId || edge.to.id === dragState.sourceId)
-}
-
-function handlePointerDown(event, territory) {
-  if (territory.ownerId !== props.playerId || territory.units < 1) return
-  event.preventDefault()
-  const point = toSvgPoint(event)
-  dragState.active = true
-  dragState.sourceId = territory.id
-  dragState.start = { x: territory.x, y: territory.y }
-  dragState.pointer = point
-}
-
-function handlePointerMove(event) {
-  if (!dragState.active) return
-  dragState.pointer = toSvgPoint(event)
-}
-
-function handlePointerUp(event) {
-  if (!dragState.active) return
-  const point = toSvgPoint(event)
-  const target = nearestTerritory(point)
-  const sourceId = dragState.sourceId
-  dragState.active = false
-  dragState.sourceId = null
-
-  if (!target || target.id === sourceId) return
-
-  // 客户端 cooldown:防止 spam 点击/手抖狂点,让 host 端每秒处理 N 次 dispatch
-  // 150ms 比人类正常"派一次兵"节奏快一档,不会阻断合法快速操作
-  const now = Date.now()
-  if (now - lastDispatchAt < DISPATCH_COOLDOWN_MS) return
-  lastDispatchAt = now
-
-  seq.value += 1
-  emit('dispatch', {
-    sourceId,
-    targetId: target.id,
-    ratio: dispatchRatio.value,
-    seq: seq.value
-  })
-}
-
-function nearestTerritory(point) {
-  let best = null
-  let bestDistance = Infinity
-  territories.value.forEach(territory => {
-    const d = Math.hypot(territory.x - point.x, territory.y - point.y)
-    if (d < bestDistance) {
-      best = territory
-      bestDistance = d
+function isEdgeOnPath(edge) {
+  if (!previewPath.value) return false
+  for (let i = 0; i < previewPath.value.length - 1; i++) {
+    const a = previewPath.value[i]
+    const b = previewPath.value[i + 1]
+    if ((edge.from.id === a && edge.to.id === b) || (edge.from.id === b && edge.to.id === a)) {
+      return true
     }
-  })
-  return bestDistance <= DISPATCH_HIT_RADIUS ? best : null
+  }
+  return false
 }
 
-function toSvgPoint(event) {
-  const svg = svgRef.value
-  if (!svg) return { x: 0, y: 0 }
-  const point = svg.createSVGPoint()
-  point.x = event.clientX
-  point.y = event.clientY
-  const transformed = point.matrixTransform(svg.getScreenCTM().inverse())
-  return { x: transformed.x, y: transformed.y }
+function handleTerritoryClick(territory) {
+  if (territory.ownerId === props.playerId && territory.units >= 1) {
+    if (selectedId.value === territory.id) {
+      selectedId.value = null
+      previewPath.value = null
+    } else {
+      selectedId.value = territory.id
+      previewPath.value = null
+    }
+  } else if (selectedId.value && territory.id !== selectedId.value) {
+    const path = findPath(edges.value, selectedId.value, territory.id)
+    if (!path) {
+      previewPath.value = null
+      return
+    }
+    previewPath.value = path
+
+    const nowMs = Date.now()
+    if (nowMs - lastDispatchAt < DISPATCH_COOLDOWN_MS) return
+    lastDispatchAt = nowMs
+
+    seq.value += 1
+    emit('dispatch', {
+      sourceId: selectedId.value,
+      targetId: territory.id,
+      ratio: dispatchRatio.value,
+      seq: seq.value
+    })
+    selectedId.value = null
+    previewPath.value = null
+  }
 }
+
+function tickAnimation() {
+  now.value = Date.now()
+  animFrame.value = requestAnimationFrame(tickAnimation)
+}
+
+onMounted(() => {
+  tickAnimation()
+})
+
+onUnmounted(() => {
+  if (animFrame.value) {
+    cancelAnimationFrame(animFrame.value)
+  }
+})
 </script>

@@ -322,6 +322,23 @@ button:disabled {
   stroke: #f2b233;
 }
 
+.territory.selected .territory-ring {
+  stroke: #f2b233;
+  stroke-width: 9;
+  stroke-dasharray: 12 6;
+  animation: pulse-ring 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes pulse-ring {
+  from { stroke-opacity: 0.7; }
+  to { stroke-opacity: 1; }
+}
+
+.selected-hint {
+  color: #f2b233;
+  font-weight: 900;
+}
+
 .territory-units {
   fill: #17212b;
   font-size: 24px;
@@ -337,6 +354,25 @@ button:disabled {
   stroke-linecap: round;
   stroke-dasharray: 14 12;
   pointer-events: none;
+}
+
+.moving-troop {
+  pointer-events: none;
+}
+
+.moving-troop-bg {
+  stroke: #17212b;
+  stroke-width: 3;
+  opacity: 0.92;
+}
+
+.moving-troop-text {
+  fill: #fffaf0;
+  font-size: 16px;
+  font-weight: 900;
+  paint-order: stroke;
+  stroke: #17212b;
+  stroke-width: 3;
 }
 
 .score-list {

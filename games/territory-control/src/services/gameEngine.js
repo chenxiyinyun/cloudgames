@@ -5,9 +5,9 @@ export const GAME_PHASES = {
 }
 
 export const MAP_SIZES = {
-  small: { label: '小', territoryCount: 10, minDistance: 170, neutralUnits: [6, 16] },
-  medium: { label: '中', territoryCount: 16, minDistance: 130, neutralUnits: [8, 22] },
-  large: { label: '大', territoryCount: 24, minDistance: 105, neutralUnits: [10, 28] }
+  small: { label: '小', territoryCount: 10, minDistance: 170, neutralUnits: [8, 20] },
+  medium: { label: '中', territoryCount: 16, minDistance: 130, neutralUnits: [12, 28] },
+  large: { label: '大', territoryCount: 24, minDistance: 105, neutralUnits: [14, 34] }
 }
 
 export const DEFAULT_MAP_SIZE = 'medium'
@@ -18,7 +18,36 @@ const MAP_WIDTH = 1000
 const MAP_HEIGHT = 640
 const MAX_PLAYERS = 4
 const MIN_PLAYERS = 2
-const MAX_UNITS = 99
+const MAX_UNITS = 50
+const TRAVEL_TIME_PER_EDGE = 1500
+const PRODUCTION_INTERVAL = 2
+
+let movingTroopIdCounter = 0
+
+export function findPath(edges, sourceId, targetId) {
+  if (sourceId === targetId) return null
+  const adj = new Map()
+  edges.forEach(({ from, to }) => {
+    if (!adj.has(from)) adj.set(from, [])
+    if (!adj.has(to)) adj.set(to, [])
+    adj.get(from).push(to)
+    adj.get(to).push(from)
+  })
+  if (!adj.has(sourceId) || !adj.has(targetId)) return null
+  const visited = new Set([sourceId])
+  const queue = [[sourceId, [sourceId]]]
+  while (queue.length > 0) {
+    const [current, path] = queue.shift()
+    for (const neighbor of (adj.get(current) || [])) {
+      if (neighbor === targetId) return [...path, neighbor]
+      if (!visited.has(neighbor)) {
+        visited.add(neighbor)
+        queue.push([neighbor, [...path, neighbor]])
+      }
+    }
+  }
+  return null
+}
 
 export function generatePlayerId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -149,6 +178,7 @@ export function startGame(room, options = {}) {
     height: MAP_HEIGHT,
     territories: map.territories,
     edges: map.edges,
+    movingTroops: [],
     startedAt: Date.now(),
     lastTickAt: Date.now(),
     winnerId: null,
@@ -161,23 +191,85 @@ export function startGame(room, options = {}) {
 export function tickProduction(room, now = Date.now()) {
   if (room.phase !== GAME_PHASES.PLAYING) return { room }
 
-  // 构建 owner 在线状态索引(每 tick 一次 O(n),避免在 territory.forEach 内重复 find)
-  const ownerOnlineMap = new Map()
-  room.players.forEach(player => {
-    ownerOnlineMap.set(player.id, player.isOnline !== false)
-  })
+  // 产出计数：每 PRODUCTION_INTERVAL 个 tick 才产出一次
+  if (!room.gameState.productionTick) room.gameState.productionTick = 0
+  room.gameState.productionTick += 1
+  const shouldProduce = room.gameState.productionTick % PRODUCTION_INTERVAL === 0
 
-  room.gameState.territories.forEach(territory => {
-    if (!territory.ownerId) return
-    // 离线玩家的 territory 停止 +1 兵:防止"断网 5 分钟回来看自己兵山"导致躺赢
-    // 现有兵不会被清零(仅停止 +1),玩家 reconnect 后立即恢复生产
-    if (ownerOnlineMap.get(territory.ownerId) === false) return
-    territory.units = Math.min(MAX_UNITS, territory.units + 1)
-  })
+  if (shouldProduce) {
+    // 构建 owner 在线状态索引(每 tick 一次 O(n),避免在 territory.forEach 内重复 find)
+    const ownerOnlineMap = new Map()
+    room.players.forEach(player => {
+      ownerOnlineMap.set(player.id, player.isOnline !== false)
+    })
+
+    room.gameState.territories.forEach(territory => {
+      if (!territory.ownerId) return
+      // 离线玩家的 territory 停止 +1 兵:防止"断网 5 分钟回来看自己兵山"导致躺赢
+      // 现有兵不会被清零(仅停止 +1),玩家 reconnect 后立即恢复生产
+      if (ownerOnlineMap.get(territory.ownerId) === false) return
+      territory.units = Math.min(MAX_UNITS, territory.units + 1)
+    })
+  }
+
+  tickMovingTroops(room, now)
+
   room.gameState.lastTickAt = now
   checkVictory(room, now)
   touch(room)
   return { room }
+}
+
+export function tickMovingTroops(room, now = Date.now()) {
+  if (!room.gameState.movingTroops) return
+  const arrived = []
+  room.gameState.movingTroops.forEach(troop => {
+    if (now < troop.nextArrivalAt) return
+    arrived.push(troop)
+  })
+
+  arrived.forEach(troop => {
+    troop.currentStep += 1
+    const territoryId = troop.path[troop.currentStep]
+    const territory = room.gameState.territories.find(t => t.id === territoryId)
+    if (!territory) {
+      removeMovingTroop(room, troop.id)
+      return
+    }
+
+    const isFinalStep = troop.currentStep >= troop.path.length - 1
+
+    if (territory.ownerId === troop.playerId) {
+      // 友方领地：如果是终点则增兵，否则路过
+      if (isFinalStep) {
+        territory.units = Math.min(MAX_UNITS, territory.units + troop.amount)
+        removeMovingTroop(room, troop.id)
+      } else {
+        troop.nextArrivalAt = now + TRAVEL_TIME_PER_EDGE
+      }
+    } else {
+      // 敌方/中立领地：战斗结算
+      if (troop.amount > territory.units) {
+        territory.ownerId = troop.playerId
+        territory.units = Math.min(MAX_UNITS, troop.amount - territory.units)
+        if (isFinalStep) {
+          removeMovingTroop(room, troop.id)
+        } else {
+          troop.nextArrivalAt = now + TRAVEL_TIME_PER_EDGE
+        }
+      } else {
+        territory.units -= troop.amount
+        if (territory.units === 0) {
+          territory.ownerId = null
+        }
+        removeMovingTroop(room, troop.id)
+      }
+    }
+  })
+}
+
+function removeMovingTroop(room, troopId) {
+  room.gameState.movingTroops = room.gameState.movingTroops.filter(t => t.id !== troopId)
 }
 
 /**
@@ -238,16 +330,27 @@ export function dispatchUnits(room, playerId, sourceId, targetId, ratio = 0.5, n
   if (!source || !target) return { error: '领地不存在' }
   if (source.ownerId !== playerId) return { error: '只能从自己的领地派遣' }
   if (source.id === target.id) return { error: '不能派遣到同一领地' }
+
+  const path = findPath(room.gameState.edges, sourceId, targetId)
+  if (!path) return { error: '目标领地不可达' }
+
   const normalizedRatio = normalizeDispatchRatio(ratio)
   const amount = Math.floor(source.units * normalizedRatio)
   if (amount <= 0) return { error: '兵力不足' }
 
   source.units -= amount
-  resolveArrival(room, playerId, target, amount, now)
+  movingTroopIdCounter += 1
+  room.gameState.movingTroops.push({
+    id: `mv${movingTroopIdCounter}`,
+    playerId,
+    amount,
+    path,
+    currentStep: 0,
+    nextArrivalAt: now + TRAVEL_TIME_PER_EDGE
+  })
 
-  checkVictory(room, now)
   touch(room)
-  return { room, amount }
+  return { room, amount, path }
 }
 
 export function restartGame(room) {
@@ -349,7 +452,7 @@ function generateMap({ seed, mapSize, players }) {
   spawnIndexes.forEach((territoryIndex, index) => {
     const territory = territories[territoryIndex]
     territory.ownerId = players[index].id
-    territory.units = 24
+    territory.units = 15
     territory.isCapital = true
   })
 
@@ -473,6 +576,8 @@ function createEmptyGameState() {
     height: MAP_HEIGHT,
     territories: [],
     edges: [],
+    movingTroops: [],
+    productionTick: 0,
     startedAt: null,
     lastTickAt: null,
     winnerId: null,
