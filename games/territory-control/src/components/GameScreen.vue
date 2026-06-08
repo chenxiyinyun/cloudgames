@@ -121,23 +121,37 @@
             :transform="`translate(${territory.x}, ${territory.y})`"
             @click="handleTerritoryClick(territory)"
           >
-            <circle
-              class="territory-ring"
-              :r="TERRITORY_RING_RADIUS"
-              :fill="ownerColor(territory.ownerId)"
-            />
-            <circle
-              class="territory-core"
-              r="31"
-              :fill="ownerColor(territory.ownerId)"
-            />
-            <text
-              class="territory-units"
-              text-anchor="middle"
-              dominant-baseline="central"
-            >
-              {{ territory.units }}
-            </text>
+            <template v-if="territory.isObstacle">
+              <circle
+                class="territory-ring obstacle-ring"
+                :r="TERRITORY_RING_RADIUS"
+              />
+              <circle
+                class="territory-core obstacle-core"
+                r="31"
+              />
+              <line x1="-12" y1="-12" x2="12" y2="12" class="obstacle-mark" />
+              <line x1="12" y1="-12" x2="-12" y2="12" class="obstacle-mark" />
+            </template>
+            <template v-else>
+              <circle
+                class="territory-ring"
+                :r="TERRITORY_RING_RADIUS"
+                :fill="ownerColor(territory.ownerId)"
+              />
+              <circle
+                class="territory-core"
+                r="31"
+                :fill="ownerColor(territory.ownerId)"
+              />
+              <text
+                class="territory-units"
+                text-anchor="middle"
+                dominant-baseline="central"
+              >
+                {{ territory.units }}
+              </text>
+            </template>
           </g>
 
           <g
@@ -260,6 +274,9 @@ function ownerColor(ownerId) {
 }
 
 function territoryClasses(territory) {
+  if (territory.isObstacle) {
+    return { obstacle: true }
+  }
   return {
     owned: territory.ownerId === props.playerId,
     neutral: !territory.ownerId,
@@ -282,6 +299,7 @@ function isEdgeOnPath(edge) {
 }
 
 function handleTerritoryClick(territory) {
+  if (territory.isObstacle) return
   if (territory.ownerId === props.playerId && territory.units >= 1) {
     if (selectedId.value === territory.id) {
       selectedId.value = null

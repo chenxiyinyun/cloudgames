@@ -322,6 +322,31 @@ button:disabled {
   stroke: #f2b233;
 }
 
+.territory.obstacle {
+  cursor: not-allowed;
+  filter: none;
+}
+
+.obstacle-ring {
+  fill: #5c5c5c;
+  stroke: #17212b;
+  stroke-width: 5;
+  opacity: 0.7;
+}
+
+.obstacle-core {
+  fill: #3a3a3a;
+  stroke: rgba(255, 250, 240, 0.5);
+  stroke-width: 4;
+}
+
+.obstacle-mark {
+  stroke: #fffaf0;
+  stroke-width: 5;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+
 .territory.selected .territory-ring {
   stroke: #f2b233;
   stroke-width: 9;
