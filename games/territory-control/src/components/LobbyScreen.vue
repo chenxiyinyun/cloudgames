@@ -77,6 +77,24 @@
         <p class="hint">
           {{ sizeHint }}
         </p>
+
+        <h2 style="margin-top: 18px;">主题风格</h2>
+        <div class="segmented">
+          <button
+            v-for="option in themeOptions"
+            :key="option.value"
+            type="button"
+            :class="{ active: room.settings?.theme === option.value }"
+            :disabled="!isHost"
+            @click="$emit('set-theme', option.value)"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+        <p class="hint">
+          {{ themeHint }}
+        </p>
+
         <button
           class="primary-button full"
           type="button"
@@ -115,12 +133,17 @@ const props = defineProps({
   }
 })
 
-defineEmits(['set-map-size', 'start-game', 'leave-room'])
+defineEmits(['set-map-size', 'set-theme', 'start-game', 'leave-room'])
 
 const sizeOptions = [
   { value: 'small', label: '小' },
   { value: 'medium', label: '中' },
   { value: 'large', label: '大' }
+]
+
+const themeOptions = [
+  { value: 'default', label: '经典' },
+  { value: 'catpaw', label: '猫爪' }
 ]
 
 const sizeHint = computed(() => {
@@ -130,6 +153,14 @@ const sizeHint = computed(() => {
     large: '24 块领地，适合 3-4 人'
   }
   return copy[props.room.settings?.mapSize || 'medium']
+})
+
+const themeHint = computed(() => {
+  const copy = {
+    default: '经典战场风格',
+    catpaw: '可爱猫爪圈圈'
+  }
+  return copy[props.room.settings?.theme || 'default']
 })
 
 // 复制按钮文案 2s 内切回 "复制",给玩家反馈成功

@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { DEFAULT_MAP_SIZE, GAME_PHASES } from '../services/gameEngine'
+import { DEFAULT_MAP_SIZE, DEFAULT_THEME, GAME_PHASES } from '../services/gameEngine'
 import p2p from '../services/p2p'
 
 export const gameState = reactive({
@@ -47,12 +47,13 @@ export function updateLocalState(room) {
     id: room.id,
     code: room.code,
     hostId: room.hostId,
-    settings: room.settings ? { ...room.settings } : { mapSize: DEFAULT_MAP_SIZE },
+    settings: room.settings ? { ...room.settings } : { mapSize: DEFAULT_MAP_SIZE, theme: DEFAULT_THEME },
     players: (room.players || []).map(player => ({ ...player })),
     phase: room.phase || GAME_PHASES.WAITING,
     status: room.status || GAME_PHASES.WAITING,
     gameState: room.gameState ? {
       mapSize: room.gameState.mapSize || DEFAULT_MAP_SIZE,
+      theme: room.gameState.theme || DEFAULT_THEME,
       seed: room.gameState.seed || null,
       width: room.gameState.width || 1000,
       height: room.gameState.height || 640,
@@ -111,9 +112,10 @@ function createEmptyRoomMirror() {
     phase: GAME_PHASES.WAITING,
     status: GAME_PHASES.WAITING,
     hostId: null,
-    settings: { mapSize: DEFAULT_MAP_SIZE },
+    settings: { mapSize: DEFAULT_MAP_SIZE, theme: DEFAULT_THEME },
     gameState: {
       mapSize: DEFAULT_MAP_SIZE,
+      theme: DEFAULT_THEME,
       seed: null,
       width: 1000,
       height: 640,

@@ -11,6 +11,11 @@ export const MAP_SIZES = {
 }
 
 export const DEFAULT_MAP_SIZE = 'medium'
+export const THEMES = {
+  default: { label: '经典' },
+  catpaw: { label: '猫爪' }
+}
+export const DEFAULT_THEME = 'default'
 export const PLAYER_COLORS = ['#e84d4f', '#2f8cff', '#23a66f', '#f2b233']
 export const DISPATCH_RATIOS = [0.25, 0.5, 0.75]
 
@@ -144,6 +149,18 @@ export function setMapSize(room, mapSize) {
   return { room }
 }
 
+export function setTheme(room, theme) {
+  if (room.phase !== GAME_PHASES.WAITING) {
+    return { error: '战局开始后不能修改主题' }
+  }
+  if (!THEMES[theme]) {
+    return { error: '未知主题' }
+  }
+  room.settings = { ...room.settings, theme }
+  touch(room)
+  return { room }
+}
+
 export function startGame(room, options = {}) {
   if (room.phase !== GAME_PHASES.WAITING) {
     return { error: '战局已经开始' }
@@ -155,6 +172,7 @@ export function startGame(room, options = {}) {
   }
 
   const mapSize = options.mapSize || room.settings?.mapSize || DEFAULT_MAP_SIZE
+  const theme = room.settings?.theme || DEFAULT_THEME
   if (!MAP_SIZES[mapSize]) {
     return { error: '未知地图尺寸' }
   }
@@ -173,6 +191,7 @@ export function startGame(room, options = {}) {
   })
   room.gameState = {
     mapSize,
+    theme,
     seed,
     width: MAP_WIDTH,
     height: MAP_HEIGHT,

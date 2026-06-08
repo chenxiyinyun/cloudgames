@@ -29,6 +29,14 @@ export function sanitizeMapSize(mapSize) {
   return { value, error: null }
 }
 
+export function sanitizeTheme(theme) {
+  const value = stripUnsafeText(theme)
+  if (!['default', 'catpaw'].includes(value)) {
+    return { value: 'default', error: '未知主题' }
+  }
+  return { value, error: null }
+}
+
 export function sanitizeDispatch(payload) {
   if (!payload || typeof payload !== 'object') {
     return { value: null, error: '无效派遣' }
