@@ -10,14 +10,14 @@
 ```
 浏览器 A (房主 - 运行完整游戏逻辑)
     │  PeerJS (WebRTC)
-    │  PeerServer (0.peerjs.com - 仅用于信令)
+    │  国内/自建 PeerServer（仅用于信令）
     │
 浏览器 B/C/D (访客 - 接收状态同步)
 ```
 
 - **房主浏览器**：运行所有游戏逻辑（权威节点），处理加入/离开/线索/猜测等操作，广播状态给所有访客
 - **访客浏览器**：接收房主的状态广播，同步 UI，提交操作请求给房主
-- **PeerServer**：仅用于 P2P 连接建立（信令），不存储任何数据
+- **PeerServer**：仅用于 P2P 连接建立（信令），不存储任何数据；必须使用显式配置的国内/自建服务
 
 ### 2.2 技术栈
 - **Vue.js 3** (Composition API)
@@ -103,10 +103,10 @@ npm run build
 - **Cloudflare Pages**: 连接仓库自动部署
 - **任何静态文件服务器**: nginx, Apache, etc.
 
-### 6.3 P2P 端口要求
-- 无需服务器端口，通信走浏览器 WebRTC
-- PeerServer 使用 0.peerjs.com:443 (HTTPS)
-- 需要 STUN/TURN 服务器（PeerJS 自带配置）
+### 6.3 P2P 配置要求
+- 游戏业务无需后端，通信走浏览器 WebRTC
+- PeerServer 必须通过 `VITE_PEER_SERVER_HOST` 等环境变量配置国内/自建信令
+- TURN 只使用 `VITE_SELF_HOSTED_TURN_*` 配置的国内/自建中继，不回退公共或海外服务
 
 ## 7. 关键词库
 

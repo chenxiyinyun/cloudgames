@@ -1,5 +1,12 @@
 import Peer from 'peerjs';
-import { createPeerConfig, HAS_TURN_RELAY, PEER_SERVER, SIGNALING_INFO, TURN_RELAY_INFO } from './peerConfig';
+import {
+  createPeerConfig,
+  HAS_PRIVATE_SIGNALING_SERVER,
+  HAS_TURN_RELAY,
+  PEER_SERVER,
+  SIGNALING_INFO,
+  TURN_RELAY_INFO
+} from './peerConfig';
 import { translatePeerError } from './peerErrors';
 import { generateRoomCode } from './roomCode';
 
@@ -83,6 +90,7 @@ export class P2PService {
   }
 
   _getPeerOptions({ forceRelay = false } = {}) {
+    this._assertPrivateSignalingConfigured();
     return {
       ...PEER_SERVER,
       config: createPeerConfig({ forceRelay }),
@@ -90,7 +98,14 @@ export class P2PService {
     };
   }
 
+  _assertPrivateSignalingConfigured() {
+    if (!HAS_PRIVATE_SIGNALING_SERVER || !PEER_SERVER?.host) {
+      throw new Error('未配置国内/自建 PeerJS 信令，请设置 VITE_PEER_SERVER_HOST。');
+    }
+  }
+
   async createHost(roomCode, playerName) {
+    this._assertPrivateSignalingConfigured();
     this.isHost = true;
     this.roomCode = roomCode;
     this.playerName = playerName;
@@ -113,7 +128,7 @@ export class P2PService {
       });
 
       // 信号层掉线：指数退避 + 最大尝试次数。
-      // 历史 bug：直接 this.peer.reconnect() 无任何节流，0.peerjs.com 一抖动就紧密重连循环
+      // 历史 bug：直接 this.peer.reconnect() 无任何节流，信令一抖动就紧密重连循环
       // 现在：1s → 2s → 4s → 8s → 16s（第 5 次），再掉就放弃，把控制权交给
       //       gameStore.startAutoReconnect（再退避 1→32s、最多 8 次、整 peer 重建）
       let _disconnectAttempts = 0;
@@ -208,6 +223,7 @@ export class P2PService {
   }
 
   async _joinRoom(roomCode, { forceRelay = false, timeout: timeoutMs = 15000 } = {}) {
+    this._assertPrivateSignalingConfigured();
     const hostPeerId = this.getHostPeerId(roomCode);
     const guestPeerId = this.getGuestPeerId();
 
@@ -314,6 +330,7 @@ export class P2PService {
   }
 
   async connectToPeer(peerId, { timeout = 15000, retries = 1 } = {}) {
+    this._assertPrivateSignalingConfigured();
     const existingConn = this.connections.find(c => c.peer === peerId);
     if (existingConn && existingConn.open) {
       return existingConn;

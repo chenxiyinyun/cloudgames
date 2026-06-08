@@ -33,21 +33,24 @@ npm run preview
 
 ## P2P Reliability
 
-The games use PeerJS/WebRTC for multiplayer. By default the shared P2P layer gives the browser both STUN and TURN candidates, so ICE will prefer a direct peer-to-peer path when it works and automatically fall back to a relay candidate when needed.
+The games use PeerJS/WebRTC for multiplayer. The shared P2P layer now only uses explicitly configured domestic/self-hosted signaling and TURN services. It does not fall back to public PeerJS or overseas relay services.
 
-For reliable relay fallback, configure the self-hosted TURN first. Multiple URLs can be comma-separated; these are passed to WebRTC before the Metered fallback:
+Configure a domestic/self-hosted PeerJS signaling server:
+
+```bash
+VITE_PEER_SERVER_HOST=<peer-server-host>
+VITE_PEER_SERVER_PORT=9000
+VITE_PEER_SERVER_PATH=/peerjs
+VITE_PEER_SERVER_KEY=<peer-server-key>
+VITE_PEER_SERVER_SECURE=true
+```
+
+For reliable relay fallback, configure domestic/self-hosted TURN. Multiple URLs can be comma-separated:
 
 ```bash
 VITE_SELF_HOSTED_TURN_URLS=turn:your-turn-host:3478,turn:your-turn-host:3478?transport=tcp
 VITE_SELF_HOSTED_TURN_USERNAME=<turn-username>
 VITE_SELF_HOSTED_TURN_CREDENTIAL=<turn-credential>
-```
-
-Metered TURN can still be configured as an overseas fallback:
-
-```bash
-VITE_METERED_TURN_USERNAME=<metered-username>
-VITE_METERED_TURN_CREDENTIAL=<metered-credential>
 ```
 
 If a network is especially strict and direct ICE candidates keep failing, force all WebRTC traffic through TURN:

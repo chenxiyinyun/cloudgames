@@ -73,12 +73,12 @@
           </span>
         </div>
       </div>
-      <!-- 没配 TURN / 公共信令时给玩家解释为啥 -->
+      <!-- 没配国内/自建基础设施时给玩家解释为啥 -->
       <div v-if="!turnRelayInfo?.totalCount" class="diag-hint">
         ⚠️ 未配置 TURN 中继，5G/4G 对称 NAT 设备大概率连不上。
       </div>
       <div v-else-if="signalingInfo?.isRisky" class="diag-hint">
-        ⚠️ 当前使用公共 PeerJS 信令（0.peerjs.com），国内访问不稳定。
+        ⚠️ 未配置国内/自建 PeerJS 信令，无法创建或加入房间。
       </div>
     </div>
   </div>
@@ -115,12 +115,10 @@ const modeLabel = computed(() => {
 
 // 紧凑模式用一句话总结
 const summaryText = computed(() => {
-  const sig = signalingInfo.value?.isRisky ? '⚠ 公共信令' : '✓ 自建信令';
+  const sig = signalingInfo.value?.isConfigured ? '✓ 国内信令' : '✗ 无信令';
   const turn = turnRelayInfo.value?.tier === 'excellent'
     ? '✓ TURN'
-    : turnRelayInfo.value?.tier === 'fallback-only'
-      ? '⚠ 海外兜底'
-      : '✗ 无 TURN';
+    : '✗ 无 TURN';
   return `${sig} · ${turn}`;
 });
 
@@ -144,7 +142,6 @@ const signalingSeverity = computed(() => {
 const turnSeverity = computed(() => {
   if (!turnRelayInfo.value) return '';
   if (turnRelayInfo.value.tier === 'excellent') return 'severity-ok';
-  if (turnRelayInfo.value.tier === 'fallback-only') return 'severity-warn';
   return 'severity-bad';
 });
 
