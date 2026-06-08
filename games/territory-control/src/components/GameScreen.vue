@@ -3,7 +3,7 @@
     <header class="top-bar">
       <div>
         <p class="eyebrow">
-          room {{ roomCode }}
+          房间号 <code class="room-code-inline">{{ roomCode }}</code>
         </p>
         <h1>战场控制台</h1>
       </div>

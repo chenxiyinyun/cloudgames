@@ -351,6 +351,42 @@ button:disabled {
   flex-wrap: wrap;
 }
 
+.room-code-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0 0;
+}
+
+.room-code {
+  font-family: "Courier New", "Menlo", "Consolas", monospace;
+  font-size: clamp(28px, 5vw, 40px);
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  color: #17212b;
+  background: #fffaf0;
+  padding: 8px 16px;
+  border: 2px solid #17212b;
+  box-shadow: 4px 4px 0 #17212b;
+  user-select: all;
+  -webkit-user-select: all;
+}
+
+.room-code-inline {
+  font-family: "Courier New", "Menlo", "Consolas", monospace;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  background: #fffaf0;
+  padding: 2px 8px;
+  border: 1px solid #17212b;
+}
+
+.room-code-copy {
+  height: 40px;
+  font-size: 14px;
+}
+
 @media (max-width: 820px) {
   .screen {
     padding: 18px;

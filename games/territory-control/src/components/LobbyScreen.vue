@@ -3,9 +3,34 @@
     <header class="top-bar">
       <div>
         <p class="eyebrow">
-          room {{ roomCode }}
+          部署战场
         </p>
-        <h1>部署战场</h1>
+        <h1>房间号</h1>
+        <div
+          v-if="isHost"
+          class="room-code-block"
+        >
+          <code class="room-code">{{ roomCode }}</code>
+          <button
+            class="ghost-button room-code-copy"
+            type="button"
+            @click="copyRoomCode"
+          >
+            {{ copyButtonText }}
+          </button>
+        </div>
+        <p
+          v-else
+          class="hint"
+        >
+          等待房主开始 — 房间号 <code class="room-code-inline">{{ roomCode }}</code>
+        </p>
+        <p
+          v-if="isHost"
+          class="hint"
+        >
+          把房间号发给朋友,2-4 人加入后开始
+        </p>
       </div>
       <button
         class="ghost-button"
@@ -72,7 +97,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = defineProps({
   room: {
@@ -106,4 +131,31 @@ const sizeHint = computed(() => {
   }
   return copy[props.room.settings?.mapSize || 'medium']
 })
+
+// 复制按钮文案 2s 内切回 "复制",给玩家反馈成功
+const copyButtonText = ref('复制')
+let copyResetTimer = null
+async function copyRoomCode() {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(props.roomCode)
+    } else {
+      // 后备方案:旧浏览器或非安全上下文
+      const input = document.createElement('input')
+      input.value = props.roomCode
+      document.body.appendChild(input)
+      input.select()
+      document.execCommand('copy')
+      document.body.removeChild(input)
+    }
+    copyButtonText.value = '已复制 ✓'
+  } catch {
+    copyButtonText.value = '复制失败,请手动选择'
+  }
+  if (copyResetTimer) clearTimeout(copyResetTimer)
+  copyResetTimer = setTimeout(() => {
+    copyButtonText.value = '复制'
+    copyResetTimer = null
+  }, 2000)
+}
 </script>
