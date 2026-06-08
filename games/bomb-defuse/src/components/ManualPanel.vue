@@ -49,10 +49,12 @@
       <h2>{{ moduleTitle(module.type) }}</h2>
       <template v-if="module.type === 'wires'">
         <ol>
-          <li>没有红线时，剪第二根线。</li>
-          <li>最后一根是白线且序列号为奇数时，剪最后一根。</li>
-          <li>蓝线超过一根时，剪最后一根蓝线。</li>
-          <li>其他情况，剪最后一根线。</li>
+          <li
+            v-for="rule in module.manualView.rules"
+            :key="rule"
+          >
+            {{ rule }}
+          </li>
         </ol>
       </template>
       <template v-else-if="module.type === 'symbols'">
@@ -73,10 +75,12 @@
       </template>
       <template v-else-if="module.type === 'keypad'">
         <ol>
-          <li>显示 READY 且序列号为偶数时，按 SAFE。</li>
-          <li>电池不少于 3 个且有 CUT 时，按 CUT。</li>
-          <li>有 HOLD 时，按 HOLD。</li>
-          <li>其他情况按第一个按钮。</li>
+          <li
+            v-for="rule in module.manualView.rules"
+            :key="rule"
+          >
+            {{ rule }}
+          </li>
         </ol>
       </template>
       <template v-else-if="module.type === 'password'">

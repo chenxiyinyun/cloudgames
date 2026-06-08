@@ -49,8 +49,68 @@ describe('keypad module', () => {
 
     expect(module.type).toBe('keypad')
     expect(module.bombView.keys).toHaveLength(4)
+    expect(module.manualView.ruleSet).toEqual(expect.any(String))
+    expect(module.manualView.rules).toHaveLength(4)
     expect(module.solution.action.type).toBe('press_key')
     expect(validateKeypadAction(module, module.solution.action)).toBe(true)
     expect(validateKeypadAction(module, { type: 'press_key', keyId: 'missing' })).toBe(false)
+  })
+
+  it('generates different keypad rule sets and displays across seeds', () => {
+    const ruleSets = new Set()
+    const displays = new Set()
+
+    for (let index = 0; index < 60; index += 1) {
+      const module = generateKeypadModule(
+        { id: 'keypad-1', serialNumber: 'AB-2468', batteries: 2 },
+        createSeededRandom(`keypad-rules-${index}`)
+      )
+      ruleSets.add(module.manualView.ruleSet)
+      displays.add(module.bombView.display)
+      expect(validateKeypadAction(module, module.solution.action)).toBe(true)
+    }
+
+    expect(ruleSets.size).toBeGreaterThan(1)
+    expect(displays.size).toBeGreaterThan(4)
+  })
+
+  it('supports the alert keypad rules', () => {
+    const keys = [
+      { id: 'key-1', label: 'HOLD' },
+      { id: 'key-2', label: 'VENT' },
+      { id: 'key-3', label: 'SEND' },
+      { id: 'key-4', label: 'SAFE' }
+    ]
+
+    expect(resolveKeypadSolution({
+      display: 'PANIC',
+      keys,
+      serialNumber: 'AB-2468',
+      batteries: 2,
+      ruleSet: 'alert'
+    })).toEqual({
+      type: 'press_key',
+      keyId: 'key-2'
+    })
+  })
+
+  it('supports the routing keypad rules', () => {
+    const keys = [
+      { id: 'key-1', label: 'HOLD' },
+      { id: 'key-2', label: 'SEND' },
+      { id: 'key-3', label: 'SAFE' },
+      { id: 'key-4', label: 'ARM' }
+    ]
+
+    expect(resolveKeypadSolution({
+      display: 'ALERT',
+      keys,
+      serialNumber: 'AB-2468',
+      batteries: 2,
+      ruleSet: 'routing'
+    })).toEqual({
+      type: 'press_key',
+      keyId: 'key-3'
+    })
   })
 })
