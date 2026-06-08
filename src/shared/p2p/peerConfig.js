@@ -51,8 +51,7 @@ if (typeof console !== 'undefined') {
 
 export const PEER_CONFIG = {
   iceServers: [
-    { urls: 'stun:stun.qq.com:3478' },
-    { urls: 'stun:stun.miwifi.com:3478' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
     ...SELF_HOSTED_TURN_SERVERS
   ]
 };

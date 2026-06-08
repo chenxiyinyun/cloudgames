@@ -52,6 +52,7 @@ export class P2PService {
     this._connectionStates = new Map();
     this._recoveryAttempts = new Map();
     this._iceGuardTimers = new Map();
+    this._hostBailInProgress = false;
   }
 
   /**
@@ -104,7 +105,7 @@ export class P2PService {
     }
   }
 
-  async createHost(roomCode, playerName) {
+  async createHost(roomCode, playerName, { forceRelay = false } = {}) {
     this._assertPrivateSignalingConfigured();
     this.isHost = true;
     this.roomCode = roomCode;
@@ -117,8 +118,8 @@ export class P2PService {
         reject(new Error('创建房间超时，请重试'));
       }, 20000);
 
-      this._lastConnectionMode = this._getModeLabel();
-      this.peer = new Peer(peerId, this._getPeerOptions());
+      this._lastConnectionMode = this._getModeLabel({ forceRelay });
+      this.peer = new Peer(peerId, this._getPeerOptions({ forceRelay }));
 
       this.peer.on('open', (id) => {
         clearTimeout(timeout);
@@ -381,6 +382,7 @@ export class P2PService {
   _setupConnection(conn) {
     if (this.connections.find(c => c.peer === conn.peer)) return;
     this._watchConnectionState(conn);
+    if (this.isHost) this._setupHostRelayBailGuard(conn);
 
     conn.on('data', (data) => {
       if (data.type === 'HEARTBEAT' || data.type === 'HEARTBEAT_ACK') {
@@ -477,6 +479,150 @@ export class P2PService {
     updateState();
     pc.addEventListener?.('iceconnectionstatechange', updateState);
     pc.addEventListener?.('connectionstatechange', updateState);
+  }
+
+  /**
+   * Host 端的 srflx/relay 候选早检测（对称 joinRoom 客户端的 setupCandidateWatch, line 285-304）。
+   * 4s 内没收到 srflx 或 relay 候选 → STUN 不可达 + TURN 候选没协商出来，
+   * 主动 bail 到 relay 模式重建 host peer,再反向 connect 客人。
+   */
+  _setupHostRelayBailGuard(conn) {
+    if (this._lastConnectionMode === 'relay') return;
+    if (!HAS_TURN_RELAY) return;
+    if (this._hostBailInProgress) return;
+
+    const pc = conn.peerConnection;
+    if (!pc || !pc.addEventListener) return;
+
+    const BAIL_TIMEOUT_MS = 4000;
+    let hasSrflxOrRelay = false;
+    let bailed = false;
+
+    const onCandidate = (e) => {
+      if (e.candidate && (e.candidate.type === 'srflx' || e.candidate.type === 'relay')) {
+        hasSrflxOrRelay = true;
+      }
+    };
+    pc.addEventListener('icecandidate', onCandidate);
+
+    const onStateChange = () => {
+      const s = pc.iceConnectionState;
+      if (s === 'connected' || s === 'completed' || s === 'closed' || s === 'failed') {
+        cleanup();
+      }
+    };
+    pc.addEventListener('iceconnectionstatechange', onStateChange);
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      pc.removeEventListener?.('icecandidate', onCandidate);
+      pc.removeEventListener?.('iceconnectionstatechange', onStateChange);
+    };
+
+    const timer = setTimeout(() => {
+      if (bailed) return;
+      cleanup();
+      if (hasSrflxOrRelay) return;
+      const s = pc.iceConnectionState;
+      if (s === 'connected' || s === 'completed') return;
+      this.log.warn(
+        'Host: no srflx/relay candidates within 4s, bailing to relay',
+        { peer: conn.peer, iceState: s }
+      );
+      bailed = true;
+      this._bailToRelayAndReconnect(conn.peer);
+    }, BAIL_TIMEOUT_MS);
+  }
+
+  /**
+   * Host 端 bail 执行：关闭 conn → 销毁 host peer → 用 forceRelay=true 重建 → 主动 dial 客人。
+   * 客人那边 host close 后由 network.js 的 auto-reconnect 驱动 joinRoom，
+   * 走 joinRoom 自己的 fallback 流程到 forceRelay 模式。两边都到 relay 后会通。
+   */
+  async _bailToRelayAndReconnect(peerId) {
+    if (this._hostBailInProgress) {
+      this.log.debug('Host bail already in progress, skipping', { peerId });
+      return;
+    }
+    this._hostBailInProgress = true;
+    this._emitModeChange({
+      phase: 'switching-to-relay',
+      mode: 'relay',
+      reason: 'Host 4s 内未收集到 srflx/relay 候选,直连路径不可用'
+    });
+
+    try {
+      this.log.warn('Host: tearing down peer and rebuilding with forceRelay', { peerId });
+
+      try { this.disconnectPeer(peerId); } catch (e) {
+        this.log.warn('disconnectPeer failed during bail', { error: e });
+      }
+
+      this._destroyPeerOnly();
+      this.peer = null;
+      this._lastConnectionMode = 'relay';
+
+      const newPeerId = await this._recreateHostPeerWithRelay();
+      this.log.info('Host peer rebuilt in relay mode', { newPeerId, targetPeer: peerId });
+
+      try {
+        await this.connectToPeer(peerId, { timeout: 15000, retries: 0 });
+        this.log.info('Host bail-to-relay: reconnected to peer', { peerId });
+      } catch (err) {
+        this.log.error('Host bail-to-relay: failed to dial peer', { peerId, error: err?.message });
+      }
+    } catch (e) {
+      this.log.error('Host bail-to-relay failed', { error: e });
+    } finally {
+      this._hostBailInProgress = false;
+    }
+  }
+
+  /**
+   * 不走 createHost 整套流程(避免影响 heartbeat/timers 等 host 状态)，
+   * 只创建 host peer with forceRelay=true 并注册 connection/error 监听。
+   */
+  _recreateHostPeerWithRelay() {
+    return new Promise((resolve, reject) => {
+      this._assertPrivateSignalingConfigured();
+      if (!this.roomCode) {
+        reject(new Error('recreateHostPeerWithRelay: roomCode 丢失'));
+        return;
+      }
+      const peerId = this.getHostPeerId(this.roomCode);
+      let opened = false;
+
+      const timeout = setTimeout(() => {
+        if (!opened) reject(new Error('重建 host peer 超时'));
+      }, 20000);
+
+      this.peer = new Peer(peerId, this._getPeerOptions({ forceRelay: true }));
+
+      this.peer.on('open', (id) => {
+        clearTimeout(timeout);
+        opened = true;
+        this.log.info('Host peer (re)created in relay mode:', { id });
+        resolve(id);
+      });
+
+      this.peer.on('connection', (conn) => {
+        this.log.info('New connection from:', { peer: conn.peer });
+        this._setupConnection(conn);
+        if (this.onPlayerConnected) this.onPlayerConnected(conn);
+      });
+
+      this.peer.on('error', (err) => {
+        if (err?.type === 'peer-unavailable') {
+          this.log.warn('Ignoring peer-unavailable on host (bail rebuild)');
+          return;
+        }
+        this.log.error('Host peer error (bail rebuild):', { error: err });
+        if (!opened) {
+          clearTimeout(timeout);
+          reject(new Error('重建 host peer 失败: ' + translatePeerError(err)));
+        }
+      });
+    });
   }
 
   getPeerConnectionState(peerId) {
