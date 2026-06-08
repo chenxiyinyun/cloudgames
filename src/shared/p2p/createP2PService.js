@@ -504,6 +504,20 @@ export class P2PService {
     }
   }
 
+  /**
+   * 把所有事件回调清成 noop,用于 disconnect 之前避免 conn.close() 触发 ghost 业务逻辑。
+   * 不影响 heartbeat / conn 列表 — 只让回调静默。
+   */
+  clearEventHandlers() {
+    this.onMessage = noopLogger.debug; // debug noop — 用 noop 占位避免被误以为是 function
+    this.onPlayerConnected = null;
+    this.onPlayerDisconnected = null;
+    this.onError = null;
+    this.onDeadPeer = null;
+    this.onConnectionStateChange = null;
+    this.onModeChange = null;
+  }
+
   softDisconnect() {
     this.stopHeartbeat();
     this._stopRetryTimer();
@@ -523,6 +537,41 @@ export class P2PService {
     this.isHost = false;
     this.roomCode = null;
     this.playerName = null;
+  }
+
+  /**
+   * 销毁当前 peer 并以 host 身份重新注册。
+   * 用于 host migration: 新 host 必须把信令上的 peerId 从 guest-${ts} 换成 ${gameId}-${roomCode},
+   * 否则后续新玩家用房间号查信令查不到 host。
+   *
+   * @param {string} roomCode
+   * @param {string} playerName
+   * @returns {Promise<string>} 新的 peerId
+   */
+  async recreateAsHost(roomCode, playerName) {
+    // 只销毁 peer,保留 conn 列表 — setupHostHandlers 之后 heartbeat/broadcast 会用新 peerId 重新协商
+    // 实际更安全的做法:也清 conn(到旧 host 的 conn 没用了,与其他 client 的 conn 需要重新协商)
+    // 这里选彻底清,确保不会有指向旧 peerId 的残影
+    this.stopHeartbeat();
+    this._stopRetryTimer();
+    this._retryQueue = [];
+    this.connections.forEach(conn => {
+      try { conn.close(); } catch { /* ignore close error */ }
+    });
+    this.connections = [];
+    this._missedHeartbeats.clear();
+    this._peerLastSeen.clear();
+    this._disconnectedPeers.clear();
+    this._connectionStates.clear();
+    this._recoveryAttempts.clear();
+    for (const timer of this._iceGuardTimers.values()) { clearTimeout(timer); }
+    this._iceGuardTimers.clear();
+    this._destroyPeerOnly();
+    this.isHost = false;
+    this.roomCode = null;
+    this.playerName = null;
+
+    return this.createHost(roomCode, playerName);
   }
 
   getConnectionDiagnostics() {

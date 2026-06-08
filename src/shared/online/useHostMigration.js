@@ -13,7 +13,7 @@
  *   import { createHostMigrationHandler } from '@/shared/online/useHostMigration'
  *   const { handleHostDisconnect } = createHostMigrationHandler({ gameId, p2p, log })
  */
-export function createHostMigrationHandler({ gameId, p2p, log }) {
+export function createHostMigrationHandler({ gameId, p2p, log, rebuildHostPeer }) {
   let _migrationInProgress = false;
   let _migrationWaitTimer = null;
 
@@ -47,13 +47,15 @@ export function createHostMigrationHandler({ gameId, p2p, log }) {
    * @param {Function} opts.setConnectionStatus - 更新连接状态 UI
    * @param {Function} opts.onBecomeHost       - 成为房主后的额外操作（如重启定时器）
    * @param {boolean}  opts.enableWaitBranch   - 启用"高 order 访客等待"分支（猫猜特有）
+   * @param {Function} [opts.rebuildHostPeer]  - 重建 host peer 的异步函数(可选,fallback 到 factory 提供的)
    */
   async function handleHostDisconnect(cachedRoom, gameState, {
     broadcastState,
     setupHostHandlers,
     setConnectionStatus,
     onBecomeHost,
-    enableWaitBranch = false
+    enableWaitBranch = false,
+    rebuildHostPeer: rebuildOpt
   } = {}) {
     if (!cachedRoom) return;
 
@@ -112,18 +114,20 @@ export function createHostMigrationHandler({ gameId, p2p, log }) {
 
     if (newHost.id === gameState.playerId) {
       log.info('I am the new host!');
-      await _becomeNewHost(cachedRoom, gameState, {
-        broadcastState, setupHostHandlers, onBecomeHost
+      const result = await _becomeNewHost(cachedRoom, gameState, {
+        broadcastState, setupHostHandlers, onBecomeHost, rebuildHostPeer: rebuildOpt || rebuildHostPeer
       });
       clearTimeout(safetyTimer);
-      return { action: 'became_host' };
+      return result || { action: 'became_host' };
     } else {
       log.info('Waiting for new host:', newHost.name);
       if (setConnectionStatus) {
         setConnectionStatus('reconnecting', '房主已断开，正在重新组织连接...');
       }
 
-      const newHostPeerId = newHost._peerId || `${gameId}-guest-${newHost.id}`;
+      // 用固定 host peerId(${gameId}-${roomCode})走信令查找,而不是 cachedRoom 里的旧 _peerId(guest id)
+      // 原因:迁移后新 host 已经以 ${gameId}-${roomCode} 注册到信令,但 cachedRoom._peerId 仍是旧的 guest id
+      const newHostPeerId = `${gameId}-${gameState.roomCode}`;
       try {
         await p2p.connectToPeer(newHostPeerId);
         if (setConnectionStatus) {
@@ -135,23 +139,47 @@ export function createHostMigrationHandler({ gameId, p2p, log }) {
       } catch (err) {
         log.error('Failed to connect to new host, attempting self-promotion', { error: err });
         clearTimeout(safetyTimer);
-        await _becomeNewHost(cachedRoom, gameState, {
-          broadcastState, setupHostHandlers, onBecomeHost
+        const result = await _becomeNewHost(cachedRoom, gameState, {
+          broadcastState, setupHostHandlers, onBecomeHost, rebuildHostPeer: rebuildOpt || rebuildHostPeer
         });
-        return { action: 'became_host_fallback' };
+        return result || { action: 'became_host_fallback' };
       }
     }
   }
 
   /**
    * 成为新房主
+   *
+   * 关键步骤:在改 hostId 之前,先把当前 peer 销毁并以 host 身份重新注册,
+   * 这样信令上能查到 ${gameId}-${roomCode} 这个 peerId,后续新玩家加入才能成功。
+   * 如果游戏层没传 rebuildHostPeer(向后兼容),fallback 到旧的"复用 peer 改 handler"行为 —
+   * 旧行为短期能跑(已有 conn 不受影响),但寻址有 bug。
    */
   async function _becomeNewHost(cachedRoom, gameState, {
     broadcastState,
     setupHostHandlers,
-    onBecomeHost
+    onBecomeHost,
+    rebuildHostPeer
   }) {
-    if (!cachedRoom) return;
+    if (!cachedRoom) return { action: 'noop' };
+
+    // 第一步:重建 host peer,确保新 host 能在信令上被新玩家通过房间号查到
+    if (typeof rebuildHostPeer === 'function') {
+      try {
+        await rebuildHostPeer();
+        log.info('Host peer recreated, new peerId:', { peerId: p2p.getMyPeerId() });
+      } catch (err) {
+        log.error('Failed to rebuild host peer, migration aborted', { error: err?.message || err });
+        _migrationInProgress = false;
+        if (gameState) {
+          gameState.connected = false;
+          gameState.error = '迁移失败：无法建立新房主连接';
+        }
+        return { action: 'rebuild_failed', error: err };
+      }
+    } else {
+      log.warn('_becomeNewHost called without rebuildHostPeer — addressing bug may surface when new players join');
+    }
 
     cachedRoom.hostId = gameState.playerId;
     gameState.isHost = true;
@@ -162,11 +190,9 @@ export function createHostMigrationHandler({ gameId, p2p, log }) {
       me._peerId = p2p.getMyPeerId();
     }
 
-    // 移除旧房主的连接（走 P2PService 公共方法，避免直接改写内部 connections）
-    const oldHostPeerId = `${gameId}-${gameState.roomCode}`;
-    p2p.disconnectPeer(oldHostPeerId);
-
-    // 广播房主变更
+    // 广播房主变更(此时 p2p.broadcast 用的是新 host 的 conn 列表;recreateAsHost 已清空,
+    // 所以这条 HOST_MIGRATION 实际上不会被任何现存 conn 接收 — 老玩家需要走 REQUEST_STATE 拉取新状态。
+    // 留给游戏层在 onBecomeHost / onAfterHostMigration 里处理 resync。)
     try {
       p2p.broadcast('HOST_MIGRATION', {
         newHostId: gameState.playerId,
@@ -175,6 +201,15 @@ export function createHostMigrationHandler({ gameId, p2p, log }) {
       });
     } catch (err) {
       log.error('Failed to broadcast HOST_MIGRATION', { error: err });
+    }
+
+    // 向后兼容:不带 rebuildHostPeer 的游戏(legacy)此时 conn 列表还有旧 host 的 conn,
+    // 需要显式关掉;带 rebuildHostPeer 的游戏这条是 noop(已在 recreateAsHost 里清空)
+    const oldHostPeerId = `${gameId}-${gameState.roomCode}`;
+    try {
+      p2p.disconnectPeer(oldHostPeerId);
+    } catch (err) {
+      log.warn('disconnectPeer(oldHost) failed (likely already disconnected)', { error: err?.message });
     }
 
     _migrationInProgress = false;
@@ -189,6 +224,8 @@ export function createHostMigrationHandler({ gameId, p2p, log }) {
     if (onBecomeHost) {
       onBecomeHost();
     }
+
+    return { action: 'became_host' };
   }
 
   /**

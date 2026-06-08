@@ -8,6 +8,7 @@ A collection of browser-based party games built with Vue 3 + Vite, deployed on G
 |------|-------------|
 | [截码战 (Codenames)](./games/codenames/) | 双人猜词对战游戏 - 截码战 / Codenames word-guessing game |
 | [双人拆弹 (Bomb Defuse)](./games/bomb-defuse/) | 双人在线协作拆弹解谜游戏 |
+| [区域争夺 (Territory Control)](./games/territory-control/) | 2-4 人联机拖拽派兵占领地图 |
 
 ## Development
 

@@ -432,7 +432,8 @@ export function createNetworkLayer({
       setupHostHandlers,
       setConnectionStatus,
       enableWaitBranch: !!hostMigratorOptions.enableWaitBranch,
-      onBecomeHost: hostMigratorOptions.onBecomeHost
+      onBecomeHost: hostMigratorOptions.onBecomeHost,
+      rebuildHostPeer: hostMigratorOptions.rebuildHostPeer
     });
   }
 

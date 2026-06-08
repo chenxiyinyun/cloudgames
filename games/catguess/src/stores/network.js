@@ -89,6 +89,10 @@ const net = createNetworkLayer({
     iceCheckingTimeoutMs: 10000,
     onAfterReconnectJoin: () => {
       try { p2p.broadcast(MSG.REQUEST_STATE, { playerId: gameState.playerId }); } catch { /* ignore */ }
+    },
+    // 迁移时把当前 peer 销毁并以 host 身份重新注册,确保信令上能查到 host peerId
+    rebuildHostPeer: async () => {
+      await p2p.recreateAsHost(gameState.roomCode, gameState.playerName)
     }
   },
 

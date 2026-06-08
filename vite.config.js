@@ -16,7 +16,8 @@ export default defineConfig({
         main: resolve(__dirname, 'index.html'),
         codenames: resolve(__dirname, 'games/codenames/index.html'),
         catguess: resolve(__dirname, 'games/catguess/index.html'),
-        bombDefuse: resolve(__dirname, 'games/bomb-defuse/index.html')
+        bombDefuse: resolve(__dirname, 'games/bomb-defuse/index.html'),
+        territoryControl: resolve(__dirname, 'games/territory-control/index.html')
       }
     }
   },
@@ -25,10 +26,11 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: [
-      'games/codenames/src/**/*.test.js',
-      'games/catguess/src/**/*.test.js',
-      'games/bomb-defuse/src/**/*.test.js',
-      'src/shared/**/*.test.js'
+        'games/codenames/src/**/*.test.js',
+        'games/catguess/src/**/*.test.js',
+        'games/bomb-defuse/src/**/*.test.js',
+        'games/territory-control/src/**/*.test.js',
+        'src/shared/**/*.test.js'
     ]
   }
 })

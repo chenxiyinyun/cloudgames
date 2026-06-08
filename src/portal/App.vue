@@ -20,6 +20,13 @@ const games = [
     description: '一人看炸弹，一人看说明书，在倒计时内合作解除模块。',
     href: 'games/bomb-defuse/',
     color: '#f0523d'
+  },
+  {
+    name: '区域争夺',
+    englishName: 'Territory Control',
+    description: '2-4 人拖拽派兵占领地图，小中大随机战场，消灭所有对手获胜。',
+    href: 'games/territory-control/',
+    color: '#23a66f'
   }
 ]
 </script>
