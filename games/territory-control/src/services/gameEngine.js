@@ -5,12 +5,17 @@ export const GAME_PHASES = {
 }
 
 export const MAP_SIZES = {
-  small: { label: '小', territoryCount: 10, minDistance: 170, neutralUnits: [8, 20] },
-  medium: { label: '中', territoryCount: 16, minDistance: 130, neutralUnits: [12, 28] },
-  large: { label: '大', territoryCount: 24, minDistance: 105, neutralUnits: [14, 34] }
+  small: { label: '小', territoryCount: 10, minDistance: 170, neutralUnits: [8, 20], obstacleCount: 1 },
+  medium: { label: '中', territoryCount: 16, minDistance: 130, neutralUnits: [12, 28], obstacleCount: 3 },
+  large: { label: '大', territoryCount: 24, minDistance: 105, neutralUnits: [14, 34], obstacleCount: 5 }
 }
 
 export const DEFAULT_MAP_SIZE = 'medium'
+export const THEMES = {
+  default: { label: '经典' },
+  catpaw: { label: '猫爪' }
+}
+export const DEFAULT_THEME = 'default'
 export const PLAYER_COLORS = ['#e84d4f', '#2f8cff', '#23a66f', '#f2b233']
 export const DISPATCH_RATIOS = [0.25, 0.5, 0.75]
 
@@ -144,6 +149,18 @@ export function setMapSize(room, mapSize) {
   return { room }
 }
 
+export function setTheme(room, theme) {
+  if (room.phase !== GAME_PHASES.WAITING) {
+    return { error: '战局开始后不能修改主题' }
+  }
+  if (!THEMES[theme]) {
+    return { error: '未知主题' }
+  }
+  room.settings = { ...room.settings, theme }
+  touch(room)
+  return { room }
+}
+
 export function startGame(room, options = {}) {
   if (room.phase !== GAME_PHASES.WAITING) {
     return { error: '战局已经开始' }
@@ -155,6 +172,7 @@ export function startGame(room, options = {}) {
   }
 
   const mapSize = options.mapSize || room.settings?.mapSize || DEFAULT_MAP_SIZE
+  const theme = room.settings?.theme || DEFAULT_THEME
   if (!MAP_SIZES[mapSize]) {
     return { error: '未知地图尺寸' }
   }
@@ -173,6 +191,7 @@ export function startGame(room, options = {}) {
   })
   room.gameState = {
     mapSize,
+    theme,
     seed,
     width: MAP_WIDTH,
     height: MAP_HEIGHT,
@@ -204,6 +223,7 @@ export function tickProduction(room, now = Date.now()) {
     })
 
     room.gameState.territories.forEach(territory => {
+      if (territory.isObstacle) return
       if (!territory.ownerId) return
       // 离线玩家的 territory 停止 +1 兵:防止"断网 5 分钟回来看自己兵山"导致躺赢
       // 现有兵不会被清零(仅停止 +1),玩家 reconnect 后立即恢复生产
@@ -233,6 +253,10 @@ export function tickMovingTroops(room, now = Date.now()) {
     const territoryId = troop.path[troop.currentStep]
     const territory = room.gameState.territories.find(t => t.id === territoryId)
     if (!territory) {
+      removeMovingTroop(room, troop.id)
+      return
+    }
+    if (territory.isObstacle) {
       removeMovingTroop(room, troop.id)
       return
     }
@@ -328,6 +352,7 @@ export function dispatchUnits(room, playerId, sourceId, targetId, ratio = 0.5, n
   const source = room.gameState.territories.find(territory => territory.id === sourceId)
   const target = room.gameState.territories.find(territory => territory.id === targetId)
   if (!source || !target) return { error: '领地不存在' }
+  if (source.isObstacle || target.isObstacle) return { error: '不能对障碍领地操作' }
   if (source.ownerId !== playerId) return { error: '只能从自己的领地派遣' }
   if (source.id === target.id) return { error: '不能派遣到同一领地' }
 
@@ -456,15 +481,37 @@ function generateMap({ seed, mapSize, players }) {
     territory.isCapital = true
   })
 
+  const obstacleIndexes = chooseObstacleIndexes(territories, spawnIndexes, config.obstacleCount, rng)
+  obstacleIndexes.forEach(index => {
+    territories[index].isObstacle = true
+    territories[index].ownerId = null
+    territories[index].units = 0
+    territories[index].isCapital = false
+  })
+
   territories.forEach(territory => {
-    if (!territory.ownerId) {
+    if (!territory.ownerId && !territory.isObstacle) {
       territory.units = randomInt(rng, config.neutralUnits[0], config.neutralUnits[1])
     }
   })
 
+  const playableTerritories = territories.filter(t => !t.isObstacle)
+  const edges = createEdges(playableTerritories)
+
+  // 确保可玩图连通，若不连通则逐步移除障碍直到连通
+  let finalEdges = edges
+  let finalObstacleIndexes = obstacleIndexes
+  while (!isGraphConnected(playableTerritories, finalEdges) && finalObstacleIndexes.length > 0) {
+    const restored = finalObstacleIndexes.pop()
+    territories[restored].isObstacle = false
+    territories[restored].units = randomInt(rng, config.neutralUnits[0], config.neutralUnits[1])
+    const updatedPlayable = territories.filter(t => !t.isObstacle)
+    finalEdges = createEdges(updatedPlayable)
+  }
+
   return {
     territories,
-    edges: createEdges(territories)
+    edges: finalEdges
   }
 }
 
@@ -530,6 +577,53 @@ function chooseSpawnIndexes(territories, playerCount, rng) {
     used.add(bestIndex)
     return bestIndex
   })
+}
+
+function chooseObstacleIndexes(territories, spawnIndexes, count, rng) {
+  if (count <= 0) return []
+  const spawnSet = new Set(spawnIndexes)
+  // 出生点附近的领地也不选为障碍，保证玩家有扩展空间
+  const spawnPositions = spawnIndexes.map(i => territories[i])
+  const SPAWN_SAFE_RADIUS = 180
+
+  const candidates = territories
+    .map((t, i) => ({ index: i, territory: t }))
+    .filter(({ index, territory }) => {
+      if (spawnSet.has(index)) return false
+      const tooCloseToSpawn = spawnPositions.some(s => distance(territory, s) < SPAWN_SAFE_RADIUS)
+      return !tooCloseToSpawn
+    })
+
+  // Fisher-Yates 从候选中随机选取
+  for (let i = candidates.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[candidates[i], candidates[j]] = [candidates[j], candidates[i]]
+  }
+
+  return candidates.slice(0, Math.min(count, candidates.length)).map(c => c.index)
+}
+
+function isGraphConnected(territories, edges) {
+  if (territories.length === 0) return true
+  const adj = new Map()
+  territories.forEach(t => adj.set(t.id, []))
+  edges.forEach(({ from, to }) => {
+    if (adj.has(from)) adj.get(from).push(to)
+    if (adj.has(to)) adj.get(to).push(from)
+  })
+  const startId = territories[0].id
+  const visited = new Set([startId])
+  const queue = [startId]
+  while (queue.length > 0) {
+    const current = queue.shift()
+    for (const neighbor of (adj.get(current) || [])) {
+      if (!visited.has(neighbor)) {
+        visited.add(neighbor)
+        queue.push(neighbor)
+      }
+    }
+  }
+  return visited.size === territories.length
 }
 
 function createEdges(territories) {

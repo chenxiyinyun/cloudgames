@@ -5,10 +5,11 @@ import {
   generatePlayerId,
   restartGame,
   setMapSize,
+  setTheme,
   startGame
 } from '../services/gameEngine'
 import p2p from '../services/p2p'
-import { sanitizeDispatch, sanitizeMapSize, sanitizePlayerName, sanitizeRoomCode } from '../services/sanitize'
+import { sanitizeDispatch, sanitizeMapSize, sanitizePlayerName, sanitizeRoomCode, sanitizeTheme } from '../services/sanitize'
 import { clearCache, flushCache, hasRestoreableState, restoreFromCache } from './cache'
 import { gameState, getRoom, resetLocalState, setConnectionStatus, setRoom, updateLocalState } from './state'
 import {
@@ -180,6 +181,24 @@ export function handleSetMapSize(mapSize) {
     return false
   }
   const result = setMapSize(room, value)
+  if (result.error) {
+    gameState.error = result.error
+    return false
+  }
+  updateLocalState(room)
+  broadcastState()
+  return true
+}
+
+export function handleSetTheme(theme) {
+  const room = getRoom()
+  if (!gameState.isHost || !room) return false
+  const { value, error } = sanitizeTheme(theme)
+  if (error) {
+    gameState.error = error
+    return false
+  }
+  const result = setTheme(room, value)
   if (result.error) {
     gameState.error = result.error
     return false

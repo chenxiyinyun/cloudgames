@@ -15,6 +15,7 @@
     :is-host="gameState.isHost"
     :error="gameState.error"
     @set-map-size="handleSetMapSize"
+    @set-theme="handleSetTheme"
     @start-game="handleStartGame"
     @leave-room="leaveRoom"
   />
@@ -48,6 +49,7 @@ import {
   handleEndGame,
   handleRestartGame,
   handleSetMapSize,
+  handleSetTheme,
   handleStartGame,
   hasRestoreableState,
   joinRoom,

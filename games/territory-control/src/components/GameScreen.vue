@@ -1,5 +1,8 @@
 <template>
-  <main class="screen game-screen">
+  <main
+    class="screen game-screen"
+    :data-theme="currentTheme"
+  >
     <header class="top-bar">
       <div>
         <p class="eyebrow">
@@ -100,6 +103,21 @@
                 flood-opacity="0.32"
               />
             </filter>
+            <filter
+              id="catpaw-shadow"
+              x="-20%"
+              y="-20%"
+              width="140%"
+              height="140%"
+            >
+              <feDropShadow
+                dx="0"
+                dy="8"
+                stdDeviation="8"
+                flood-color="#000"
+                flood-opacity="0.18"
+              />
+            </filter>
           </defs>
 
           <line
@@ -121,23 +139,120 @@
             :transform="`translate(${territory.x}, ${territory.y})`"
             @click="handleTerritoryClick(territory)"
           >
-            <circle
-              class="territory-ring"
-              :r="TERRITORY_RING_RADIUS"
-              :fill="ownerColor(territory.ownerId)"
-            />
-            <circle
-              class="territory-core"
-              r="31"
-              :fill="ownerColor(territory.ownerId)"
-            />
-            <text
-              class="territory-units"
-              text-anchor="middle"
-              dominant-baseline="central"
-            >
-              {{ territory.units }}
-            </text>
+            <!-- 障碍领地 -->
+            <template v-if="territory.isObstacle">
+              <template v-if="isCatpawTheme">
+                <!-- 猫爪主题：毛线球障碍 -->
+                <circle
+                  class="obstacle-ring catpaw-obstacle-ring"
+                  :r="TERRITORY_RING_RADIUS"
+                />
+                <circle
+                  class="obstacle-core catpaw-obstacle-core"
+                  r="31"
+                />
+                <path
+                  d="M-10,-10 Q0,-18 10,-10 Q18,0 10,10 Q0,18 -10,10 Q-18,0 -10,-10 Z"
+                  class="yarn-ball-line"
+                  fill="none"
+                />
+                <path
+                  d="M-6,-14 Q6,-6 -6,2 Q6,10 -2,14"
+                  class="yarn-ball-line"
+                  fill="none"
+                />
+              </template>
+              <template v-else>
+                <circle
+                  class="territory-ring obstacle-ring"
+                  :r="TERRITORY_RING_RADIUS"
+                />
+                <circle
+                  class="territory-core obstacle-core"
+                  r="31"
+                />
+                <line x1="-12" y1="-12" x2="12" y2="12" class="obstacle-mark" />
+                <line x1="12" y1="-12" x2="-12" y2="12" class="obstacle-mark" />
+              </template>
+            </template>
+
+            <!-- 猫爪主题领地 -->
+            <template v-else-if="isCatpawTheme">
+              <!-- 大肉垫（掌心） -->
+              <circle
+                class="territory-ring catpaw-ring"
+                :r="TERRITORY_RING_RADIUS"
+                :fill="ownerColor(territory.ownerId)"
+              />
+              <ellipse
+                class="catpaw-pad catpaw-main-pad"
+                rx="24"
+                ry="22"
+                :fill="ownerColor(territory.ownerId)"
+              />
+              <!-- 4 个小肉垫 -->
+              <ellipse
+                class="catpaw-pad"
+                cx="-18"
+                cy="-18"
+                rx="10"
+                ry="9"
+                :fill="ownerColor(territory.ownerId)"
+              />
+              <ellipse
+                class="catpaw-pad"
+                cx="0"
+                cy="-24"
+                rx="10"
+                ry="9"
+                :fill="ownerColor(territory.ownerId)"
+              />
+              <ellipse
+                class="catpaw-pad"
+                cx="18"
+                cy="-18"
+                rx="10"
+                ry="9"
+                :fill="ownerColor(territory.ownerId)"
+              />
+              <ellipse
+                class="catpaw-pad"
+                cx="24"
+                cy="-4"
+                rx="9"
+                ry="8"
+                :fill="ownerColor(territory.ownerId)"
+              />
+              <text
+                class="territory-units catpaw-units"
+                text-anchor="middle"
+                dominant-baseline="central"
+                y="6"
+              >
+                {{ territory.units }}
+              </text>
+            </template>
+
+            <!-- 经典主题领地 -->
+            <template v-else>
+              <circle
+                class="territory-ring"
+                :r="TERRITORY_RING_RADIUS"
+                :fill="ownerColor(territory.ownerId)"
+              />
+              <circle
+                class="territory-core"
+                r="31"
+                :fill="ownerColor(territory.ownerId)"
+              />
+              <text
+                class="territory-units"
+                text-anchor="middle"
+                dominant-baseline="central"
+              >
+                {{ territory.units }}
+              </text>
+            </template>
           </g>
 
           <g
@@ -146,18 +261,67 @@
             class="moving-troop"
             :transform="`translate(${troop.x}, ${troop.y})`"
           >
-            <circle
-              class="moving-troop-bg"
-              r="18"
-              :fill="ownerColor(troop.playerId)"
-            />
-            <text
-              class="moving-troop-text"
-              text-anchor="middle"
-              dominant-baseline="central"
-            >
-              {{ troop.amount }}
-            </text>
+            <template v-if="isCatpawTheme">
+              <!-- 猫爪主题：小猫爪移动标记 -->
+              <circle
+                class="moving-troop-bg catpaw-troop-bg"
+                r="18"
+                :fill="ownerColor(troop.playerId)"
+              />
+              <ellipse
+                class="catpaw-troop-pad"
+                rx="6"
+                ry="5"
+                cy="2"
+                :fill="ownerColor(troop.playerId)"
+              />
+              <ellipse
+                class="catpaw-troop-pad"
+                cx="-5"
+                cy="-5"
+                rx="3.5"
+                ry="3"
+                :fill="ownerColor(troop.playerId)"
+              />
+              <ellipse
+                class="catpaw-troop-pad"
+                cx="0"
+                cy="-7"
+                rx="3.5"
+                ry="3"
+                :fill="ownerColor(troop.playerId)"
+              />
+              <ellipse
+                class="catpaw-troop-pad"
+                cx="5"
+                cy="-5"
+                rx="3.5"
+                ry="3"
+                :fill="ownerColor(troop.playerId)"
+              />
+              <text
+                class="moving-troop-text catpaw-troop-text"
+                text-anchor="middle"
+                dominant-baseline="central"
+                y="4"
+              >
+                {{ troop.amount }}
+              </text>
+            </template>
+            <template v-else>
+              <circle
+                class="moving-troop-bg"
+                r="18"
+                :fill="ownerColor(troop.playerId)"
+              />
+              <text
+                class="moving-troop-text"
+                text-anchor="middle"
+                dominant-baseline="central"
+              >
+                {{ troop.amount }}
+              </text>
+            </template>
           </g>
         </svg>
       </section>
@@ -212,6 +376,8 @@ const ratios = [
 const territories = computed(() => props.room.gameState.territories || [])
 const edges = computed(() => props.room.gameState.edges || [])
 const movingTroops = computed(() => props.room.gameState.movingTroops || [])
+const currentTheme = computed(() => props.room.gameState?.theme || 'default')
+const isCatpawTheme = computed(() => currentTheme.value === 'catpaw')
 
 const playersById = computed(() =>
   Object.fromEntries(props.room.players.map(player => [player.id, player]))
@@ -255,11 +421,14 @@ const movingTroopVisuals = computed(() => {
 })
 
 function ownerColor(ownerId) {
-  if (!ownerId) return '#f4f0e7'
+  if (!ownerId) return isCatpawTheme.value ? '#fce4ec' : '#f4f0e7'
   return playersById.value[ownerId]?.color || '#9ca3af'
 }
 
 function territoryClasses(territory) {
+  if (territory.isObstacle) {
+    return { obstacle: true }
+  }
   return {
     owned: territory.ownerId === props.playerId,
     neutral: !territory.ownerId,
@@ -282,6 +451,7 @@ function isEdgeOnPath(edge) {
 }
 
 function handleTerritoryClick(territory) {
+  if (territory.isObstacle) return
   if (territory.ownerId === props.playerId && territory.units >= 1) {
     if (selectedId.value === territory.id) {
       selectedId.value = null
