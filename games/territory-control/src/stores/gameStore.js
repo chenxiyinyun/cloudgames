@@ -136,16 +136,39 @@ export async function reconnectRoom() {
   try {
     p2p.softDisconnect()
     if (gameState.isHost) {
-      await p2p.createHost(gameState.roomCode, gameState.playerName)
-      setupHostHandlers()
-      if (getRoom()?.phase === 'playing') {
-        startProductionTimer(() => broadcastState())
-        startOfflineNeutralizeTimer(() => broadcastState())
+      // 信令残留场景:刷新页面后旧 peerId 在信令服务器上还有 TTL(自建 PeerJS 默认 ~60s),
+      // 直接 createHost 会撞 unavailable-id。这里退避重试,等信令释放。
+      // 错误文案改成更准确的"信令释放中...",不要再误导用户去刷新。
+      const MAX_RETRY = 5
+      let lastErr = null
+      for (let attempt = 1; attempt <= MAX_RETRY; attempt += 1) {
+        try {
+          await p2p.createHost(gameState.roomCode, gameState.playerName)
+          setupHostHandlers()
+          if (getRoom()?.phase === 'playing') {
+            startProductionTimer(() => broadcastState())
+            startOfflineNeutralizeTimer(() => broadcastState())
+          }
+          gameState.connected = true
+          gameState.connecting = false
+          setConnectionStatus('connected', 'Reconnected.')
+          return true
+        } catch (err) {
+          lastErr = err
+          const msg = err?.message || ''
+          const isSignalingTaken = msg.includes('房间已被占用') || msg.includes('unavailable-id')
+          if (!isSignalingTaken || attempt === MAX_RETRY) throw err
+          const delay = 2000 * attempt // 2s/4s/6s/8s/10s
+          setConnectionStatus(
+            'reconnecting',
+            `信令服务器还在释放旧连接,${delay / 1000}s 后重试(${attempt}/${MAX_RETRY})...`
+          )
+          await new Promise(r => setTimeout(r, delay))
+          // 每次重试前再做一次 softDisconnect,清掉上一次失败的半残 peer
+          p2p.softDisconnect()
+        }
       }
-      gameState.connected = true
-      gameState.connecting = false
-      setConnectionStatus('connected', 'Reconnected.')
-      return true
+      throw lastErr
     }
 
     await p2p.joinRoom(gameState.roomCode, gameState.playerName)
@@ -210,11 +233,14 @@ export function handleSetTheme(theme) {
 
 export function handleStartGame() {
   if (!gameState.isHost) return false
-  const result = startGame(getRoom())
+  const room = getRoom()
+  const result = startGame(room)
   if (result.error) {
     gameState.error = result.error
     return false
   }
+  // 同 handleDispatch:cachedRoom 改了之后必须 updateLocalState 把 UI 镜像刷新。
+  updateLocalState(room)
   startProductionTimer(() => broadcastState())
   startOfflineNeutralizeTimer(() => broadcastState())
   resetBroadcastState()
@@ -240,6 +266,10 @@ export function handleDispatch(rawPayload) {
     gameState.error = result.error
     return false
   }
+  // host 自己直接改的是 cachedRoom,UI 渲染的是 gameState.room 镜像,
+  // 必须 updateLocalState 同步过去,否则地图上的兵数 / movingTroop 永远不刷新。
+  // 对比 handleSetMapSize/handleSetTheme/handleAssignRoles(其他游戏)都做了这一步。
+  updateLocalState(room)
   if (room.phase === 'ended') {
     stopProductionTimer()
   }
@@ -249,7 +279,9 @@ export function handleDispatch(rawPayload) {
 
 export function handleRestartGame() {
   if (!gameState.isHost) return false
-  restartGame(getRoom())
+  const room = getRoom()
+  restartGame(room)
+  updateLocalState(room)
   stopProductionTimer()
   resetBroadcastState()
   broadcastState({ forceFull: true })
@@ -258,7 +290,9 @@ export function handleRestartGame() {
 
 export function handleEndGame() {
   if (!gameState.isHost) return false
-  endGame(getRoom(), null)
+  const room = getRoom()
+  endGame(room, null)
+  updateLocalState(room)
   stopProductionTimer()
   broadcastState()
   return true
