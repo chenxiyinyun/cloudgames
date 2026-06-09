@@ -29,8 +29,9 @@ const PRODUCTION_INTERVAL = 2
 
 let movingTroopIdCounter = 0
 
-export function findPath(edges, sourceId, targetId) {
+export function findPath(edges, sourceId, targetId, territories = []) {
   if (sourceId === targetId) return null
+  const obstacleIds = new Set(territories.filter(t => t.isObstacle).map(t => t.id))
   const adj = new Map()
   edges.forEach(({ from, to }) => {
     if (!adj.has(from)) adj.set(from, [])
@@ -45,6 +46,7 @@ export function findPath(edges, sourceId, targetId) {
     const [current, path] = queue.shift()
     for (const neighbor of (adj.get(current) || [])) {
       if (neighbor === targetId) return [...path, neighbor]
+      if (obstacleIds.has(neighbor)) continue
       if (!visited.has(neighbor)) {
         visited.add(neighbor)
         queue.push([neighbor, [...path, neighbor]])
@@ -356,7 +358,7 @@ export function dispatchUnits(room, playerId, sourceId, targetId, ratio = 0.5, n
   if (source.ownerId !== playerId) return { error: '只能从自己的领地派遣' }
   if (source.id === target.id) return { error: '不能派遣到同一领地' }
 
-  const path = findPath(room.gameState.edges, sourceId, targetId)
+  const path = findPath(room.gameState.edges, sourceId, targetId, room.gameState.territories)
   if (!path) return { error: '目标领地不可达' }
 
   const normalizedRatio = normalizeDispatchRatio(ratio)
@@ -495,23 +497,21 @@ function generateMap({ seed, mapSize, players }) {
     }
   })
 
-  const playableTerritories = territories.filter(t => !t.isObstacle)
-  const edges = createEdges(playableTerritories)
+  const edges = createEdges(territories)
 
   // 确保可玩图连通，若不连通则逐步移除障碍直到连通
-  let finalEdges = edges
-  let finalObstacleIndexes = obstacleIndexes
-  while (!isGraphConnected(playableTerritories, finalEdges) && finalObstacleIndexes.length > 0) {
+  let finalObstacleIndexes = [...obstacleIndexes]
+  let playableTerritories = territories.filter(t => !t.isObstacle)
+  while (!isGraphConnected(playableTerritories, edges) && finalObstacleIndexes.length > 0) {
     const restored = finalObstacleIndexes.pop()
     territories[restored].isObstacle = false
     territories[restored].units = randomInt(rng, config.neutralUnits[0], config.neutralUnits[1])
-    const updatedPlayable = territories.filter(t => !t.isObstacle)
-    finalEdges = createEdges(updatedPlayable)
+    playableTerritories = territories.filter(t => !t.isObstacle)
   }
 
   return {
     territories,
-    edges: finalEdges
+    edges
   }
 }
 
@@ -608,8 +608,10 @@ function isGraphConnected(territories, edges) {
   const adj = new Map()
   territories.forEach(t => adj.set(t.id, []))
   edges.forEach(({ from, to }) => {
-    if (adj.has(from)) adj.get(from).push(to)
-    if (adj.has(to)) adj.get(to).push(from)
+    if (adj.has(from) && adj.has(to)) {
+      adj.get(from).push(to)
+      adj.get(to).push(from)
+    }
   })
   const startId = territories[0].id
   const visited = new Set([startId])

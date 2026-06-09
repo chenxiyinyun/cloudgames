@@ -657,10 +657,13 @@ button:disabled {
 
   .map-shell {
     min-height: auto;
+    overflow: auto;
   }
 
   .battle-map {
-    height: 66vh;
-    min-height: 420px;
+    width: max(100%, 800px);
+    height: auto;
+    min-height: auto;
+    aspect-ratio: 1000 / 640;
   }
 }

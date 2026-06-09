@@ -330,7 +330,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { findPath } from '../services/gameEngine'
 
 const props = defineProps({
@@ -366,6 +366,7 @@ const selectedId = ref(null)
 const previewPath = ref(null)
 const animFrame = ref(null)
 const now = ref(Date.now())
+const localTroopAnim = ref({})
 
 const ratios = [
   { value: 0.25, label: '25%' },
@@ -399,6 +400,31 @@ const renderedEdges = computed(() =>
     .filter(edge => edge.from && edge.to)
 )
 
+watch(movingTroops, (newTroops) => {
+  const currentNow = Date.now()
+  const validIds = new Set()
+  
+  newTroops.forEach(troop => {
+    validIds.add(troop.id)
+    const state = localTroopAnim.value[troop.id]
+    if (!state) {
+      localTroopAnim.value[troop.id] = {
+        step: troop.currentStep,
+        stepStartTime: currentNow
+      }
+    } else if (state.step !== troop.currentStep) {
+      state.step = troop.currentStep
+      state.stepStartTime = currentNow
+    }
+  })
+  
+  Object.keys(localTroopAnim.value).forEach(id => {
+    if (!validIds.has(id)) {
+      delete localTroopAnim.value[id]
+    }
+  })
+}, { deep: true, immediate: true })
+
 const movingTroopVisuals = computed(() => {
   return movingTroops.value.map(troop => {
     const fromId = troop.path[troop.currentStep]
@@ -407,7 +433,9 @@ const movingTroopVisuals = computed(() => {
     const to = territories.value.find(t => t.id === toId)
     if (!from || !to) return null
 
-    const elapsed = now.value - (troop.nextArrivalAt - TRAVEL_TIME_PER_EDGE)
+    const animState = localTroopAnim.value[troop.id]
+    const stepStartTime = animState ? animState.stepStartTime : now.value
+    const elapsed = now.value - stepStartTime
     const progress = Math.min(1, Math.max(0, elapsed / TRAVEL_TIME_PER_EDGE))
 
     return {
@@ -461,7 +489,7 @@ function handleTerritoryClick(territory) {
       previewPath.value = null
     }
   } else if (selectedId.value && territory.id !== selectedId.value) {
-    const path = findPath(edges.value, selectedId.value, territory.id)
+    const path = findPath(edges.value, selectedId.value, territory.id, territories.value)
     if (!path) {
       previewPath.value = null
       return
