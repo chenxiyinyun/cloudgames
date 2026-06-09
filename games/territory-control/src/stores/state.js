@@ -59,6 +59,10 @@ export function updateLocalState(room) {
       height: room.gameState.height || 640,
       territories: room.gameState.territories ? room.gameState.territories.map(t => ({ ...t })) : [],
       edges: room.gameState.edges ? room.gameState.edges.map(e => ({ ...e })) : [],
+      // 派兵队列必须同步到镜像,否则 GameScreen 看不到 movingTroop 动画。
+      // productionTick 同步过去,避免后续 diff 误判 gameState 整体变化。
+      movingTroops: room.gameState.movingTroops ? room.gameState.movingTroops.map(t => ({ ...t })) : [],
+      productionTick: room.gameState.productionTick || 0,
       startedAt: room.gameState.startedAt || null,
       lastTickAt: room.gameState.lastTickAt || null,
       winnerId: room.gameState.winnerId || null,
@@ -121,6 +125,8 @@ function createEmptyRoomMirror() {
       height: 640,
       territories: [],
       edges: [],
+      movingTroops: [],
+      productionTick: 0,
       startedAt: null,
       lastTickAt: null,
       winnerId: null,
