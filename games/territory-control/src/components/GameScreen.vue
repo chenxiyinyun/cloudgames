@@ -63,7 +63,7 @@
           </div>
         </div>
         <p class="hint">
-          点击自己的领地选中，再点击目标领地派兵。
+          点击自己的领地选中，再点击目标领地派兵。移动端支持双指缩放与拖动战场。
         </p>
         <p
           v-if="selectedId"
@@ -79,13 +79,25 @@
         </p>
       </aside>
 
-      <section class="map-shell">
+      <section
+        ref="mapShellRef"
+        class="map-shell"
+        :class="{ interacting: isMapGestureActive }"
+        :style="{ '--map-aspect-ratio': MAP_ASPECT_RATIO }"
+      >
         <svg
           ref="svgRef"
           class="battle-map"
+          :class="{ zoomed: isMapZoomed }"
           :viewBox="`0 0 ${room.gameState.width} ${room.gameState.height}`"
+          :style="battleMapStyle"
           role="img"
           aria-label="区域争夺地图"
+          @pointerdown="handleMapPointerDown"
+          @pointermove="handleMapPointerMove"
+          @pointerup="handleMapPointerUp"
+          @pointercancel="handleMapPointerUp"
+          @click.capture="handleMapClickCapture"
         >
           <defs>
             <filter
@@ -330,8 +342,16 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
+import { computed, reactive, ref, onMounted, onUnmounted, watch } from 'vue'
 import { findPath } from '../services/gameEngine'
+import { MAP_ASPECT_RATIO, getMovingTroopVisuals } from '../services/gameView'
+import {
+  MIN_MAP_SCALE,
+  clampViewport,
+  isTapGesture,
+  panViewport,
+  zoomViewport
+} from '../services/mapViewport'
 
 const props = defineProps({
   room: {
@@ -358,15 +378,35 @@ const emit = defineEmits(['dispatch', 'end-game', 'leave-room'])
 const dispatchRatio = ref(0.5)
 const seq = ref(0)
 let lastDispatchAt = 0
+let resizeObserver = null
 const DISPATCH_COOLDOWN_MS = 400
 const TERRITORY_RING_RADIUS = 42
-const TRAVEL_TIME_PER_EDGE = 1500
 
+const mapShellRef = ref(null)
+const svgRef = ref(null)
 const selectedId = ref(null)
 const previewPath = ref(null)
 const animFrame = ref(null)
 const now = ref(Date.now())
 const localTroopAnim = ref({})
+const suppressClickUntil = ref(0)
+const isMapGestureActive = ref(false)
+const mapViewport = reactive({
+  scale: 1,
+  offsetX: 0,
+  offsetY: 0
+})
+const gestureState = reactive({
+  startOffsetX: 0,
+  startOffsetY: 0,
+  startScale: 1,
+  startDistance: 0,
+  startX: 0,
+  startY: 0,
+  startAt: 0,
+  moved: false
+})
+const activePointers = new Map()
 
 const ratios = [
   { value: 0.25, label: '25%' },
@@ -426,27 +466,21 @@ watch(movingTroops, (newTroops) => {
 }, { deep: true, immediate: true })
 
 const movingTroopVisuals = computed(() => {
-  return movingTroops.value.map(troop => {
-    const fromId = troop.path[troop.currentStep]
-    const toId = troop.path[Math.min(troop.currentStep + 1, troop.path.length - 1)]
-    const from = territories.value.find(t => t.id === fromId)
-    const to = territories.value.find(t => t.id === toId)
-    if (!from || !to) return null
-
-    const animState = localTroopAnim.value[troop.id]
-    const stepStartTime = animState ? animState.stepStartTime : now.value
-    const elapsed = now.value - stepStartTime
-    const progress = Math.min(1, Math.max(0, elapsed / TRAVEL_TIME_PER_EDGE))
-
-    return {
-      id: troop.id,
-      playerId: troop.playerId,
-      amount: troop.amount,
-      x: from.x + (to.x - from.x) * progress,
-      y: from.y + (to.y - from.y) * progress
-    }
-  }).filter(Boolean)
+  return getMovingTroopVisuals({
+    movingTroops: movingTroops.value,
+    territories: territories.value,
+    animationStateById: localTroopAnim.value,
+    now: now.value
+  })
 })
+
+const isMapZoomed = computed(() => mapViewport.scale > MIN_MAP_SCALE + 0.01)
+
+const battleMapStyle = computed(() => ({
+  transform: `translate(${mapViewport.offsetX}px, ${mapViewport.offsetY}px) scale(${mapViewport.scale})`,
+  transformOrigin: 'center center',
+  transition: isMapGestureActive.value ? 'none' : 'transform 140ms ease-out'
+}))
 
 function ownerColor(ownerId) {
   if (!ownerId) return isCatpawTheme.value ? '#fce4ec' : '#f4f0e7'
@@ -512,6 +546,178 @@ function handleTerritoryClick(territory) {
   }
 }
 
+function handleMapPointerDown(event) {
+  if (event.pointerType === 'mouse' && event.button !== 0) return
+  svgRef.value?.setPointerCapture?.(event.pointerId)
+  activePointers.set(event.pointerId, {
+    x: event.clientX,
+    y: event.clientY
+  })
+
+  if (activePointers.size === 1) {
+    gestureState.startOffsetX = mapViewport.offsetX
+    gestureState.startOffsetY = mapViewport.offsetY
+    gestureState.startScale = mapViewport.scale
+    gestureState.startX = event.clientX
+    gestureState.startY = event.clientY
+    gestureState.startAt = Date.now()
+    gestureState.moved = false
+  } else if (activePointers.size === 2) {
+    const [first, second] = [...activePointers.values()]
+    gestureState.startOffsetX = mapViewport.offsetX
+    gestureState.startOffsetY = mapViewport.offsetY
+    gestureState.startScale = mapViewport.scale
+    gestureState.startDistance = getDistance(first, second)
+    gestureState.moved = true
+    isMapGestureActive.value = true
+    queueClickSuppression()
+  }
+}
+
+function handleMapPointerMove(event) {
+  if (!activePointers.has(event.pointerId)) return
+  activePointers.set(event.pointerId, {
+    x: event.clientX,
+    y: event.clientY
+  })
+
+  if (activePointers.size === 1) {
+    const deltaX = event.clientX - gestureState.startX
+    const deltaY = event.clientY - gestureState.startY
+    const movementPx = Math.hypot(deltaX, deltaY)
+    const metrics = getViewportMetrics()
+    if (!metrics) return
+    if (movementPx <= 4) return
+
+    gestureState.moved = true
+    isMapGestureActive.value = true
+    queueClickSuppression()
+
+    applyViewport(panViewport({
+      scale: mapViewport.scale,
+      offsetX: gestureState.startOffsetX,
+      offsetY: gestureState.startOffsetY,
+      deltaX,
+      deltaY,
+      ...metrics,
+      aspectRatio: MAP_ASPECT_RATIO
+    }))
+    return
+  }
+
+  if (activePointers.size >= 2) {
+    const [first, second] = [...activePointers.values()]
+    const metrics = getViewportMetrics()
+    const localFocal = getLocalPoint(getMidpoint(first, second))
+    if (!metrics || !localFocal || gestureState.startDistance === 0) return
+
+    gestureState.moved = true
+    isMapGestureActive.value = true
+    queueClickSuppression()
+
+    applyViewport(zoomViewport({
+      scale: gestureState.startScale,
+      offsetX: gestureState.startOffsetX,
+      offsetY: gestureState.startOffsetY,
+      nextScale: gestureState.startScale * (getDistance(first, second) / gestureState.startDistance),
+      focalX: localFocal.x,
+      focalY: localFocal.y,
+      ...metrics,
+      aspectRatio: MAP_ASPECT_RATIO
+    }))
+  }
+}
+
+function handleMapPointerUp(event) {
+  activePointers.delete(event.pointerId)
+  svgRef.value?.releasePointerCapture?.(event.pointerId)
+
+  if (activePointers.size === 1) {
+    const [remaining] = [...activePointers.values()]
+    gestureState.startOffsetX = mapViewport.offsetX
+    gestureState.startOffsetY = mapViewport.offsetY
+    gestureState.startX = remaining.x
+    gestureState.startY = remaining.y
+    gestureState.startAt = Date.now()
+    gestureState.moved = true
+    return
+  }
+
+  if (activePointers.size === 0) {
+    const durationMs = Date.now() - gestureState.startAt
+    const movementPx = Math.hypot(event.clientX - gestureState.startX, event.clientY - gestureState.startY)
+    if (!isTapGesture({ durationMs, movementPx }) || gestureState.moved) {
+      queueClickSuppression()
+    }
+    isMapGestureActive.value = false
+  }
+}
+
+function handleMapClickCapture(event) {
+  if (Date.now() < suppressClickUntil.value) {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+}
+
+function applyViewport(nextViewport) {
+  mapViewport.scale = nextViewport.scale
+  mapViewport.offsetX = nextViewport.offsetX
+  mapViewport.offsetY = nextViewport.offsetY
+}
+
+function syncViewportBounds() {
+  const metrics = getViewportMetrics()
+  if (!metrics) return
+  applyViewport(clampViewport({
+    scale: mapViewport.scale,
+    offsetX: mapViewport.offsetX,
+    offsetY: mapViewport.offsetY,
+    ...metrics,
+    aspectRatio: MAP_ASPECT_RATIO
+  }))
+}
+
+function queueClickSuppression() {
+  suppressClickUntil.value = Date.now() + 250
+}
+
+function getViewportMetrics() {
+  const shell = mapShellRef.value
+  if (!shell) return null
+  const styles = window.getComputedStyle(shell)
+  const horizontalPadding = parseFloat(styles.paddingLeft || 0) + parseFloat(styles.paddingRight || 0)
+  const verticalPadding = parseFloat(styles.paddingTop || 0) + parseFloat(styles.paddingBottom || 0)
+  return {
+    viewportWidth: Math.max(0, shell.clientWidth - horizontalPadding),
+    viewportHeight: Math.max(0, shell.clientHeight - verticalPadding)
+  }
+}
+
+function getLocalPoint(point) {
+  const shell = mapShellRef.value
+  if (!shell) return null
+  const rect = shell.getBoundingClientRect()
+  const styles = window.getComputedStyle(shell)
+  const paddingLeft = parseFloat(styles.paddingLeft || 0)
+  const paddingTop = parseFloat(styles.paddingTop || 0)
+  return {
+    x: point.x - rect.left - paddingLeft,
+    y: point.y - rect.top - paddingTop
+  }
+}
+
+function getDistance(first, second) {
+  return Math.hypot(first.x - second.x, first.y - second.y)
+}
+
+function getMidpoint(first, second) {
+  return {
+    x: (first.x + second.x) / 2,
+    y: (first.y + second.y) / 2
+  }
+}
+
 function tickAnimation() {
   now.value = Date.now()
   animFrame.value = requestAnimationFrame(tickAnimation)
@@ -519,11 +725,20 @@ function tickAnimation() {
 
 onMounted(() => {
   tickAnimation()
+  syncViewportBounds()
+  if (typeof ResizeObserver !== 'undefined' && mapShellRef.value) {
+    resizeObserver = new ResizeObserver(() => syncViewportBounds())
+    resizeObserver.observe(mapShellRef.value)
+  }
+  window.addEventListener('resize', syncViewportBounds, { passive: true })
 })
 
 onUnmounted(() => {
   if (animFrame.value) {
     cancelAnimationFrame(animFrame.value)
   }
+  resizeObserver?.disconnect?.()
+  window.removeEventListener('resize', syncViewportBounds)
+  activePointers.clear()
 })
 </script>

@@ -33,6 +33,12 @@ button {
   padding: 28px;
 }
 
+.game-screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
 .menu-screen,
 .result-screen {
   display: grid;
@@ -194,6 +200,8 @@ button:disabled {
 .battle-layout {
   grid-template-columns: 260px minmax(0, 1fr);
   align-items: stretch;
+  flex: 1;
+  min-height: 0;
 }
 
 .panel,
@@ -271,19 +279,34 @@ button:disabled {
 .map-shell {
   min-height: 620px;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
   background:
     radial-gradient(circle at 25% 20%, rgba(35, 166, 111, 0.18), transparent 28%),
     radial-gradient(circle at 78% 76%, rgba(232, 77, 79, 0.16), transparent 34%),
     #f8f1e4;
 }
 
+.map-shell.interacting {
+  cursor: grabbing;
+}
+
 .battle-map {
   display: block;
   width: 100%;
-  height: min(72vh, 720px);
+  height: auto;
   min-height: 560px;
+  max-height: min(72vh, 720px);
+  aspect-ratio: var(--map-aspect-ratio, 1000 / 640);
   touch-action: none;
   user-select: none;
+  will-change: transform;
+}
+
+.battle-map.zoomed {
+  cursor: grab;
 }
 
 .map-edge {
@@ -383,12 +406,14 @@ button:disabled {
 
 .moving-troop {
   pointer-events: none;
+  filter: drop-shadow(0 5px 10px rgba(23, 33, 43, 0.28));
 }
 
 .moving-troop-bg {
   stroke: #17212b;
   stroke-width: 3;
   opacity: 0.92;
+  animation: troop-pulse 0.7s ease-in-out infinite alternate;
 }
 
 .moving-troop-text {
@@ -398,6 +423,17 @@ button:disabled {
   paint-order: stroke;
   stroke: #17212b;
   stroke-width: 3;
+}
+
+@keyframes troop-pulse {
+  from {
+    opacity: 0.82;
+    stroke-width: 3;
+  }
+  to {
+    opacity: 1;
+    stroke-width: 4.5;
+  }
 }
 
 .score-list {
@@ -641,7 +677,7 @@ button:disabled {
 
 @media (max-width: 820px) {
   .screen {
-    padding: 18px;
+    padding: 12px;
   }
 
   .top-bar,
@@ -655,15 +691,34 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .top-bar {
+    margin-bottom: 12px;
+  }
+
+  .battle-layout {
+    gap: 12px;
+  }
+
+  .status-panel {
+    order: 2;
+    padding: 16px;
+  }
+
+  .player-list.compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .map-shell {
-    min-height: auto;
-    overflow: auto;
+    order: 1;
+    min-height: clamp(360px, 72dvh, 760px);
+    padding: 8px;
+    overflow: hidden;
   }
 
   .battle-map {
-    width: max(100%, 800px);
-    height: auto;
-    min-height: auto;
-    aspect-ratio: 1000 / 640;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
   }
 }

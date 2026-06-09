@@ -19,12 +19,13 @@ export const DEFAULT_THEME = 'default'
 export const PLAYER_COLORS = ['#e84d4f', '#2f8cff', '#23a66f', '#f2b233']
 export const DISPATCH_RATIOS = [0.25, 0.5, 0.75]
 
-const MAP_WIDTH = 1000
-const MAP_HEIGHT = 640
+export const MAP_WIDTH = 1000
+export const MAP_HEIGHT = 640
+export const MAP_ASPECT_RATIO = MAP_WIDTH / MAP_HEIGHT
 const MAX_PLAYERS = 4
 const MIN_PLAYERS = 2
 const MAX_UNITS = 50
-const TRAVEL_TIME_PER_EDGE = 1500
+export const TRAVEL_TIME_PER_EDGE = 1500
 const PRODUCTION_INTERVAL = 2
 
 let movingTroopIdCounter = 0
