@@ -86,12 +86,29 @@ if (typeof console !== 'undefined') {
   }
 }
 
+// ICE 传输策略默认值：
+// 我们的玩家基本都在大陆，P2P 直连几乎必然失败，先试直连只会让每次加入白等
+// 数秒最后还是落到中继。所以只要配置了 TURN，就默认 relay-only，跳过直连探测。
+// - 显式 VITE_P2P_ICE_TRANSPORT_POLICY=all  → 强制开启直连探测（局域网/海外场景）
+// - 显式 VITE_P2P_ICE_TRANSPORT_POLICY=relay → 强制 relay-only
+// - 未设置：有 TURN 时 relay-only；无 TURN 时回退 'all'（直连是唯一可能，尽管多半失败）
 export const DEFAULT_ICE_TRANSPORT_POLICY =
-  REQUESTED_ICE_TRANSPORT_POLICY === 'relay' ? 'relay' : 'all';
+  REQUESTED_ICE_TRANSPORT_POLICY === 'all'
+    ? 'all'
+    : REQUESTED_ICE_TRANSPORT_POLICY === 'relay'
+      ? 'relay'
+      : HAS_TURN_RELAY
+        ? 'relay'
+        : 'all';
 
-export function createPeerConfig({ forceRelay = false } = {}) {
+if (typeof console !== 'undefined') {
+  console.info(`[P2P] 🧭 ICE 传输策略: ${DEFAULT_ICE_TRANSPORT_POLICY}` +
+    (DEFAULT_ICE_TRANSPORT_POLICY === 'relay' ? '（默认中继，跳过直连探测）' : '（允许直连）'));
+}
+
+export function createPeerConfig() {
   return {
     ...PEER_CONFIG,
-    iceTransportPolicy: forceRelay ? 'relay' : DEFAULT_ICE_TRANSPORT_POLICY
+    iceTransportPolicy: DEFAULT_ICE_TRANSPORT_POLICY
   };
 }

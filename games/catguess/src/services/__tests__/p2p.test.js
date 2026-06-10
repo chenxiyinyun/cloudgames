@@ -31,8 +31,6 @@ function resetP2PState() {
   p2p._peerLastSeen = new Map()
   p2p._missedHeartbeats = new Map()
   p2p._disconnectedPeers = new Set()
-  p2p._retryQueue = []
-  p2p._retryTimer = null
   p2p._recoveryAttempts = new Map()
   p2p._iceGuardTimers = new Map()
 }

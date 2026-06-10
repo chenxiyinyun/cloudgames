@@ -46,18 +46,15 @@ export class P2PService {
     this._peerLastSeen = new Map();
     this._missedHeartbeats = new Map();
     this._disconnectedPeers = new Set();
-    this._retryQueue = [];
-    this._retryTimer = null;
-    this._lastConnectionMode = 'direct-or-relay';
+    this._lastConnectionMode = this._getModeLabel();
     this._connectionStates = new Map();
     this._recoveryAttempts = new Map();
     this._iceGuardTimers = new Map();
-    this._hostBailInProgress = false;
   }
 
   /**
-   * 模式/状态变更通知：让上层（gameStore / UI）能感知直连→中继切换
-   * @param {{ phase: 'trying-direct' | 'switching-to-relay' | 'using-relay' | 'failed', reason?: string }} payload
+   * 模式/状态变更通知：让上层（gameStore / UI）能感知连接进度
+   * @param {{ phase: 'connecting' | 'using-relay' | 'connected' | 'failed', reason?: string }} payload
    */
   _emitModeChange(payload) {
     this._lastModeChange = { ...payload, at: Date.now() };
@@ -90,11 +87,11 @@ export class P2PService {
     return this._lastConnectionMode;
   }
 
-  _getPeerOptions({ forceRelay = false } = {}) {
+  _getPeerOptions() {
     this._assertPrivateSignalingConfigured();
     return {
       ...PEER_SERVER,
-      config: createPeerConfig({ forceRelay }),
+      config: createPeerConfig(),
       debug: 0
     };
   }
@@ -105,7 +102,7 @@ export class P2PService {
     }
   }
 
-  async createHost(roomCode, playerName, { forceRelay = false } = {}) {
+  async createHost(roomCode, playerName) {
     this._assertPrivateSignalingConfigured();
     this.isHost = true;
     this.roomCode = roomCode;
@@ -118,8 +115,8 @@ export class P2PService {
         reject(new Error('创建房间超时，请重试'));
       }, 20000);
 
-      this._lastConnectionMode = this._getModeLabel({ forceRelay });
-      this.peer = new Peer(peerId, this._getPeerOptions({ forceRelay }));
+      this._lastConnectionMode = this._getModeLabel();
+      this.peer = new Peer(peerId, this._getPeerOptions());
 
       this.peer.on('open', (id) => {
         clearTimeout(timeout);
@@ -189,41 +186,12 @@ export class P2PService {
     this.isHost = false;
     this.roomCode = roomCode;
     this.playerName = playerName;
-
-    // 是否还有中继兜底可用（已有 TURN，且当前不是纯中继模式）
-    const canRelay = HAS_TURN_RELAY && this._getModeLabel() !== 'relay';
-
-    // 进入尝试阶段，通知 UI
-    this._emitModeChange({ phase: 'trying-direct', mode: 'direct-or-relay' });
-
-    try {
-      return await this._joinRoom(roomCode, {
-        forceRelay: false,
-        timeout: canRelay ? 4000 : 20000
-      });
-    } catch (err) {
-      const isIceFailed = err && err.code === 'ICE_FAILED';
-      const isTimeout = err && err.code === 'JOIN_TIMEOUT';
-      const isNoCandidates = err && err.code === 'NO_SRFLX_CANDIDATES';
-      if (!canRelay) {
-        throw err;
-      }
-      const reason = isNoCandidates
-        ? 'STUN 未返回候选地址，直连不可用，切到 TURN 中继'
-        : isIceFailed
-          ? '直连 ICE 失败，切到 TURN 中继'
-          : '直连超时，切到 TURN 中继';
-      this.log.warn(
-        'Room join failed, switching to relay-only TURN',
-        { roomCode, reason, error: err }
-      );
-      this._emitModeChange({ phase: 'switching-to-relay', mode: 'relay', reason });
-      this._destroyPeerOnly();
-      return this._joinRoom(roomCode, { forceRelay: true, timeout: 15000 });
-    }
+    this._lastConnectionMode = this._getModeLabel();
+    this._emitModeChange({ phase: 'connecting', mode: this._lastConnectionMode });
+    return this._joinRoom(roomCode, { timeout: 20000 });
   }
 
-  async _joinRoom(roomCode, { forceRelay = false, timeout: timeoutMs = 15000 } = {}) {
+  async _joinRoom(roomCode, { timeout: timeoutMs = 20000 } = {}) {
     this._assertPrivateSignalingConfigured();
     const hostPeerId = this.getHostPeerId(roomCode);
     const guestPeerId = this.getGuestPeerId();
@@ -243,8 +211,8 @@ export class P2PService {
         settle(reject, err);
       }, timeoutMs);
 
-      this._lastConnectionMode = this._getModeLabel({ forceRelay });
-      this.peer = new Peer(guestPeerId, this._getPeerOptions({ forceRelay }));
+      this._lastConnectionMode = this._getModeLabel();
+      this.peer = new Peer(guestPeerId, this._getPeerOptions());
 
       this.peer.on('open', (id) => {
         this.log.info('Guest peer created:', { id });
@@ -257,62 +225,16 @@ export class P2PService {
           settle(resolve, id);
           this.log.info('Connected to host:', { hostPeerId });
           this._setupConnection(conn);
+          this._emitModeChange({
+            phase: this._lastConnectionMode === 'relay' ? 'using-relay' : 'connected',
+            mode: this._lastConnectionMode
+          });
         });
 
         conn.on('error', (err) => {
           this.log.error('Connection error:', { error: err });
           settle(reject, new Error('无法连接到房间'));
         });
-
-        const onIceStateChange = () => {
-          const pc = conn.peerConnection;
-          if (!pc) return;
-          const state = pc.iceConnectionState;
-          this.log.debug('Join ICE state', { state, forceRelay, hostPeerId });
-          if (state === 'failed' && !forceRelay) {
-            this.log.warn('ICE failed during direct connect, signaling fallback to relay', { hostPeerId });
-            const err = new Error('ICE connection failed');
-            err.code = 'ICE_FAILED';
-            settle(reject, err);
-          } else if (state === 'connected' || state === 'completed') {
-            this._emitModeChange({
-              phase: forceRelay ? 'using-relay' : 'trying-direct',
-              mode: this._lastConnectionMode,
-              iceState: state
-            });
-          }
-        };
-
-        // srflx 候选早期检测：直连模式下，2s 内没收到 server-reflexive 候选
-        // 说明 STUN 不通（防火墙/对称 NAT），立即放弃直连切中继
-        const setupCandidateWatch = (pc) => {
-          if (forceRelay) return;
-          let hasSrflx = false;
-          const candidateTimer = setTimeout(() => {
-            if (!hasSrflx && !settled) {
-              this.log.warn('No srflx candidates within 2s, bailing to relay', { hostPeerId });
-              const err = new Error('No server-reflexive candidates');
-              err.code = 'NO_SRFLX_CANDIDATES';
-              settle(reject, err);
-            }
-          }, 2000);
-          conn.on('open', () => clearTimeout(candidateTimer));
-          pc.addEventListener?.('icecandidate', (e) => {
-            if (e.candidate && e.candidate.type === 'srflx') {
-              hasSrflx = true;
-            }
-          });
-        };
-
-        const attachWhenReady = () => {
-          if (conn.peerConnection) {
-            conn.peerConnection.addEventListener?.('iceconnectionstatechange', onIceStateChange);
-            setupCandidateWatch(conn.peerConnection);
-          } else {
-            setTimeout(attachWhenReady, 50);
-          }
-        };
-        attachWhenReady();
       });
 
       this.peer.on('error', (err) => {
@@ -374,15 +296,13 @@ export class P2PService {
     });
   }
 
-  _getModeLabel({ forceRelay = false } = {}) {
-    if (forceRelay) return 'relay';
+  _getModeLabel() {
     return createPeerConfig().iceTransportPolicy === 'relay' ? 'relay' : 'direct-or-relay';
   }
 
   _setupConnection(conn) {
     if (this.connections.find(c => c.peer === conn.peer)) return;
     this._watchConnectionState(conn);
-    if (this.isHost) this._setupHostRelayBailGuard(conn);
 
     conn.on('data', (data) => {
       if (data.type === 'HEARTBEAT' || data.type === 'HEARTBEAT_ACK') {
@@ -481,150 +401,6 @@ export class P2PService {
     pc.addEventListener?.('connectionstatechange', updateState);
   }
 
-  /**
-   * Host 端的 srflx/relay 候选早检测（对称 joinRoom 客户端的 setupCandidateWatch, line 285-304）。
-   * 4s 内没收到 srflx 或 relay 候选 → STUN 不可达 + TURN 候选没协商出来，
-   * 主动 bail 到 relay 模式重建 host peer,再反向 connect 客人。
-   */
-  _setupHostRelayBailGuard(conn) {
-    if (this._lastConnectionMode === 'relay') return;
-    if (!HAS_TURN_RELAY) return;
-    if (this._hostBailInProgress) return;
-
-    const pc = conn.peerConnection;
-    if (!pc || !pc.addEventListener) return;
-
-    const BAIL_TIMEOUT_MS = 4000;
-    let hasSrflxOrRelay = false;
-    let bailed = false;
-
-    const onCandidate = (e) => {
-      if (e.candidate && (e.candidate.type === 'srflx' || e.candidate.type === 'relay')) {
-        hasSrflxOrRelay = true;
-      }
-    };
-    pc.addEventListener('icecandidate', onCandidate);
-
-    const onStateChange = () => {
-      const s = pc.iceConnectionState;
-      if (s === 'connected' || s === 'completed' || s === 'closed' || s === 'failed') {
-        cleanup();
-      }
-    };
-    pc.addEventListener('iceconnectionstatechange', onStateChange);
-
-    const cleanup = () => {
-      clearTimeout(timer);
-      pc.removeEventListener?.('icecandidate', onCandidate);
-      pc.removeEventListener?.('iceconnectionstatechange', onStateChange);
-    };
-
-    const timer = setTimeout(() => {
-      if (bailed) return;
-      cleanup();
-      if (hasSrflxOrRelay) return;
-      const s = pc.iceConnectionState;
-      if (s === 'connected' || s === 'completed') return;
-      this.log.warn(
-        'Host: no srflx/relay candidates within 4s, bailing to relay',
-        { peer: conn.peer, iceState: s }
-      );
-      bailed = true;
-      this._bailToRelayAndReconnect(conn.peer);
-    }, BAIL_TIMEOUT_MS);
-  }
-
-  /**
-   * Host 端 bail 执行：关闭 conn → 销毁 host peer → 用 forceRelay=true 重建 → 主动 dial 客人。
-   * 客人那边 host close 后由 network.js 的 auto-reconnect 驱动 joinRoom，
-   * 走 joinRoom 自己的 fallback 流程到 forceRelay 模式。两边都到 relay 后会通。
-   */
-  async _bailToRelayAndReconnect(peerId) {
-    if (this._hostBailInProgress) {
-      this.log.debug('Host bail already in progress, skipping', { peerId });
-      return;
-    }
-    this._hostBailInProgress = true;
-    this._emitModeChange({
-      phase: 'switching-to-relay',
-      mode: 'relay',
-      reason: 'Host 4s 内未收集到 srflx/relay 候选,直连路径不可用'
-    });
-
-    try {
-      this.log.warn('Host: tearing down peer and rebuilding with forceRelay', { peerId });
-
-      try { this.disconnectPeer(peerId); } catch (e) {
-        this.log.warn('disconnectPeer failed during bail', { error: e });
-      }
-
-      this._destroyPeerOnly();
-      this.peer = null;
-      this._lastConnectionMode = 'relay';
-
-      const newPeerId = await this._recreateHostPeerWithRelay();
-      this.log.info('Host peer rebuilt in relay mode', { newPeerId, targetPeer: peerId });
-
-      try {
-        await this.connectToPeer(peerId, { timeout: 15000, retries: 0 });
-        this.log.info('Host bail-to-relay: reconnected to peer', { peerId });
-      } catch (err) {
-        this.log.error('Host bail-to-relay: failed to dial peer', { peerId, error: err?.message });
-      }
-    } catch (e) {
-      this.log.error('Host bail-to-relay failed', { error: e });
-    } finally {
-      this._hostBailInProgress = false;
-    }
-  }
-
-  /**
-   * 不走 createHost 整套流程(避免影响 heartbeat/timers 等 host 状态)，
-   * 只创建 host peer with forceRelay=true 并注册 connection/error 监听。
-   */
-  _recreateHostPeerWithRelay() {
-    return new Promise((resolve, reject) => {
-      this._assertPrivateSignalingConfigured();
-      if (!this.roomCode) {
-        reject(new Error('recreateHostPeerWithRelay: roomCode 丢失'));
-        return;
-      }
-      const peerId = this.getHostPeerId(this.roomCode);
-      let opened = false;
-
-      const timeout = setTimeout(() => {
-        if (!opened) reject(new Error('重建 host peer 超时'));
-      }, 20000);
-
-      this.peer = new Peer(peerId, this._getPeerOptions({ forceRelay: true }));
-
-      this.peer.on('open', (id) => {
-        clearTimeout(timeout);
-        opened = true;
-        this.log.info('Host peer (re)created in relay mode:', { id });
-        resolve(id);
-      });
-
-      this.peer.on('connection', (conn) => {
-        this.log.info('New connection from:', { peer: conn.peer });
-        this._setupConnection(conn);
-        if (this.onPlayerConnected) this.onPlayerConnected(conn);
-      });
-
-      this.peer.on('error', (err) => {
-        if (err?.type === 'peer-unavailable') {
-          this.log.warn('Ignoring peer-unavailable on host (bail rebuild)');
-          return;
-        }
-        this.log.error('Host peer error (bail rebuild):', { error: err });
-        if (!opened) {
-          clearTimeout(timeout);
-          reject(new Error('重建 host peer 失败: ' + translatePeerError(err)));
-        }
-      });
-    });
-  }
-
   getPeerConnectionState(peerId) {
     return this._connectionStates.get(peerId) || { mode: this._lastConnectionMode };
   }
@@ -666,8 +442,6 @@ export class P2PService {
 
   softDisconnect() {
     this.stopHeartbeat();
-    this._stopRetryTimer();
-    this._retryQueue = [];
     this.connections.forEach(conn => {
       try { conn.close(); } catch { /* ignore close error */ }
     });
@@ -699,8 +473,6 @@ export class P2PService {
     // 实际更安全的做法:也清 conn(到旧 host 的 conn 没用了,与其他 client 的 conn 需要重新协商)
     // 这里选彻底清,确保不会有指向旧 peerId 的残影
     this.stopHeartbeat();
-    this._stopRetryTimer();
-    this._retryQueue = [];
     this.connections.forEach(conn => {
       try { conn.close(); } catch { /* ignore close error */ }
     });
@@ -778,77 +550,21 @@ export class P2PService {
         this._peerLastSeen.delete(peerId);
         try { conn.close(); } catch { /* ignore close error */ }
         this.connections = this.connections.filter(c => c.peer !== peerId);
-        this._retryQueue = this._retryQueue.filter(e => e.peerId !== peerId);
-        if (this._retryQueue.length === 0) {
-          this._stopRetryTimer();
-        }
       }
     }
   }
 
-  _enqueueRetry(peerId, type, payload) {
-    this._retryQueue.push({
-      peerId,
-      type,
-      payload,
-      attempts: 0,
-      nextRetry: Date.now()
-    });
-    this._ensureRetryTimer();
-  }
-
-  _ensureRetryTimer() {
-    if (this._retryTimer) return;
-    this._retryTimer = setInterval(() => this._processRetryQueue(), 1000);
-  }
-
-  _stopRetryTimer() {
-    if (this._retryTimer) {
-      clearInterval(this._retryTimer);
-      this._retryTimer = null;
-    }
-  }
-
-  _processRetryQueue() {
-    const now = Date.now();
-    const remaining = [];
-    for (const entry of this._retryQueue) {
-      if (now < entry.nextRetry) {
-        remaining.push(entry);
-        continue;
-      }
-      entry.attempts++;
-      const conn = this.connections.find(c => c.peer === entry.peerId);
-      if (conn && conn.open) {
-        try {
-          conn.send({ type: entry.type, payload: entry.payload, timestamp: Date.now() });
-          continue;
-        } catch {
-          this.log.warn('Retry send failed', { peerId: entry.peerId, type: entry.type, attempt: entry.attempts });
-        }
-      }
-      if (entry.attempts >= 3) {
-        this.log.warn('Max retries exceeded, dropping message', { peerId: entry.peerId, type: entry.type });
-        continue;
-      }
-      entry.nextRetry = now + Math.min(1000 * Math.pow(2, entry.attempts - 1), 8000);
-      remaining.push(entry);
-    }
-    this._retryQueue = remaining;
-    if (this._retryQueue.length === 0) {
-      this._stopRetryTimer();
-    }
-  }
-
+  // 注意：reliable ordered DataChannel 上 conn.send() 只在连接已死时才抛错，
+  // 此时重发到同一条死连接没有意义。可靠性交给上层的「重连 + 全量 ROOM_STATE 同步」
+  // 这条已有路径处理；旧消息重发反而可能送出过期操作，故不在此做重试。
   broadcast(type, payload) {
     const message = { type, payload, timestamp: Date.now() };
     this.connections.forEach(conn => {
       if (conn.open) {
         try {
           conn.send(message);
-        } catch {
-          this.log.warn('broadcast send failed, enqueuing for retry', { peerId: conn.peer, type });
-          this._enqueueRetry(conn.peer, type, payload);
+        } catch (err) {
+          this.log.warn('broadcast send failed (dead conn); relying on reconnect+resync', { peerId: conn.peer, type, error: err?.message });
         }
       }
     });
@@ -861,9 +577,8 @@ export class P2PService {
       try {
         conn.send(message);
         return true;
-      } catch {
-        this.log.warn('sendTo failed, enqueuing for retry', { peerId, type });
-        this._enqueueRetry(peerId, type, payload);
+      } catch (err) {
+        this.log.warn('sendTo failed (dead conn); relying on reconnect+resync', { peerId, type, error: err?.message });
         return false;
       }
     }
@@ -881,8 +596,6 @@ export class P2PService {
 
   disconnect() {
     this.stopHeartbeat();
-    this._stopRetryTimer();
-    this._retryQueue = [];
     this.connections.forEach(conn => conn.close());
     this.connections = [];
     this._missedHeartbeats.clear();

@@ -39,8 +39,6 @@ function resetP2PState() {
   p2p._peerLastSeen = new Map()
   p2p._missedHeartbeats = new Map()
   p2p._disconnectedPeers = new Set()
-  p2p._retryQueue = []
-  p2p._retryTimer = null
 }
 
 describe('P2PService', () => {
@@ -142,8 +140,6 @@ describe('P2PService', () => {
       expect(p2p._peerLastSeen).toBeDefined()
       expect(p2p._missedHeartbeats).toBeDefined()
       expect(p2p._disconnectedPeers).toBeDefined()
-      expect(p2p._retryQueue).toEqual([])
-      expect(p2p._retryTimer).toBeNull()
       expect(p2p._heartbeatInterval).toBeNull()
     })
   })
@@ -368,15 +364,13 @@ describe('P2PService', () => {
       expect(mockConn2.send).not.toHaveBeenCalled()
     })
 
-    it('enqueues for retry when send throws', () => {
+    it('swallows send errors on dead connections (no retry queue)', () => {
       const badConn = { peer: 'bad-bcast', open: true, send: () => { throw new Error('fail') } }
       p2p.connections = [badConn]
 
+      // 不再入队重试：reliable channel 上的 send 抛错意味着连接已死，
+      // 可靠性交给重连 + 全量 ROOM_STATE 同步
       expect(() => p2p.broadcast('TEST', {})).not.toThrow()
-      expect(p2p._retryQueue.length).toBeGreaterThan(0)
-      const entry = p2p._retryQueue[0]
-      expect(entry.peerId).toBe('bad-bcast')
-      expect(entry.type).toBe('TEST')
     })
   })
 
@@ -413,14 +407,11 @@ describe('P2PService', () => {
       expect(mockConn.send).not.toHaveBeenCalled()
     })
 
-    it('enqueues for retry when send throws', () => {
+    it('returns false and swallows error on dead connection (no retry queue)', () => {
       const badConn = { peer: 'sendto-bad', open: true, send: () => { throw new Error('fail') } }
       p2p.connections = [badConn]
 
-      p2p.sendTo('sendto-bad', 'TEST', {})
-
-      expect(p2p._retryQueue.length).toBeGreaterThan(0)
-      expect(p2p._retryQueue[0].peerId).toBe('sendto-bad')
+      expect(p2p.sendTo('sendto-bad', 'TEST', {})).toBe(false)
     })
   })
 
@@ -444,9 +435,7 @@ describe('P2PService', () => {
       p2p._missedHeartbeats.set('p1', 3)
       p2p._peerLastSeen.set('p1', Date.now())
       p2p._disconnectedPeers.add('p1')
-      p2p._retryQueue = [{ peerId: 'p1', type: 'X', payload: {}, attempts: 0, nextRetry: 0 }]
       p2p._heartbeatInterval = setInterval(() => {}, 99999)
-      p2p._retryTimer = setInterval(() => {}, 99999)
 
       p2p.disconnect()
 
@@ -458,88 +447,12 @@ describe('P2PService', () => {
       expect(p2p._missedHeartbeats.size).toBe(0)
       expect(p2p._peerLastSeen.size).toBe(0)
       expect(p2p._disconnectedPeers.size).toBe(0)
-      expect(p2p._retryQueue).toEqual([])
       expect(p2p._heartbeatInterval).toBeNull()
-      expect(p2p._retryTimer).toBeNull()
     })
 
     it('handles disconnect when peer is null', () => {
       p2p.connections = []
       expect(() => p2p.disconnect()).not.toThrow()
-    })
-  })
-
-  // ════════════════════════════════════════════════════════
-  //  Retry queue
-  // ════════════════════════════════════════════════════════
-  describe('retry queue', () => {
-    beforeEach(() => {
-      resetP2PState()
-    })
-
-    it('_enqueueRetry adds to queue', () => {
-      p2p._enqueueRetry('peer-r1', 'MSG', { data: 1 })
-      expect(p2p._retryQueue).toHaveLength(1)
-      expect(p2p._retryQueue[0].peerId).toBe('peer-r1')
-      expect(p2p._retryQueue[0].type).toBe('MSG')
-      expect(p2p._retryQueue[0].attempts).toBe(0)
-    })
-
-    it('_enqueueRetry starts retry timer', () => {
-      expect(p2p._retryTimer).toBeNull()
-      p2p._enqueueRetry('peer-r2', 'MSG', {})
-      expect(p2p._retryTimer).not.toBeNull()
-      p2p._stopRetryTimer()
-    })
-
-    it('_processRetryQueue retries sends', () => {
-      const mockConn = { peer: 'peer-r3', open: true, send: vi.fn() }
-      p2p.connections.push(mockConn)
-      p2p._retryQueue.push({
-        peerId: 'peer-r3',
-        type: 'RETRY_MSG',
-        payload: { retry: true },
-        attempts: 0,
-        nextRetry: 0
-      })
-
-      p2p._processRetryQueue()
-
-      expect(mockConn.send).toHaveBeenCalled()
-      expect(p2p._retryQueue).toHaveLength(0)
-    })
-
-    it('_processRetryQueue drops after 3 failed attempts', () => {
-      const mockConn = { peer: 'peer-r4', open: true, send: () => { throw new Error('fail') } }
-      p2p.connections.push(mockConn)
-      p2p._retryQueue.push({
-        peerId: 'peer-r4',
-        type: 'FAILING',
-        payload: {},
-        attempts: 3,
-        nextRetry: 0
-      })
-
-      p2p._processRetryQueue()
-
-      expect(p2p._retryQueue).toHaveLength(0)
-    })
-
-    it('_processRetryQueue increments attempts on failure', () => {
-      const mockConn = { peer: 'peer-r5', open: true, send: () => { throw new Error('fail') } }
-      p2p.connections.push(mockConn)
-      p2p._retryQueue.push({
-        peerId: 'peer-r5',
-        type: 'FAILING',
-        payload: {},
-        attempts: 0,
-        nextRetry: 0
-      })
-
-      p2p._processRetryQueue()
-
-      expect(p2p._retryQueue).toHaveLength(1)
-      expect(p2p._retryQueue[0].attempts).toBe(1)
     })
   })
 
