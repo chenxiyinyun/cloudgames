@@ -16,5 +16,12 @@ export default [
       'vue/multi-word-component-names': 'off',  // single-word components like MenuScreen
       'vue/no-export-in-script-setup': 'warn',
     }
+  },
+  {
+    // WebSocket 服务器：Node 运行时，使用 Node 全局（process / setInterval 等）
+    files: ['server/**/*.js'],
+    languageOptions: {
+      globals: globals.node
+    }
   }
 ];

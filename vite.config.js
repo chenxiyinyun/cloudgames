@@ -30,7 +30,8 @@ export default defineConfig({
         'games/catguess/src/**/*.test.js',
         'games/bomb-defuse/src/**/*.test.js',
         'games/territory-control/src/**/*.test.js',
-        'src/shared/**/*.test.js'
+        'src/shared/**/*.test.js',
+        'server/**/*.test.js'
     ]
   }
 })
