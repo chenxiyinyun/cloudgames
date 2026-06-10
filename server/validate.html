@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WebSocket 服务器连通性自检</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { font-size: 1.25rem; }
+  .row { display: flex; gap: .5rem; margin: 1rem 0; }
+  input { flex: 1; padding: .6rem .7rem; font-size: 1rem; border: 1px solid #ccc; border-radius: 6px; }
+  button { padding: .6rem 1.1rem; font-size: 1rem; border: 0; border-radius: 6px; background: #2563eb; color: #fff; cursor: pointer; }
+  button:disabled { background: #9aa; cursor: default; }
+  #log { margin-top: 1rem; border: 1px solid #eee; border-radius: 8px; overflow: hidden; }
+  .step { display: flex; gap: .6rem; padding: .55rem .8rem; border-top: 1px solid #f0f0f0; align-items: baseline; }
+  .step:first-child { border-top: 0; }
+  .step .icon { width: 1.2rem; }
+  .step .ms { margin-left: auto; color: #888; font-variant-numeric: tabular-nums; font-size: .85rem; }
+  .ok .icon { color: #16a34a; } .ok { color: #166534; }
+  .fail .icon { color: #dc2626; } .fail { color: #991b1b; }
+  .pending .icon { color: #ca8a04; }
+  .hint { color: #666; font-size: .9rem; line-height: 1.5; }
+  code { background: #f3f4f6; padding: .1rem .35rem; border-radius: 4px; }
+</style>
+</head>
+<body>
+  <h1>WebSocket 服务器连通性自检</h1>
+  <p class="hint">
+    在真实环境（手机流量 / 大陆网络 / 部署后的浏览器）打开本页，填入服务器地址点开始。
+    它会用<strong>两个连接</strong>跑一遍建房→加入→开始的完整握手，验证浏览器→nginx/wss→服务器整条链路。
+    本页不依赖任何构建，直接用文件协议或丢到任意静态服务都能开。
+  </p>
+  <div class="row">
+    <input id="url" value="wss://your-host/ws" placeholder="wss://your-host/path 或 ws://127.0.0.1:8080" />
+    <button id="run">开始自检</button>
+  </div>
+  <div id="log"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const logEl = $('log');
+let t0 = 0;
+
+function step(label) {
+  const el = document.createElement('div');
+  el.className = 'step pending';
+  el.innerHTML = `<span class="icon">…</span><span class="label"></span><span class="ms"></span>`;
+  el.querySelector('.label').textContent = label;
+  logEl.appendChild(el);
+  return {
+    ok(extra) { el.className = 'step ok'; el.querySelector('.icon').textContent = '✓';
+      if (extra) el.querySelector('.label').textContent += ' — ' + extra;
+      el.querySelector('.ms').textContent = (performance.now() - t0).toFixed(0) + 'ms'; },
+    fail(extra) { el.className = 'step fail'; el.querySelector('.icon').textContent = '✗';
+      if (extra) el.querySelector('.label').textContent += ' — ' + extra;
+      el.querySelector('.ms').textContent = (performance.now() - t0).toFixed(0) + 'ms'; }
+  };
+}
+
+function open(url, onMsg) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    const to = setTimeout(() => reject(new Error('连接超时（5s）')), 5000);
+    ws.onopen = () => { clearTimeout(to); resolve(ws); };
+    ws.onerror = () => { clearTimeout(to); reject(new Error('连接出错（地址/证书/反代是否正确？）')); };
+    ws.onmessage = (e) => { try { onMsg(JSON.parse(e.data)); } catch { /* ignore */ } };
+  });
+}
+
+// 等待某连接收到满足 pred 的消息
+function waitFor(bus, pred, label, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const to = setTimeout(() => reject(new Error('未在 ' + (timeoutMs/1000) + 's 内收到' + label)), timeoutMs);
+    bus.push((m) => { if (pred(m)) { clearTimeout(to); resolve(m); return true; } return false; });
+  });
+}
+function dispatch(handlers, m) {
+  for (let i = handlers.length - 1; i >= 0; i--) { if (handlers[i](m)) handlers.splice(i, 1); }
+}
+
+async function run() {
+  logEl.innerHTML = '';
+  $('run').disabled = true;
+  const url = $('url').value.trim();
+  const rid = Math.random().toString(36).slice(2, 7);
+  const hostBus = [], guestBus = [];
+  let hostWs, guestWs;
+  t0 = performance.now();
+
+  try {
+    let s = step('建立连接 1（房主）');
+    try { hostWs = await open(url, (m) => dispatch(hostBus, m)); s.ok(); }
+    catch (e) { s.fail(e.message); throw e; }
+
+    s = step('CREATE 建房 → 期待 JOINED');
+    hostWs.send(JSON.stringify({ type:'CREATE', gameId:'bombdefuse', playerId:'h-'+rid, playerName:'自检房主' }));
+    let roomCode;
+    try { const m = await waitFor(hostBus, (m)=>m.type==='JOINED', 'JOINED'); roomCode = m.roomCode; s.ok('房间号 ' + roomCode); }
+    catch (e) { s.fail(e.message); throw e; }
+
+    s = step('建立连接 2（访客）');
+    try { guestWs = await open(url, (m) => dispatch(guestBus, m)); s.ok(); }
+    catch (e) { s.fail(e.message); throw e; }
+
+    s = step('JOIN 加入 → 访客 JOINED 且房主收到广播 STATE（2 人）');
+    guestWs.send(JSON.stringify({ type:'JOIN', roomCode, playerId:'g-'+rid, playerName:'自检访客' }));
+    try {
+      await waitFor(guestBus, (m)=>m.type==='JOINED', '访客 JOINED');
+      const hs = await waitFor(hostBus, (m)=>m.type==='STATE' && m.room.players.length===2, '房主端 2 人 STATE');
+      s.ok('双方在线 ' + hs.room.players.length + ' 人');
+    } catch (e) { s.fail(e.message); throw e; }
+
+    s = step('INTENT START_GAME（房主权威）→ 双方收到 playing 状态');
+    hostWs.send(JSON.stringify({ type:'INTENT', action:'START_GAME' }));
+    try {
+      await waitFor(hostBus, (m)=>m.type==='STATE' && m.room.phase==='playing', '房主 playing');
+      await waitFor(guestBus, (m)=>m.type==='STATE' && m.room.phase==='playing', '访客 playing');
+      s.ok('游戏已开始');
+    } catch (e) { s.fail(e.message); throw e; }
+
+    step('全部通过 ✅ 链路 OK，可以进入客户端接入').ok();
+  } catch {
+    step('自检中断 —— 修复上面第一个 ✗ 再重试').fail();
+  } finally {
+    try { hostWs && hostWs.close(); } catch { /* */ }
+    try { guestWs && guestWs.close(); } catch { /* */ }
+    $('run').disabled = false;
+  }
+}
+$('run').addEventListener('click', run);
+</script>
+</body>
+</html>
