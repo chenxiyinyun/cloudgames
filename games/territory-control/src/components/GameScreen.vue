@@ -268,71 +268,56 @@
           </g>
 
           <g
-            v-for="troop in movingTroopVisuals"
-            :key="troop.id"
-            class="moving-troop"
-            :transform="`translate(${troop.x}, ${troop.y})`"
+            v-for="soldier in movingTroopVisuals"
+            :key="soldier.id"
+            class="moving-soldier"
+            :transform="`translate(${soldier.x}, ${soldier.y}) scale(${soldier.scale || 1})`"
           >
             <template v-if="isCatpawTheme">
               <!-- 猫爪主题：小猫爪移动标记 -->
               <circle
-                class="moving-troop-bg catpaw-troop-bg"
-                r="18"
-                :fill="ownerColor(troop.playerId)"
+                class="moving-soldier-bg catpaw-soldier-bg"
+                r="7"
+                :fill="ownerColor(soldier.playerId)"
               />
               <ellipse
-                class="catpaw-troop-pad"
-                rx="6"
-                ry="5"
-                cy="2"
-                :fill="ownerColor(troop.playerId)"
+                class="catpaw-soldier-pad"
+                rx="2.5"
+                ry="2"
+                cy="1"
+                :fill="ownerColor(soldier.playerId)"
               />
               <ellipse
-                class="catpaw-troop-pad"
-                cx="-5"
-                cy="-5"
-                rx="3.5"
-                ry="3"
-                :fill="ownerColor(troop.playerId)"
+                class="catpaw-soldier-pad"
+                cx="-2.5"
+                cy="-2"
+                rx="1.5"
+                ry="1.2"
+                :fill="ownerColor(soldier.playerId)"
               />
               <ellipse
-                class="catpaw-troop-pad"
+                class="catpaw-soldier-pad"
                 cx="0"
-                cy="-7"
-                rx="3.5"
-                ry="3"
-                :fill="ownerColor(troop.playerId)"
+                cy="-3"
+                rx="1.5"
+                ry="1.2"
+                :fill="ownerColor(soldier.playerId)"
               />
               <ellipse
-                class="catpaw-troop-pad"
-                cx="5"
-                cy="-5"
-                rx="3.5"
-                ry="3"
-                :fill="ownerColor(troop.playerId)"
+                class="catpaw-soldier-pad"
+                cx="2.5"
+                cy="-2"
+                rx="1.5"
+                ry="1.2"
+                :fill="ownerColor(soldier.playerId)"
               />
-              <text
-                class="moving-troop-text catpaw-troop-text"
-                text-anchor="middle"
-                dominant-baseline="central"
-                y="4"
-              >
-                {{ troop.amount }}
-              </text>
             </template>
             <template v-else>
               <circle
-                class="moving-troop-bg"
-                r="18"
-                :fill="ownerColor(troop.playerId)"
+                class="moving-soldier-bg"
+                r="6"
+                :fill="ownerColor(soldier.playerId)"
               />
-              <text
-                class="moving-troop-text"
-                text-anchor="middle"
-                dominant-baseline="central"
-              >
-                {{ troop.amount }}
-              </text>
             </template>
           </g>
         </svg>

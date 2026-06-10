@@ -404,36 +404,15 @@ button:disabled {
   pointer-events: none;
 }
 
-.moving-troop {
+.moving-soldier {
   pointer-events: none;
-  filter: drop-shadow(0 5px 10px rgba(23, 33, 43, 0.28));
+  filter: drop-shadow(0 3px 6px rgba(23, 33, 43, 0.25));
 }
 
-.moving-troop-bg {
+.moving-soldier-bg {
   stroke: #17212b;
-  stroke-width: 3;
-  opacity: 0.92;
-  animation: troop-pulse 0.7s ease-in-out infinite alternate;
-}
-
-.moving-troop-text {
-  fill: #fffaf0;
-  font-size: 16px;
-  font-weight: 900;
-  paint-order: stroke;
-  stroke: #17212b;
-  stroke-width: 3;
-}
-
-@keyframes troop-pulse {
-  from {
-    opacity: 0.82;
-    stroke-width: 3;
-  }
-  to {
-    opacity: 1;
-    stroke-width: 4.5;
-  }
+  stroke-width: 2;
+  opacity: 0.95;
 }
 
 .score-list {
@@ -593,23 +572,16 @@ button:disabled {
   stroke-linecap: round;
 }
 
-/* 猫爪主题：移动部队 */
-.game-screen[data-theme="catpaw"] .catpaw-troop-bg {
+/* 猫爪主题：移动小兵 */
+.game-screen[data-theme="catpaw"] .catpaw-soldier-bg {
   stroke: var(--catpaw-border);
-  stroke-width: 2.5;
-  opacity: 0.88;
+  stroke-width: 2;
+  opacity: 0.9;
 }
 
-.game-screen[data-theme="catpaw"] .catpaw-troop-pad {
+.game-screen[data-theme="catpaw"] .catpaw-soldier-pad {
   stroke: rgba(255, 255, 255, 0.7);
-  stroke-width: 1.5;
-}
-
-.game-screen[data-theme="catpaw"] .catpaw-troop-text {
-  fill: #fff5f7;
-  stroke: var(--catpaw-border);
-  stroke-width: 2.5;
-  font-size: 14px;
+  stroke-width: 1;
 }
 
 /* 猫爪主题：面板文字 */

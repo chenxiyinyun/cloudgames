@@ -1,4 +1,5 @@
 import {
+  GAME_PHASES,
   createInitialRoom,
   dispatchUnits,
   endGame,
@@ -208,9 +209,7 @@ export function handleSetMapSize(mapSize) {
     gameState.error = result.error
     return false
   }
-  updateLocalState(room)
-  broadcastState()
-  return true
+  return commitRoomChange(room)
 }
 
 export function handleSetTheme(theme) {
@@ -226,9 +225,7 @@ export function handleSetTheme(theme) {
     gameState.error = result.error
     return false
   }
-  updateLocalState(room)
-  broadcastState()
-  return true
+  return commitRoomChange(room)
 }
 
 export function handleStartGame() {
@@ -239,13 +236,10 @@ export function handleStartGame() {
     gameState.error = result.error
     return false
   }
-  // 同 handleDispatch:cachedRoom 改了之后必须 updateLocalState 把 UI 镜像刷新。
-  updateLocalState(room)
   startProductionTimer(() => broadcastState())
   startOfflineNeutralizeTimer(() => broadcastState())
   resetBroadcastState()
-  broadcastState({ forceFull: true })
-  return true
+  return commitRoomChange(room, { forceFull: true })
 }
 
 export function handleDispatch(rawPayload) {
@@ -267,34 +261,53 @@ export function handleDispatch(rawPayload) {
     return false
   }
   // host 自己直接改的是 cachedRoom,UI 渲染的是 gameState.room 镜像,
-  // 必须 updateLocalState 同步过去,否则地图上的兵数 / movingTroop 永远不刷新。
-  // 对比 handleSetMapSize/handleSetTheme/handleAssignRoles(其他游戏)都做了这一步。
-  updateLocalState(room)
-  if (room.phase === 'ended') {
-    stopProductionTimer()
-  }
-  broadcastState()
-  return true
+  // 必须 commitRoomChange 同步过去,否则地图上的兵数 / movingTroop 永远不刷新。
+  // 对比 handleSetMapSize/handleSetTheme 也都走 commitRoomChange,新加动作别漏。
+  return commitRoomChange(room)
 }
 
 export function handleRestartGame() {
   if (!gameState.isHost) return false
   const room = getRoom()
   restartGame(room)
-  updateLocalState(room)
   stopProductionTimer()
   resetBroadcastState()
-  broadcastState({ forceFull: true })
-  return true
+  return commitRoomChange(room, { forceFull: true })
 }
 
 export function handleEndGame() {
   if (!gameState.isHost) return false
   const room = getRoom()
   endGame(room, null)
+  return commitRoomChange(room)
+}
+
+/**
+ * Commit a room state change in a single call: mirror the authoritative room into
+ * the local UI snapshot AND broadcast the change to all peers.
+ *
+ * Centralizes the "modify cachedRoom → mirror to gameState.room → broadcast to peers"
+ * sequence so handlers cannot forget either step. Use this after every host-side
+ * mutation that other players need to see (setMapSize, setTheme, startGame, dispatch,
+ * restartGame, endGame, etc.).
+ *
+ * Placed in territory-control intentionally — other games use different end-of-game
+ * side effects (some don't auto-stop production on ENDED) so they should keep their
+ * own commit flow rather than share this helper.
+ *
+ * @param {object} room The authoritative room object (already mutated in place).
+ * @param {object} [options]
+ * @param {boolean} [options.forceFull=false] Force a full-state broadcast instead of delta.
+ * @param {boolean} [options.stopTimerOnEnd=true] Auto-stop the production timer when the game has ended.
+ * @returns {boolean} true if commit ran, false if room was missing.
+ */
+export function commitRoomChange(room, { forceFull = false, stopTimerOnEnd = true } = {}) {
+  if (!room) return false
   updateLocalState(room)
-  stopProductionTimer()
-  broadcastState()
+  if (stopTimerOnEnd && room.phase === GAME_PHASES.ENDED) {
+    stopProductionTimer()
+  }
+  broadcastState({ forceFull })
   return true
 }
 
