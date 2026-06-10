@@ -24,6 +24,7 @@ import {
 } from '../services/online';
 import { createDedupeHandler } from '../../../../src/shared/online/dedupeHandler';
 import { createNetworkLayer } from '../../../../src/shared/online/createNetworkLayer';
+import { markPlayerOnline } from '../../../../src/shared/online/presence';
 import { showToast } from '../components/ToastNotification.vue';
 import { gameState, getRoom, setRoom, updateLocalState, setConnectionStatus } from './roomState';
 import { stopJoinRetry } from './timers';
@@ -164,11 +165,7 @@ function handleJoinRequest(payload, peerId) {
   // 检查是否是断线重连
   const existingPlayer = room?.players.find(p => p.id === payload.playerId);
   if (existingPlayer && !existingPlayer.isOnline) {
-    existingPlayer.isOnline = true;
-    existingPlayer._peerId = originalPeerId;
-    if (room.disconnectedPlayers) {
-      room.disconnectedPlayers = room.disconnectedPlayers.filter(p => p.id !== payload.playerId);
-    }
+    markPlayerOnline(room, existingPlayer, originalPeerId);
 
     // 检查是否可以恢复游戏
     if (canResumeGame(room)) {

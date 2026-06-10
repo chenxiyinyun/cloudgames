@@ -18,6 +18,7 @@ import {
 } from '../services/online'
 import { createDedupeHandler } from '../../../../src/shared/online/dedupeHandler'
 import { createNetworkLayer } from '../../../../src/shared/online/createNetworkLayer'
+import { markPlayerOnline } from '../../../../src/shared/online/presence'
 import { GAME_PHASES } from '../services/gameEngine'
 import { gameState, getRoom, setConnectionStatus, setRoom, updateLocalState } from './state'
 import { clearJoinTimeout, startProductionTimer, stopJoinRetry, stopProductionTimer } from './timers'
@@ -172,12 +173,8 @@ function handleJoinRequest(payload, peerId) {
   if (payload.isReconnect && originalPeerId) {
     const existingByPeerId = room?.players.find(p => p._peerId === originalPeerId)
     if (existingByPeerId) {
-      existingByPeerId.isOnline = true
       existingByPeerId.name = payload.playerName
-      existingByPeerId._peerId = originalPeerId
-      if (room.disconnectedPlayers) {
-        room.disconnectedPlayers = room.disconnectedPlayers.filter(p => p.id !== existingByPeerId.id)
-      }
+      markPlayerOnline(room, existingByPeerId, originalPeerId)
       broadcastState()
       p2p.sendTo(peerId, MSG.JOIN_RESPONSE, { success: true, room: deepClone(room) })
       return
@@ -187,11 +184,7 @@ function handleJoinRequest(payload, peerId) {
   const existingByPlayerId = room?.players.find(p => p.id === payload.playerId)
 
   if (existingByPlayerId && !existingByPlayerId.isOnline) {
-    existingByPlayerId.isOnline = true
-    existingByPlayerId._peerId = originalPeerId
-    if (room.disconnectedPlayers) {
-      room.disconnectedPlayers = room.disconnectedPlayers.filter(p => p.id !== payload.playerId)
-    }
+    markPlayerOnline(room, existingByPlayerId, originalPeerId)
     broadcastState()
     p2p.sendTo(peerId, MSG.JOIN_RESPONSE, {
       success: true,
@@ -214,11 +207,7 @@ function handleJoinRequest(payload, peerId) {
 
   const existingByName = room?.players.find(p => p.name === payload.playerName && !p.isOnline)
   if (existingByName) {
-    existingByName.isOnline = true
-    existingByName._peerId = originalPeerId
-    if (room.disconnectedPlayers) {
-      room.disconnectedPlayers = room.disconnectedPlayers.filter(p => p.id !== existingByName.id)
-    }
+    markPlayerOnline(room, existingByName, originalPeerId)
     broadcastState()
     p2p.sendTo(peerId, MSG.JOIN_RESPONSE, {
       success: true,
