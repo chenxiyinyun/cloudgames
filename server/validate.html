@@ -40,6 +40,7 @@
 const $ = (id) => document.getElementById(id);
 const logEl = $('log');
 let t0 = 0;
+const rs = (ws) => ws ? ['CONNECTING','OPEN','CLOSING','CLOSED'][ws.readyState] : 'none';
 
 function step(label) {
   const el = document.createElement('div');
@@ -85,11 +86,16 @@ async function run() {
   const rid = Math.random().toString(36).slice(2, 7);
   const hostBus = [], guestBus = [];
   let hostWs, guestWs;
+  let finished = false;
   t0 = performance.now();
 
   try {
     let s = step('建立连接 1（房主）');
-    try { hostWs = await open(url, (m) => dispatch(hostBus, m)); s.ok(); }
+    try {
+      hostWs = await open(url, (m) => dispatch(hostBus, m));
+      hostWs.onclose = (e) => { if (!finished) step('⚠ 房主连接被关闭（code ' + e.code + '）').fail(e.reason || '反代可能没保持长连接 / 把空闲连接掐了'); };
+      s.ok();
+    }
     catch (e) { s.fail(e.message); throw e; }
 
     s = step('CREATE 建房 → 期待 JOINED');
@@ -99,7 +105,11 @@ async function run() {
     catch (e) { s.fail(e.message); throw e; }
 
     s = step('建立连接 2（访客）');
-    try { guestWs = await open(url, (m) => dispatch(guestBus, m)); s.ok(); }
+    try {
+      guestWs = await open(url, (m) => dispatch(guestBus, m));
+      guestWs.onclose = (e) => { if (!finished) step('⚠ 访客连接被关闭（code ' + e.code + '）').fail(e.reason || ''); };
+      s.ok();
+    }
     catch (e) { s.fail(e.message); throw e; }
 
     s = step('JOIN 加入 → 访客 JOINED 且房主收到广播 STATE（2 人）');
@@ -108,7 +118,11 @@ async function run() {
       await waitFor(guestBus, (m)=>m.type==='JOINED', '访客 JOINED');
       const hs = await waitFor(hostBus, (m)=>m.type==='STATE' && m.room.players.length===2, '房主端 2 人 STATE');
       s.ok('双方在线 ' + hs.room.players.length + ' 人');
-    } catch (e) { s.fail(e.message); throw e; }
+    } catch (e) {
+      // 关键诊断：失败时房主连接是否还活着？OPEN=收不到推送(反代单向)；CLOSED=连接被掐
+      s.fail(e.message + `　[房主连接=${rs(hostWs)}, 访客连接=${rs(guestWs)}]`);
+      throw e;
+    }
 
     s = step('INTENT START_GAME（房主权威）→ 双方收到 playing 状态');
     hostWs.send(JSON.stringify({ type:'INTENT', action:'START_GAME' }));
@@ -122,6 +136,7 @@ async function run() {
   } catch {
     step('自检中断 —— 修复上面第一个 ✗ 再重试').fail();
   } finally {
+    finished = true;  // 之后的主动关闭不再当作异常上报
     try { hostWs && hostWs.close(); } catch { /* */ }
     try { guestWs && guestWs.close(); } catch { /* */ }
     $('run').disabled = false;
