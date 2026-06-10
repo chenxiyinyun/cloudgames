@@ -1,9 +1,12 @@
 import { reactive } from 'vue'
 import { DEFAULT_DIFFICULTY, GAME_PHASES } from '../services/gameEngine'
-import p2p from '../services/p2p'
-import { createLogger } from '../services/logger'
 
-const log = createLogger('BombDefuse:State')
+/**
+ * 瘦客户端状态（服务器权威模型）。
+ *
+ * 权威房间状态全部来自服务器的 STATE 下发：updateLocalState 把服务器房间镜像到
+ * gameState.room，并据此派生 isHost / 屏幕。客户端不再本地推进游戏逻辑。
+ */
 
 export const gameState = reactive({
   screen: 'menu',
@@ -17,16 +20,14 @@ export const gameState = reactive({
   connectionStatus: 'disconnected',
   connectionMessage: '',
   diagnostics: {
-    mode: 'unknown',
-    signaling: null,
+    mode: 'websocket',
     hasTurnRelay: false,
-    turnRelay: null,
-    lastModeChange: null,
     peers: {}
   },
   room: createEmptyRoomMirror()
 })
 
+// 最近一次服务器下发的权威房间（缓存/恢复用）。
 let cachedRoom = null
 
 export function getRoom() {
@@ -94,25 +95,7 @@ export function resetLocalState() {
 }
 
 export function getDiagnostics() {
-  try {
-    return p2p.getConnectionDiagnostics()
-  } catch {
-    return gameState.diagnostics
-  }
-}
-
-try {
-  Object.assign(gameState.diagnostics, p2p.getConnectionDiagnostics())
-} catch (error) {
-  log.warn('Failed to read initial diagnostics', { error })
-}
-
-p2p.onModeChange = payload => {
-  gameState.diagnostics.lastModeChange = payload
-  gameState.diagnostics.mode = payload.mode || gameState.diagnostics.mode
-  if (payload.reason && gameState.connectionStatus !== 'connected') {
-    gameState.connectionMessage = payload.reason
-  }
+  return gameState.diagnostics
 }
 
 function createEmptyRoomMirror() {

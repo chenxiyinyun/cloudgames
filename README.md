@@ -66,7 +66,13 @@ Use relay-only as an operational fallback, not the default, because it is more r
 
 正在从 PeerJS/WebRTC 迁移到自建 WebSocket 服务器：房间状态和游戏逻辑都跑在
 服务器上（复用各游戏的 `gameEngine.js`），客户端只发意图、收权威状态。不再需要
-主机迁移、`recreateAsHost`、三步重连握手。当前已接入 **bomb-defuse**（试点）。
+主机迁移、`recreateAsHost`、三步重连握手。
+
+**bomb-defuse 客户端已完成接入（试点）**：传输层换成 `src/shared/ws/createWebSocketService.js`
+（瘦客户端，自动重连并重新 JOIN，无 host/guest 分支），各操作退化为 `INTENT`
+（`START_GAME` / `SET_DIFFICULTY` / `ASSIGN_ROLES` / `SUBMIT_MODULE_ACTION` / `RESTART` /
+`END_GAME`），房主权限由服务器强制校验。倒计时由服务器 tick 权威判定，客户端仅展示。
+协议常量唯一真源在 `src/shared/ws/protocol.js`（服务器 `server/protocol.js` 重新导出）。
 
 ```bash
 # 构建服务器（esbuild 把引擎的无扩展名 import 一并打包，ws 保持 external）
@@ -86,7 +92,8 @@ npm run server:dev
 - 用 `pm2` 或 `systemd` 守护 `node server/dist/server.mjs`，崩溃自动拉起。
 - 房间状态目前在内存中（派对游戏房间是临时的）——服务器重启会清空所有房间。
   若将来需要跨重启存活，可在 `roomManager` 外接 Redis。
-- 客户端通过 `VITE_WS_SERVER_URL=wss://<host>/...` 指向该服务器（迁移完成后接入）。
+- 客户端通过 `VITE_WS_SERVER_URL=wss://<host>/ws` 指向该服务器（bomb-defuse 已接入，
+  其余 3 个游戏仍走 PeerJS，待 Phase 3 迁移）。
 
 ## Adding a New Game
 

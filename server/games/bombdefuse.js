@@ -11,7 +11,7 @@ export default {
   gameId: 'bombdefuse',
 
   // 房主专属意图：只有 room.hostId 能触发（roomManager 统一校验）
-  hostOnlyActions: ['START_GAME', 'SET_DIFFICULTY', 'RESTART'],
+  hostOnlyActions: ['START_GAME', 'SET_DIFFICULTY', 'RESTART', 'ASSIGN_ROLES', 'END_GAME'],
 
   createRoom({ hostId, hostName, roomCode }) {
     return engine.createInitialRoom(hostId, hostName, roomCode);
@@ -35,6 +35,15 @@ export default {
         return engine.submitModuleAction(room, playerId, payload.moduleId, payload.action);
       case 'RESTART':
         return engine.restartGame(room);
+      case 'ASSIGN_ROLES':
+        return engine.assignRoles(room, payload.roleByPlayerId);
+      case 'END_GAME': {
+        room.status = engine.GAME_PHASES.ENDED;
+        room.phase = engine.GAME_PHASES.ENDED;
+        room.gameState.result = 'ended';
+        room.updatedAt = Date.now();
+        return { room };
+      }
       default:
         return { error: `未知意图：${action}` };
     }

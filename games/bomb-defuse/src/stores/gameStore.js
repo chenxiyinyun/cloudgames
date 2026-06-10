@@ -1,38 +1,24 @@
-import {
-  GAME_PHASES,
-  createInitialRoom,
-  generatePlayerId,
-  restartGame,
-  setRoomDifficulty,
-  startGame,
-  submitModuleAction
-} from '../services/gameEngine'
-import p2p from '../services/p2p'
+import { generatePlayerId } from '../services/gameEngine'
 import { sanitizeModuleAction, sanitizePlayerName, sanitizeRoomCode } from '../services/sanitize'
 import { clearCache, flushCache, hasRestoreableState, restoreFromCache } from './cache'
-import { gameState, getRoom, resetLocalState, setConnectionStatus, setRoom, updateLocalState } from './state'
+import { gameState, resetLocalState, setConnectionStatus } from './state'
 import {
-  broadcastState,
+  RECONNECT_METADATA,
   cleanupNetwork,
-  resetBroadcastState,
-  sendJoinRequest,
-  sendModuleAction,
-  setupGuestHandlers,
-  setupHostHandlers,
-  RECONNECT_METADATA
+  connectCreate,
+  connectJoin,
+  sendIntent
 } from './network'
-import {
-  resetAllTimers,
-  startCountdownTimer,
-  startJoinRetryInterval,
-  startJoinTimeout,
-  stopCountdownTimer,
-  stopJoinRetry
-} from './timers'
 
-export async function createRoom(name) {
-  // Clear any stale error from a previous attempt so the menu doesn't keep
-  // showing "Player name was empty" after the user has fixed their input.
+/**
+ * bomb-defuse 游戏 store（服务器权威 / 瘦客户端）。
+ *
+ * 所有"操作"都退化为向服务器发意图（INTENT），权威结果由服务器 STATE 下发后
+ * 经 network → state 应用。本地不再跑游戏逻辑、不再做主机迁移与加入重试。
+ * 房主权限由服务器强制校验，这里的 isHost 判断仅用于即时收起按钮，不是安全边界。
+ */
+
+export function createRoom(name) {
   gameState.error = null
   setConnectionStatus('disconnected', '')
 
@@ -42,41 +28,16 @@ export async function createRoom(name) {
     return false
   }
 
-  gameState.connecting = true
-  setConnectionStatus('connecting', 'Creating mission...')
   const playerId = generatePlayerId()
-  const roomCode = p2p.generateRoomCode()
-
   gameState.playerId = playerId
   gameState.playerName = playerName
-  gameState.roomCode = roomCode
-  gameState.isHost = true
+  gameState.isHost = true // 乐观；以 JOINED 返回的 room.hostId 为准
 
-  const room = createInitialRoom(playerId, playerName, roomCode)
-  const hostPlayer = room.players.find(player => player.id === playerId)
-  if (hostPlayer) hostPlayer._peerId = p2p.getHostPeerId(roomCode)
-  setRoom(room)
-
-  try {
-    await p2p.createHost(roomCode, playerName)
-    setupHostHandlers()
-    updateLocalState(room)
-    gameState.connected = true
-    gameState.connecting = false
-    gameState.screen = 'lobby'
-    setConnectionStatus('connected', 'Mission created.')
-    return true
-  } catch (createError) {
-    gameState.error = createError.message || 'Failed to create mission.'
-    gameState.connecting = false
-    cleanup()
-    return false
-  }
+  connectCreate(playerId, playerName)
+  return true
 }
 
-export async function joinRoom(name, code) {
-  // Clear any stale error from a previous attempt so the menu doesn't keep
-  // showing "Player name was empty" after the user has fixed their input.
+export function joinRoom(name, code) {
   gameState.error = null
   setConnectionStatus('disconnected', '')
 
@@ -87,132 +48,43 @@ export async function joinRoom(name, code) {
     return false
   }
 
-  gameState.connecting = true
-  setConnectionStatus('connecting', 'Joining mission...')
-
   const playerId = generatePlayerId()
   gameState.playerId = playerId
   gameState.playerName = playerName
   gameState.roomCode = roomCode
   gameState.isHost = false
 
-  try {
-    await p2p.joinRoom(roomCode, playerName)
-    setupGuestHandlers()
-    sendJoinRequest(playerId, playerName)
-    startJoinRetryInterval(() => {
-      if (gameState.connected) {
-        stopJoinRetry()
-        return
-      }
-      sendJoinRequest(playerId, playerName)
-    })
-    startJoinTimeout(() => {
-      if (!gameState.connected) {
-        gameState.error = 'Join timed out.'
-        setConnectionStatus('error', 'Join timed out.')
-        stopJoinRetry()
-        gameState.connecting = false
-      }
-    })
-    gameState.connecting = false
-    return true
-  } catch (joinError) {
-    gameState.error = joinError.message || 'Failed to join mission.'
-    gameState.connecting = false
-    cleanup()
-    return false
-  }
+  connectJoin(roomCode, playerId, playerName)
+  return true
 }
 
-export async function reconnectRoom() {
-  if (!gameState.roomCode || !gameState.playerName) {
+export function reconnectRoom() {
+  if (!gameState.roomCode || !gameState.playerId || !gameState.playerName) {
     gameState.error = 'Missing cached mission details.'
     return false
   }
-
-  gameState.connecting = true
-  gameState.connected = false
-  setConnectionStatus('reconnecting', 'Reconnecting...')
-
-  try {
-    p2p.softDisconnect()
-    if (gameState.isHost) {
-      await p2p.createHost(gameState.roomCode, gameState.playerName)
-      setupHostHandlers()
-      gameState.connected = true
-      gameState.connecting = false
-      setConnectionStatus('connected', 'Reconnected.')
-      return true
-    }
-
-    await p2p.joinRoom(gameState.roomCode, gameState.playerName)
-    setupGuestHandlers()
-    sendJoinRequest(gameState.playerId, gameState.playerName, true)
-    startJoinRetryInterval(() => {
-      if (gameState.connected) {
-        stopJoinRetry()
-        return
-      }
-      sendJoinRequest(gameState.playerId, gameState.playerName, true)
-    })
-    startJoinTimeout(() => {
-      if (!gameState.connected) {
-        gameState.error = 'Reconnect timed out.'
-        setConnectionStatus('error', 'Reconnect timed out.')
-        stopJoinRetry()
-        gameState.connecting = false
-      }
-    })
-    gameState.connecting = false
-    return true
-  } catch (error) {
-    gameState.error = error.message || 'Reconnect failed.'
-    gameState.connecting = false
-    setConnectionStatus('error', gameState.error)
-    return false
-  }
+  // 同 playerId 重新 JOIN，服务器即视为重连（保留座位与房主身份）
+  connectJoin(gameState.roomCode, gameState.playerId, gameState.playerName)
+  return true
 }
 
-export async function leaveRoom() {
+export function leaveRoom() {
   cleanup({ forceStatusReset: true })
 }
 
-export function handleStartGame(options = {}) {
+export function handleStartGame() {
   if (!gameState.isHost) return false
-  const result = startGame(getRoom(), options)
-  if (result.error) {
-    gameState.error = result.error
-    return false
-  }
-  startCountdownTimer(() => broadcastState())
-  broadcastState()
-  return true
+  return sendIntent('START_GAME')
 }
 
 export function handleSetDifficulty(difficulty) {
-  const room = getRoom()
-  if (!gameState.isHost || !room) return false
-  const result = setRoomDifficulty(room, difficulty)
-  if (result.error) {
-    gameState.error = result.error
-    return false
-  }
-  updateLocalState(room)
-  broadcastState()
-  return true
+  if (!gameState.isHost) return false
+  return sendIntent('SET_DIFFICULTY', { difficulty })
 }
 
 export function handleAssignRoles(roleByPlayerId) {
-  const room = getRoom()
-  if (!gameState.isHost || !room) return false
-  room.players.forEach(player => {
-    player.role = roleByPlayerId[player.id] || player.role
-  })
-  room.updatedAt = Date.now()
-  updateLocalState(room)
-  broadcastState()
-  return true
+  if (!gameState.isHost) return false
+  return sendIntent('ASSIGN_ROLES', { roleByPlayerId })
 }
 
 export function handleSubmitModuleAction(moduleId, rawAction) {
@@ -221,53 +93,22 @@ export function handleSubmitModuleAction(moduleId, rawAction) {
     gameState.error = error
     return false
   }
-
-  if (!gameState.isHost) {
-    sendModuleAction(moduleId, action)
-    return true
-  }
-
-  const room = getRoom()
-  const result = submitModuleAction(room, gameState.playerId, moduleId, action)
-  if (result.error) {
-    gameState.error = result.error
-    return false
-  }
-  if (room.phase === GAME_PHASES.SOLVED || room.phase === GAME_PHASES.EXPLODED) {
-    stopCountdownTimer()
-  }
-  broadcastState()
-  return true
+  return sendIntent('SUBMIT_MODULE_ACTION', { moduleId, action })
 }
 
 export function handleRestartGame() {
   if (!gameState.isHost) return false
-  restartGame(getRoom())
-  stopCountdownTimer()
-  resetBroadcastState()
-  broadcastState()
-  return true
+  return sendIntent('RESTART')
 }
 
 export function handleEndGame() {
   if (!gameState.isHost) return false
-  const room = getRoom()
-  room.status = GAME_PHASES.ENDED
-  room.phase = GAME_PHASES.ENDED
-  room.gameState.result = 'ended'
-  room.updatedAt = Date.now()
-  stopCountdownTimer()
-  broadcastState()
-  return true
+  return sendIntent('END_GAME')
 }
 
 export function cleanup({ forceStatusReset = false } = {}) {
   flushCache()
   cleanupNetwork()
-  p2p.stopHeartbeat()
-  p2p.disconnect()
-  resetAllTimers()
-  resetBroadcastState()
   resetLocalState()
   clearCache()
   if (forceStatusReset) {
