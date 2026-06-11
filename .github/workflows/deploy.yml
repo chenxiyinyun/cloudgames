@@ -68,6 +68,7 @@ jobs:
           VITE_PEER_SERVER_PATH: ${{ secrets.VITE_PEER_SERVER_PATH }}
           VITE_PEER_SERVER_KEY: ${{ secrets.VITE_PEER_SERVER_KEY }}
           VITE_PEER_SERVER_SECURE: ${{ secrets.VITE_PEER_SERVER_SECURE }}
+          VITE_WS_SERVER_URL: ${{ secrets.VITE_WS_SERVER_URL }}
         run: npm run build
 
       - name: Setup Pages
