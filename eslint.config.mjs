@@ -15,7 +15,7 @@ export default [
     },
     rules: {
       'no-console': 'off',           // console is used for debugging in P2P app
-      'no-unused-vars': 'warn',
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       'no-useless-assignment': 'warn',
       'vue/multi-word-component-names': 'off',  // single-word components like MenuScreen
       'vue/no-export-in-script-setup': 'warn',

@@ -107,7 +107,7 @@ export function createRoomManager({
     }
     let result;
     try {
-      result = room.adapter.applyIntent(room.state, { action, playerId: conn.playerId, payload });
+      result = room.adapter.applyIntent(room.state, { action, playerId: conn.playerId, payload, now: now() });
     } catch (err) {
       log.error('applyIntent threw', { action, error: err?.message });
       send(conn, S2C.ERROR, { message: '操作处理失败' });
@@ -187,7 +187,7 @@ export function createRoomManager({
     for (const room of rooms.values()) {
       if (typeof room.adapter.tick !== 'function') continue;
       const prevPhase = room.state.phase;
-      let changed = false;
+      let changed;
       try {
         changed = room.adapter.tick(room.state, t);
       } catch (err) {

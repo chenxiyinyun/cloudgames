@@ -148,7 +148,7 @@ export default {
     return engine.removePlayerFromRoom(room, playerId);
   },
 
-  applyIntent(room, { action, playerId, payload = {} }) {
+  applyIntent(room, { action, playerId, payload = {}, now: _now }) {
     switch (action) {
       case 'START_GAME':
         return engine.startGame(room);

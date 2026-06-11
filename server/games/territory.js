@@ -26,7 +26,7 @@ export default {
     return engine.removePlayerFromRoom(room, playerId);
   },
 
-  applyIntent(room, { action, playerId, payload = {} }) {
+  applyIntent(room, { action, playerId, payload = {}, now }) {
     switch (action) {
       case 'SET_MAP_SIZE':
         return engine.setMapSize(room, payload.mapSize);
@@ -35,7 +35,7 @@ export default {
       case 'START_GAME':
         return engine.startGame(room);
       case 'DISPATCH_UNITS':
-        return engine.dispatchUnits(room, playerId, payload.sourceId, payload.targetId, payload.ratio);
+        return engine.dispatchUnits(room, playerId, payload.sourceId, payload.targetId, payload.ratio, now);
       case 'RESTART_GAME':
         return engine.restartGame(room);
       case 'END_GAME':
