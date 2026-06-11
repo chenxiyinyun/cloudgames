@@ -4,7 +4,11 @@ import {
   saveStateToCache, loadStateFromCache, clearStateCache,
   hasCachedState, flushStateCache, cancelPendingSave
 } from '../services/stateCache';
-import { deepClone } from '../services/online';
+
+// 服务器权威模型下只需克隆纯数据对象（teams/votes/notes），JSON 克隆足够。
+function deepClone(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
 
 // 房间本地状态初始值（gameState.room 与 cleanup 复用，避免重复定义漂移）
 function createEmptyRoom() {

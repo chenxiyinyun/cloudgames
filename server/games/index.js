@@ -5,11 +5,13 @@
 import bombdefuse from './bombdefuse.js';
 import territory from './territory.js';
 import catguess from './catguess.js';
+import codenames from './codenames.js';
 
 const ADAPTERS = {
   [bombdefuse.gameId]: bombdefuse,
   [territory.gameId]: territory,
-  [catguess.gameId]: catguess
+  [catguess.gameId]: catguess,
+  [codenames.gameId]: codenames
 };
 
 export function getGameAdapter(gameId) {
