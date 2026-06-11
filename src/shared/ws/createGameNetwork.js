@@ -20,7 +20,8 @@ export function createGameNetwork({
   updateLocalState,
   maxReconnects = 6,
   onJoined: extraOnJoined,
-  onState: extraOnState
+  onState: extraOnState,
+  onError: extraOnError
 }) {
   const RECONNECT_METADATA = reactive({ attempt: 0, MAX_ATTEMPTS: maxReconnects })
 
@@ -57,6 +58,7 @@ export function createGameNetwork({
         gameState.connecting = false
         setConnectionStatus('error', message || '连接已断开')
       }
+      extraOnError?.({ message, fatal })
     },
 
     onStatus: (status, message) => {
