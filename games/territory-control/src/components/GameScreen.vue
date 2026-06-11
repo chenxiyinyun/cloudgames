@@ -63,7 +63,9 @@
           </div>
         </div>
         <p class="hint">
-          点击自己的领地选中，再点击目标领地派兵。移动端支持双指缩放与拖动战场。
+          点击自己的领地选中，再点击目标领地派兵。移动端支持双指缩放与拖动战场。<br>
+          <span class="granary-hint">粮</span> 粮仓：占领后产兵翻倍 &nbsp;
+          <span class="fortress-hint">垒</span> 要塞：占领后防御 +30%
         </p>
         <p
           v-if="selectedId"
@@ -193,6 +195,7 @@
               <!-- 大肉垫（掌心） -->
               <circle
                 class="territory-ring catpaw-ring"
+                :class="{ 'granary-ring': territory.type === 'granary', 'fortress-ring': territory.type === 'fortress' }"
                 :r="TERRITORY_RING_RADIUS"
                 :fill="ownerColor(territory.ownerId)"
               />
@@ -241,19 +244,38 @@
                 dominant-baseline="central"
                 y="6"
               >
-                {{ territory.units }}
+                {{ getDisplayUnits(territory) }}
               </text>
+              <!-- 粮仓/要塞类型标识 -->
+              <text
+                v-if="territory.type === 'granary'"
+                class="territory-type-badge granary-badge"
+                text-anchor="middle"
+                dominant-baseline="central"
+                x="0"
+                y="-36"
+              >粮</text>
+              <text
+                v-if="territory.type === 'fortress'"
+                class="territory-type-badge fortress-badge"
+                text-anchor="middle"
+                dominant-baseline="central"
+                x="0"
+                y="-36"
+              >垒</text>
             </template>
 
             <!-- 经典主题领地 -->
             <template v-else>
               <circle
                 class="territory-ring"
+                :class="{ 'granary-ring': territory.type === 'granary', 'fortress-ring': territory.type === 'fortress' }"
                 :r="TERRITORY_RING_RADIUS"
                 :fill="ownerColor(territory.ownerId)"
               />
               <circle
                 class="territory-core"
+                :class="{ 'granary-core': territory.type === 'granary', 'fortress-core': territory.type === 'fortress' }"
                 r="31"
                 :fill="ownerColor(territory.ownerId)"
               />
@@ -262,8 +284,25 @@
                 text-anchor="middle"
                 dominant-baseline="central"
               >
-                {{ territory.units }}
+                {{ getDisplayUnits(territory) }}
               </text>
+              <!-- 粮仓/要塞类型标识 -->
+              <text
+                v-if="territory.type === 'granary'"
+                class="territory-type-badge granary-badge"
+                text-anchor="middle"
+                dominant-baseline="central"
+                x="0"
+                y="-36"
+              >粮</text>
+              <text
+                v-if="territory.type === 'fortress'"
+                class="territory-type-badge fortress-badge"
+                text-anchor="middle"
+                dominant-baseline="central"
+                x="0"
+                y="-36"
+              >垒</text>
             </template>
           </g>
 
@@ -329,7 +368,7 @@
 <script setup>
 import { computed, reactive, ref, onMounted, onUnmounted, watch } from 'vue'
 import { findPath } from '../services/gameEngine'
-import { MAP_ASPECT_RATIO, getMovingTroopVisuals } from '../services/gameView'
+import { MAP_ASPECT_RATIO, getMovingTroopVisuals, getMovingTroopProgress } from '../services/gameView'
 import {
   MIN_MAP_SCALE,
   clampViewport,
@@ -392,6 +431,7 @@ const gestureState = reactive({
   moved: false
 })
 const activePointers = new Map()
+const displayUnits = ref({})
 
 const ratios = [
   { value: 0.25, label: '25%' },
@@ -450,6 +490,14 @@ watch(movingTroops, (newTroops) => {
   })
 }, { deep: true, immediate: true })
 
+watch(territories, (newTerritories) => {
+  newTerritories.forEach(t => {
+    if (displayUnits.value[t.id] === undefined) {
+      displayUnits.value[t.id] = t.units
+    }
+  })
+}, { deep: true, immediate: true })
+
 const movingTroopVisuals = computed(() => {
   return getMovingTroopVisuals({
     movingTroops: movingTroops.value,
@@ -481,7 +529,9 @@ function territoryClasses(territory) {
     neutral: !territory.ownerId,
     enemy: territory.ownerId && territory.ownerId !== props.playerId,
     selected: selectedId.value === territory.id,
-    targetable: selectedId.value && selectedId.value !== territory.id
+    targetable: selectedId.value && selectedId.value !== territory.id,
+    granary: territory.type === 'granary',
+    fortress: territory.type === 'fortress'
   }
 }
 
@@ -533,7 +583,11 @@ function handleTerritoryClick(territory) {
 
 function handleMapPointerDown(event) {
   if (event.pointerType === 'mouse' && event.button !== 0) return
-  svgRef.value?.setPointerCapture?.(event.pointerId)
+  // 仅对触控设备设置 pointer capture；鼠标设置 capture 会导致 click 事件
+  // 无法到达子元素（领地 <g>），使 PC 端派兵交互失效
+  if (event.pointerType !== 'mouse') {
+    svgRef.value?.setPointerCapture?.(event.pointerId)
+  }
   activePointers.set(event.pointerId, {
     x: event.clientX,
     y: event.clientY
@@ -615,7 +669,9 @@ function handleMapPointerMove(event) {
 
 function handleMapPointerUp(event) {
   activePointers.delete(event.pointerId)
-  svgRef.value?.releasePointerCapture?.(event.pointerId)
+  if (event.pointerType !== 'mouse') {
+    svgRef.value?.releasePointerCapture?.(event.pointerId)
+  }
 
   if (activePointers.size === 1) {
     const [remaining] = [...activePointers.values()]
@@ -703,8 +759,52 @@ function getMidpoint(first, second) {
   }
 }
 
+function getDisplayUnits(territory) {
+  if (territory.isObstacle) return territory.units
+  return displayUnits.value[territory.id] ?? territory.units
+}
+
 function tickAnimation() {
-  now.value = Date.now()
+  const currentNow = Date.now()
+  now.value = currentNow
+
+  const troopProgress = getMovingTroopProgress({
+    movingTroops: movingTroops.value,
+    animationStateById: localTroopAnim.value,
+    now: currentNow
+  })
+
+  const arrivalBoost = {}
+  troopProgress.forEach(p => {
+    if (p.arrivedCount > 0) {
+      arrivalBoost[p.destId] = (arrivalBoost[p.destId] || 0) + p.arrivedCount
+    }
+  })
+
+  const sourceTotalAmount = {}
+  movingTroops.value.forEach(troop => {
+    const src = troop.path[troop.currentStep]
+    sourceTotalAmount[src] = (sourceTotalAmount[src] || 0) + troop.amount
+  })
+
+  const sourceDeparted = {}
+  troopProgress.forEach(p => {
+    sourceDeparted[p.sourceId] = (sourceDeparted[p.sourceId] || 0) + p.departedCount
+  })
+
+  territories.value.forEach(t => {
+    const srcTotal = sourceTotalAmount[t.id] || 0
+    const srcDep = sourceDeparted[t.id] || 0
+    const destBoost = arrivalBoost[t.id] || 0
+
+    if (srcTotal > 0 || srcDep > 0) {
+      const preDispatch = t.units + srcTotal
+      displayUnits.value[t.id] = Math.max(0, preDispatch - srcDep + destBoost)
+    } else {
+      displayUnits.value[t.id] = t.units + destBoost
+    }
+  })
+
   animFrame.value = requestAnimationFrame(tickAnimation)
 }
 

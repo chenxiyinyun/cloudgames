@@ -171,6 +171,34 @@ button:disabled {
   line-height: 1.5;
 }
 
+.granary-hint {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  line-height: 20px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 900;
+  color: #fffaf0;
+  background: #b8860b;
+  border-radius: 3px;
+  vertical-align: middle;
+}
+
+.fortress-hint {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  line-height: 20px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 900;
+  color: #fffaf0;
+  background: #4a5568;
+  border-radius: 3px;
+  vertical-align: middle;
+}
+
 .top-bar {
   display: flex;
   align-items: flex-start;
@@ -339,6 +367,49 @@ button:disabled {
 
 .territory.owned .territory-ring {
   stroke-width: 7;
+}
+
+/* 粮仓：金色光晕 */
+.granary-ring {
+  stroke: #d4a017;
+  stroke-width: 6;
+  filter: drop-shadow(0 0 6px rgba(212, 160, 23, 0.5));
+}
+
+.granary-core {
+  stroke: rgba(212, 160, 23, 0.6);
+  stroke-width: 6;
+}
+
+/* 要塞：铁灰色粗边 */
+.fortress-ring {
+  stroke: #4a5568;
+  stroke-width: 8;
+  filter: drop-shadow(0 0 4px rgba(74, 85, 104, 0.4));
+}
+
+.fortress-core {
+  stroke: rgba(74, 85, 104, 0.7);
+  stroke-width: 7;
+}
+
+/* 类型标识徽章 */
+.territory-type-badge {
+  font-size: 14px;
+  font-weight: 900;
+  paint-order: stroke;
+  stroke-width: 4;
+  pointer-events: none;
+}
+
+.granary-badge {
+  fill: #b8860b;
+  stroke: rgba(255, 250, 240, 0.9);
+}
+
+.fortress-badge {
+  fill: #2d3748;
+  stroke: rgba(255, 250, 240, 0.9);
 }
 
 .territory.targetable .territory-ring {
@@ -526,6 +597,29 @@ button:disabled {
 .game-screen[data-theme="catpaw"] .territory.owned .catpaw-ring {
   stroke-width: 6;
   stroke: var(--catpaw-accent);
+}
+
+/* 猫爪主题：粮仓/要塞 */
+.game-screen[data-theme="catpaw"] .granary-ring {
+  stroke: #d4a017;
+  stroke-width: 5;
+  filter: drop-shadow(0 0 5px rgba(212, 160, 23, 0.4));
+}
+
+.game-screen[data-theme="catpaw"] .fortress-ring {
+  stroke: #7b5c6a;
+  stroke-width: 7;
+  filter: drop-shadow(0 0 3px rgba(123, 92, 106, 0.4));
+}
+
+.game-screen[data-theme="catpaw"] .granary-badge {
+  fill: #b8860b;
+  stroke: rgba(255, 245, 247, 0.9);
+}
+
+.game-screen[data-theme="catpaw"] .fortress-badge {
+  fill: #5c2d3a;
+  stroke: rgba(255, 245, 247, 0.9);
 }
 
 .game-screen[data-theme="catpaw"] .territory.owned .catpaw-pad {

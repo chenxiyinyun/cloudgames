@@ -80,6 +80,44 @@ export function getMovingTroopVisuals({
   return visuals
 }
 
+export function getMovingTroopProgress({
+  movingTroops = [],
+  animationStateById = {},
+  now = Date.now()
+}) {
+  const streamDuration = 600
+  const individualDuration = TRAVEL_TIME_PER_EDGE - streamDuration
+  const result = []
+
+  movingTroops.forEach(troop => {
+    const stepStartTime = animationStateById[troop.id]?.stepStartTime ?? now
+    const elapsed = now - stepStartTime
+    const sourceId = troop.path[troop.currentStep]
+    const destId = troop.path[Math.min(troop.currentStep + 1, troop.path.length - 1)]
+    if (sourceId === destId) return
+
+    let departedCount = 0
+    let arrivedCount = 0
+
+    for (let i = 0; i < troop.amount; i++) {
+      const delay = troop.amount > 1 ? (i / (troop.amount - 1)) * streamDuration : 0
+      if (elapsed >= delay) departedCount++
+      if (elapsed >= delay + individualDuration) arrivedCount++
+    }
+
+    result.push({
+      troopId: troop.id,
+      sourceId,
+      destId,
+      departedCount,
+      arrivedCount,
+      amount: troop.amount
+    })
+  })
+
+  return result
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
 }

@@ -16,6 +16,12 @@ export const THEMES = {
   catpaw: { label: '猫爪' }
 }
 export const DEFAULT_THEME = 'default'
+
+export const TERRITORY_TYPES = {
+  normal: { label: '普通' },
+  granary: { label: '粮仓', productionBonus: 2 },
+  fortress: { label: '要塞', defenseMultiplier: 1.3 }
+}
 export const PLAYER_COLORS = ['#e84d4f', '#2f8cff', '#23a66f', '#f2b233']
 export const DISPATCH_RATIOS = [0.25, 0.5, 0.75]
 
@@ -231,7 +237,8 @@ export function tickProduction(room, now = Date.now()) {
       // 离线玩家的 territory 停止 +1 兵:防止"断网 5 分钟回来看自己兵山"导致躺赢
       // 现有兵不会被清零(仅停止 +1),玩家 reconnect 后立即恢复生产
       if (ownerOnlineMap.get(territory.ownerId) === false) return
-      territory.units = Math.min(MAX_UNITS, territory.units + 1)
+      const bonus = territory.type === 'granary' ? TERRITORY_TYPES.granary.productionBonus : 1
+      territory.units = Math.min(MAX_UNITS, territory.units + bonus)
     })
   }
 
@@ -276,7 +283,10 @@ export function tickMovingTroops(room, now = Date.now()) {
       }
     } else {
       // 敌方/中立领地：战斗结算
-      if (troop.amount > territory.units) {
+      // 要塞防御加成：守方有效兵力 = 实际兵力 × 防御系数
+      const defenseMultiplier = territory.type === 'fortress' ? TERRITORY_TYPES.fortress.defenseMultiplier : 1
+      const effectiveDefense = Math.floor(territory.units * defenseMultiplier)
+      if (troop.amount > effectiveDefense) {
         territory.ownerId = troop.playerId
         territory.units = Math.min(MAX_UNITS, troop.amount - territory.units)
         if (isFinalStep) {
@@ -285,8 +295,9 @@ export function tickMovingTroops(room, now = Date.now()) {
           troop.nextArrivalAt = now + TRAVEL_TIME_PER_EDGE
         }
       } else {
-        territory.units -= troop.amount
-        if (territory.units === 0) {
+        territory.units -= Math.ceil(troop.amount / defenseMultiplier)
+        if (territory.units <= 0) {
+          territory.units = 0
           territory.ownerId = null
         }
         removeMovingTroop(room, troop.id)
@@ -471,6 +482,31 @@ function normalizeDispatchRatio(ratio) {
   return 0.5
 }
 
+function assignSpecialTerritoryTypes(territories, rng) {
+  // 从中立非障碍领地中随机选取 1-2 个粮仓和 1 个要塞
+  const candidates = territories
+    .map((t, i) => ({ index: i, territory: t }))
+    .filter(({ territory }) => !territory.ownerId && !territory.isObstacle)
+
+  if (candidates.length === 0) return
+
+  // Fisher-Yates 打乱
+  for (let i = candidates.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[candidates[i], candidates[j]] = [candidates[j], candidates[i]]
+  }
+
+  const granaryCount = Math.min(randomInt(rng, 1, 2), candidates.length)
+  for (let i = 0; i < granaryCount; i++) {
+    candidates[i].territory.type = 'granary'
+  }
+
+  const fortressStart = granaryCount
+  if (fortressStart < candidates.length) {
+    candidates[fortressStart].territory.type = 'fortress'
+  }
+}
+
 function generateMap({ seed, mapSize, players }) {
   const config = MAP_SIZES[mapSize] || MAP_SIZES[DEFAULT_MAP_SIZE]
   const rng = createRng(seed)
@@ -490,6 +526,7 @@ function generateMap({ seed, mapSize, players }) {
     territories[index].ownerId = null
     territories[index].units = 0
     territories[index].isCapital = false
+    territories[index].type = 'normal'
   })
 
   territories.forEach(territory => {
@@ -497,6 +534,9 @@ function generateMap({ seed, mapSize, players }) {
       territory.units = randomInt(rng, config.neutralUnits[0], config.neutralUnits[1])
     }
   })
+
+  // 肉鸽元素：随机分配粮仓/要塞类型给部分中立领地
+  assignSpecialTerritoryTypes(territories, rng)
 
   const edges = createEdges(territories)
 
@@ -532,7 +572,8 @@ function createTerritories(config, rng) {
       y,
       ownerId: null,
       units: 0,
-      isCapital: false
+      isCapital: false,
+      type: 'normal'
     })
   }
 
@@ -543,7 +584,8 @@ function createTerritories(config, rng) {
       y: randomInt(rng, 80, MAP_HEIGHT - 80),
       ownerId: null,
       units: 0,
-      isCapital: false
+      isCapital: false,
+      type: 'normal'
     })
   }
   return territories
