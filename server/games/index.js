@@ -3,9 +3,11 @@
  * 接入新游戏：写一个适配器并在此登记。
  */
 import bombdefuse from './bombdefuse.js';
+import territory from './territory.js';
 
 const ADAPTERS = {
-  [bombdefuse.gameId]: bombdefuse
+  [bombdefuse.gameId]: bombdefuse,
+  [territory.gameId]: territory
 };
 
 export function getGameAdapter(gameId) {

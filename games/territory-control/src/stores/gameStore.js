@@ -1,39 +1,23 @@
-import {
-  GAME_PHASES,
-  createInitialRoom,
-  dispatchUnits,
-  endGame,
-  generatePlayerId,
-  restartGame,
-  setMapSize,
-  setTheme,
-  startGame
-} from '../services/gameEngine'
-import p2p from '../services/p2p'
+import { generatePlayerId } from '../services/gameEngine'
 import { sanitizeDispatch, sanitizeMapSize, sanitizePlayerName, sanitizeRoomCode, sanitizeTheme } from '../services/sanitize'
 import { clearCache, flushCache, hasRestoreableState, restoreFromCache } from './cache'
-import { gameState, getRoom, resetLocalState, setConnectionStatus, setRoom, updateLocalState } from './state'
+import { gameState, resetLocalState, setConnectionStatus } from './state'
 import {
   RECONNECT_METADATA,
-  broadcastState,
   cleanupNetwork,
-  resetBroadcastState,
-  sendDispatchAction,
-  sendJoinRequest,
-  setupGuestHandlers,
-  setupHostHandlers
+  connectCreate,
+  connectJoin,
+  sendIntent
 } from './network'
-import {
-  resetAllTimers,
-  startJoinRetryInterval,
-  startJoinTimeout,
-  startOfflineNeutralizeTimer,
-  startProductionTimer,
-  stopJoinRetry,
-  stopProductionTimer
-} from './timers'
 
-export async function createRoom(name) {
+/**
+ * territory-control 游戏 store（服务器权威 / 瘦客户端）。
+ *
+ * 所有操作退化为向服务器发意图；生产/移动/离线中和/胜负全部由服务器 tick 权威推进，
+ * 客户端只渲染服务器 STATE 下发的镜像。无主机迁移、无加入重试、无客户端定时器。
+ */
+
+export function createRoom(name) {
   gameState.error = null
   setConnectionStatus('disconnected', '')
 
@@ -43,39 +27,16 @@ export async function createRoom(name) {
     return false
   }
 
-  gameState.connecting = true
-  setConnectionStatus('connecting', 'Creating field...')
   const playerId = generatePlayerId()
-  const roomCode = p2p.generateRoomCode()
-
   gameState.playerId = playerId
   gameState.playerName = playerName
-  gameState.roomCode = roomCode
-  gameState.isHost = true
+  gameState.isHost = true // 乐观；以 JOINED 返回的 room.hostId 为准
 
-  const room = createInitialRoom(playerId, playerName, roomCode)
-  const hostPlayer = room.players.find(player => player.id === playerId)
-  if (hostPlayer) hostPlayer._peerId = p2p.getHostPeerId(roomCode)
-  setRoom(room)
-
-  try {
-    await p2p.createHost(roomCode, playerName)
-    setupHostHandlers()
-    updateLocalState(room)
-    gameState.connected = true
-    gameState.connecting = false
-    gameState.screen = 'lobby'
-    setConnectionStatus('connected', 'Field created.')
-    return true
-  } catch (createError) {
-    gameState.error = createError.message || 'Failed to create room.'
-    gameState.connecting = false
-    cleanup()
-    return false
-  }
+  connectCreate(playerId, playerName)
+  return true
 }
 
-export async function joinRoom(name, code) {
+export function joinRoom(name, code) {
   gameState.error = null
   setConnectionStatus('disconnected', '')
 
@@ -86,160 +47,52 @@ export async function joinRoom(name, code) {
     return false
   }
 
-  gameState.connecting = true
-  setConnectionStatus('connecting', 'Joining field...')
-
   const playerId = generatePlayerId()
   gameState.playerId = playerId
   gameState.playerName = playerName
   gameState.roomCode = roomCode
   gameState.isHost = false
 
-  try {
-    await p2p.joinRoom(roomCode, playerName)
-    setupGuestHandlers()
-    sendJoinRequest(playerId, playerName)
-    startJoinRetryInterval(() => {
-      if (gameState.connected) {
-        stopJoinRetry()
-        return
-      }
-      sendJoinRequest(playerId, playerName)
-    })
-    startJoinTimeout(() => {
-      if (!gameState.connected) {
-        gameState.error = 'Join timed out.'
-        setConnectionStatus('error', 'Join timed out.')
-        stopJoinRetry()
-        gameState.connecting = false
-      }
-    })
-    gameState.connecting = false
-    return true
-  } catch (joinError) {
-    gameState.error = joinError.message || 'Failed to join room.'
-    gameState.connecting = false
-    cleanup()
-    return false
-  }
+  connectJoin(roomCode, playerId, playerName)
+  return true
 }
 
-export async function reconnectRoom() {
-  if (!gameState.roomCode || !gameState.playerName) {
+export function reconnectRoom() {
+  if (!gameState.roomCode || !gameState.playerId || !gameState.playerName) {
     gameState.error = 'Missing cached room details.'
     return false
   }
-
-  gameState.connecting = true
-  gameState.connected = false
-  setConnectionStatus('reconnecting', 'Reconnecting...')
-
-  try {
-    p2p.softDisconnect()
-    if (gameState.isHost) {
-      // 信令残留场景:刷新页面后旧 peerId 在信令服务器上还有 TTL(自建 PeerJS 默认 ~60s),
-      // 直接 createHost 会撞 unavailable-id。这里退避重试,等信令释放。
-      // 错误文案改成更准确的"信令释放中...",不要再误导用户去刷新。
-      const MAX_RETRY = 5
-      let lastErr = null
-      for (let attempt = 1; attempt <= MAX_RETRY; attempt += 1) {
-        try {
-          await p2p.createHost(gameState.roomCode, gameState.playerName)
-          setupHostHandlers()
-          if (getRoom()?.phase === 'playing') {
-            startProductionTimer(() => broadcastState())
-            startOfflineNeutralizeTimer(() => broadcastState())
-          }
-          gameState.connected = true
-          gameState.connecting = false
-          setConnectionStatus('connected', 'Reconnected.')
-          return true
-        } catch (err) {
-          lastErr = err
-          const msg = err?.message || ''
-          const isSignalingTaken = msg.includes('房间已被占用') || msg.includes('unavailable-id')
-          if (!isSignalingTaken || attempt === MAX_RETRY) throw err
-          const delay = 2000 * attempt // 2s/4s/6s/8s/10s
-          setConnectionStatus(
-            'reconnecting',
-            `信令服务器还在释放旧连接,${delay / 1000}s 后重试(${attempt}/${MAX_RETRY})...`
-          )
-          await new Promise(r => setTimeout(r, delay))
-          // 每次重试前再做一次 softDisconnect,清掉上一次失败的半残 peer
-          p2p.softDisconnect()
-        }
-      }
-      throw lastErr
-    }
-
-    await p2p.joinRoom(gameState.roomCode, gameState.playerName)
-    setupGuestHandlers()
-    sendJoinRequest(gameState.playerId, gameState.playerName, true)
-    startJoinRetryInterval(() => {
-      if (gameState.connected) {
-        stopJoinRetry()
-        return
-      }
-      sendJoinRequest(gameState.playerId, gameState.playerName, true)
-    })
-    gameState.connecting = false
-    return true
-  } catch (error) {
-    gameState.error = error.message || 'Reconnect failed.'
-    gameState.connecting = false
-    setConnectionStatus('error', gameState.error)
-    return false
-  }
+  connectJoin(gameState.roomCode, gameState.playerId, gameState.playerName)
+  return true
 }
 
-export async function leaveRoom() {
+export function leaveRoom() {
   cleanup({ forceStatusReset: true })
 }
 
 export function handleSetMapSize(mapSize) {
-  const room = getRoom()
-  if (!gameState.isHost || !room) return false
+  if (!gameState.isHost) return false
   const { value, error } = sanitizeMapSize(mapSize)
   if (error) {
     gameState.error = error
     return false
   }
-  const result = setMapSize(room, value)
-  if (result.error) {
-    gameState.error = result.error
-    return false
-  }
-  return commitRoomChange(room)
+  return sendIntent('SET_MAP_SIZE', { mapSize: value })
 }
 
 export function handleSetTheme(theme) {
-  const room = getRoom()
-  if (!gameState.isHost || !room) return false
+  if (!gameState.isHost) return false
   const { value, error } = sanitizeTheme(theme)
   if (error) {
     gameState.error = error
     return false
   }
-  const result = setTheme(room, value)
-  if (result.error) {
-    gameState.error = result.error
-    return false
-  }
-  return commitRoomChange(room)
+  return sendIntent('SET_THEME', { theme: value })
 }
 
 export function handleStartGame() {
   if (!gameState.isHost) return false
-  const room = getRoom()
-  const result = startGame(room)
-  if (result.error) {
-    gameState.error = result.error
-    return false
-  }
-  startProductionTimer(() => broadcastState())
-  startOfflineNeutralizeTimer(() => broadcastState())
-  resetBroadcastState()
-  return commitRoomChange(room, { forceFull: true })
+  return sendIntent('START_GAME')
 }
 
 export function handleDispatch(rawPayload) {
@@ -248,79 +101,27 @@ export function handleDispatch(rawPayload) {
     gameState.error = error
     return false
   }
-
-  if (!gameState.isHost) {
-    sendDispatchAction(value.sourceId, value.targetId, value.ratio, value.seq)
-    return true
-  }
-
-  const room = getRoom()
-  const result = dispatchUnits(room, gameState.playerId, value.sourceId, value.targetId, value.ratio)
-  if (result.error) {
-    gameState.error = result.error
-    return false
-  }
-  // host 自己直接改的是 cachedRoom,UI 渲染的是 gameState.room 镜像,
-  // 必须 commitRoomChange 同步过去,否则地图上的兵数 / movingTroop 永远不刷新。
-  // 对比 handleSetMapSize/handleSetTheme 也都走 commitRoomChange,新加动作别漏。
-  return commitRoomChange(room)
+  // 不再需要 seq 去重：单条有序 WS + 服务器权威
+  return sendIntent('DISPATCH_UNITS', {
+    sourceId: value.sourceId,
+    targetId: value.targetId,
+    ratio: value.ratio
+  })
 }
 
 export function handleRestartGame() {
   if (!gameState.isHost) return false
-  const room = getRoom()
-  restartGame(room)
-  stopProductionTimer()
-  resetBroadcastState()
-  return commitRoomChange(room, { forceFull: true })
+  return sendIntent('RESTART_GAME')
 }
 
 export function handleEndGame() {
   if (!gameState.isHost) return false
-  const room = getRoom()
-  endGame(room, null)
-  return commitRoomChange(room)
-}
-
-/**
- * Commit a room state change in a single call: mirror the authoritative room into
- * the local UI snapshot AND broadcast the change to all peers.
- *
- * Centralizes the "modify cachedRoom → mirror to gameState.room → broadcast to peers"
- * sequence so handlers cannot forget either step. Use this after every host-side
- * mutation that other players need to see (setMapSize, setTheme, startGame, dispatch,
- * restartGame, endGame, etc.).
- *
- * Placed in territory-control intentionally — other games use different end-of-game
- * side effects (some don't auto-stop production on ENDED) so they should keep their
- * own commit flow rather than share this helper.
- *
- * @param {object} room The authoritative room object (already mutated in place).
- * @param {object} [options]
- * @param {boolean} [options.forceFull=false] Force a full-state broadcast instead of delta.
- * @param {boolean} [options.stopTimerOnEnd=true] Auto-stop the production timer when the game has ended.
- * @returns {boolean} true if commit ran, false if room was missing.
- */
-export function commitRoomChange(room, { forceFull = false, stopTimerOnEnd = true } = {}) {
-  if (!room) return false
-  updateLocalState(room)
-  if (stopTimerOnEnd && room.phase === GAME_PHASES.ENDED) {
-    stopProductionTimer()
-  }
-  broadcastState({ forceFull })
-  return true
+  return sendIntent('END_GAME')
 }
 
 export function cleanup({ forceStatusReset = false } = {}) {
   flushCache()
-  resetAllTimers()
-  resetBroadcastState()
   cleanupNetwork()
-  p2p.stopHeartbeat()
-  // disconnect 之前先把所有事件回调清成 noop,避免 conn.close() 同步触发
-  // onPlayerDisconnected → markOffline → broadcastState 试图 sendTo 已关 conn → 残留 retry queue
-  p2p.clearEventHandlers()
-  p2p.disconnect()
   resetLocalState()
   clearCache()
   if (forceStatusReset) {

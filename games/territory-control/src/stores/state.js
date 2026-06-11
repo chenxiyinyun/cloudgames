@@ -1,6 +1,5 @@
 import { reactive } from 'vue'
 import { DEFAULT_MAP_SIZE, DEFAULT_THEME, GAME_PHASES } from '../services/gameEngine'
-import p2p from '../services/p2p'
 
 export const gameState = reactive({
   screen: 'menu',
@@ -14,11 +13,8 @@ export const gameState = reactive({
   connectionStatus: 'disconnected',
   connectionMessage: '',
   diagnostics: {
-    mode: 'unknown',
-    signaling: null,
+    mode: 'websocket',
     hasTurnRelay: false,
-    turnRelay: null,
-    lastModeChange: null,
     peers: {}
   },
   room: createEmptyRoomMirror()
@@ -89,25 +85,7 @@ export function resetLocalState() {
 }
 
 export function getDiagnostics() {
-  try {
-    return p2p.getConnectionDiagnostics()
-  } catch {
-    return gameState.diagnostics
-  }
-}
-
-try {
-  Object.assign(gameState.diagnostics, p2p.getConnectionDiagnostics())
-} catch {
-  // diagnostics are optional during tests/build
-}
-
-p2p.onModeChange = payload => {
-  gameState.diagnostics.lastModeChange = payload
-  gameState.diagnostics.mode = payload.mode || gameState.diagnostics.mode
-  if (payload.reason && gameState.connectionStatus !== 'connected') {
-    gameState.connectionMessage = payload.reason
-  }
+  return gameState.diagnostics
 }
 
 function createEmptyRoomMirror() {

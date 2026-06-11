@@ -174,19 +174,27 @@ export function createRoomManager({
     detach(conn, { explicit: false });
   }
 
-  /** 由定时器周期性调用：推进各房间的权威计时，仅在 phase 变化时广播。 */
+  /**
+   * 由定时器周期性调用：推进各房间的权威计时。
+   * 在以下两种情况广播全量状态：
+   *   1) phase 发生变化（如倒计时到点、胜负判定）；
+   *   2) adapter.tick 返回 truthy（表示本 tick 改了需要下发的状态，如领土生产/移动）。
+   * 这样不会 tick 的游戏（bomb-defuse 返回 undefined）只在 phase 变化时广播，
+   * 而需要持续下发的游戏（territory-control）可主动要求每个 tick 广播。
+   */
   function tickAll() {
     const t = now();
     for (const room of rooms.values()) {
       if (typeof room.adapter.tick !== 'function') continue;
       const prevPhase = room.state.phase;
+      let changed = false;
       try {
-        room.adapter.tick(room.state, t);
+        changed = room.adapter.tick(room.state, t);
       } catch (err) {
         log.error('tick threw', { gameId: room.gameId, error: err?.message });
         continue;
       }
-      if (room.state.phase !== prevPhase) {
+      if (changed || room.state.phase !== prevPhase) {
         broadcast(room);
       }
     }

@@ -3,6 +3,10 @@ import vuePlugin from 'eslint-plugin-vue';
 import globals from 'globals';
 
 export default [
+  {
+    // 构建产物不参与 lint（server/dist/server.mjs 等 esbuild bundle）
+    ignores: ['**/dist/**', 'server/dist/**']
+  },
   js.configs.recommended,
   ...vuePlugin.configs['flat/recommended'],
   {
