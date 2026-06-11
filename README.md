@@ -32,47 +32,29 @@ npm run build
 npm run preview
 ```
 
-## P2P Reliability
+## 联机架构：服务器权威 WebSocket
 
-The games use PeerJS/WebRTC for multiplayer. The shared P2P layer now only uses explicitly configured domestic/self-hosted signaling and TURN services. It does not fall back to public PeerJS or overseas relay services.
+**4 个游戏已全部迁到自建 WebSocket 服务器（服务器权威），不再使用 PeerJS/WebRTC/TURN。**
+房间状态和游戏逻辑都跑在服务器上（复用各游戏的 `gameEngine.js`），客户端是瘦客户端：
+只发意图（`INTENT`）、收权威状态（`STATE`）。没有 host/guest 之分、没有主机迁移、
+没有三步重连握手、没有 ICE/NAT 穿透问题（大陆网络下 P2P 直连几乎不通，这正是迁移动因）。
 
-Configure a domestic/self-hosted PeerJS signaling server:
+客户端共享层：
+- `src/shared/ws/createWebSocketService.js` —— 传输层（连接、发帧、断线指数退避自动重连并重新 JOIN）
+- `src/shared/ws/createGameNetwork.js` —— 把传输层接到各游戏 reactive 状态的样板
+- `src/shared/ws/protocol.js` —— 协议常量唯一真源（`server/protocol.js` 重新导出）
 
-```bash
-VITE_PEER_SERVER_HOST=<peer-server-host>
-VITE_PEER_SERVER_PORT=9000
-VITE_PEER_SERVER_PATH=/peerjs
-VITE_PEER_SERVER_KEY=<peer-server-key>
-VITE_PEER_SERVER_SECURE=true
-```
+服务器端：每个游戏一个适配器（`server/games/<game>.js`），复用客户端纯函数引擎。
+房主专属操作由服务器强制校验。需要持续推进的游戏（territory 生产、catguess 阶段超时）
+由服务器 1s tick 权威驱动。
 
-For reliable relay fallback, configure domestic/self-hosted TURN. Multiple URLs can be comma-separated:
-
-```bash
-VITE_SELF_HOSTED_TURN_URLS=turn:your-turn-host:3478,turn:your-turn-host:3478?transport=tcp
-VITE_SELF_HOSTED_TURN_USERNAME=<turn-username>
-VITE_SELF_HOSTED_TURN_CREDENTIAL=<turn-credential>
-```
-
-If a network is especially strict and direct ICE candidates keep failing, force all WebRTC traffic through TURN:
+客户端通过环境变量指向服务器：
 
 ```bash
-VITE_P2P_ICE_TRANSPORT_POLICY=relay
+VITE_WS_SERVER_URL=wss://<host>/ws
 ```
 
-Use relay-only as an operational fallback, not the default, because it is more reliable across difficult NAT/firewall environments but adds latency and consumes TURN bandwidth.
-
-## WebSocket 服务器（服务器权威，迁移中）
-
-正在从 PeerJS/WebRTC 迁移到自建 WebSocket 服务器：房间状态和游戏逻辑都跑在
-服务器上（复用各游戏的 `gameEngine.js`），客户端只发意图、收权威状态。不再需要
-主机迁移、`recreateAsHost`、三步重连握手。
-
-**bomb-defuse 客户端已完成接入（试点）**：传输层换成 `src/shared/ws/createWebSocketService.js`
-（瘦客户端，自动重连并重新 JOIN，无 host/guest 分支），各操作退化为 `INTENT`
-（`START_GAME` / `SET_DIFFICULTY` / `ASSIGN_ROLES` / `SUBMIT_MODULE_ACTION` / `RESTART` /
-`END_GAME`），房主权限由服务器强制校验。倒计时由服务器 tick 权威判定，客户端仅展示。
-协议常量唯一真源在 `src/shared/ws/protocol.js`（服务器 `server/protocol.js` 重新导出）。
+### 运行服务器
 
 ```bash
 # 构建服务器（esbuild 把引擎的无扩展名 import 一并打包，ws 保持 external）
@@ -85,15 +67,19 @@ npm run server:start
 npm run server:dev
 ```
 
-部署到自建机器（与 PeerServer/TURN 同一台即可）的建议：
+部署建议：
 
-- 用 nginx 反代到 `127.0.0.1:8080` 并升级为 `wss://`（TLS 证书在 nginx 层），
-  `location` 需带 `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";`。
-- 用 `pm2` 或 `systemd` 守护 `node server/dist/server.mjs`，崩溃自动拉起。
+- 用 nginx / Caddy 反代到 `127.0.0.1:8080` 并升级为 `wss://`（TLS 证书在反代层）。
+  Caddy 最简：`reverse_proxy 127.0.0.1:8080` 即可（自动处理 WebSocket Upgrade）。
+- 用计划任务 / `pm2` / `systemd` 守护 `node server/dist/server.mjs`，崩溃自动拉起。
+  Windows 部署见 `server/deploy/DEPLOY-WINDOWS.md`。
 - 房间状态目前在内存中（派对游戏房间是临时的）——服务器重启会清空所有房间。
   若将来需要跨重启存活，可在 `roomManager` 外接 Redis。
-- 客户端通过 `VITE_WS_SERVER_URL=wss://<host>/ws` 指向该服务器（bomb-defuse 已接入，
-  其余 3 个游戏仍走 PeerJS，待 Phase 3 迁移）。
+
+### 已退役
+
+PeerJS 信令服务器（如 `signal.chenximeow.icu`）与 TURN 服务可以下线了；
+`VITE_PEER_*` / `*_TURN_*` 等仓库 secrets 也不再使用，可一并删除。
 
 ## Adding a New Game
 

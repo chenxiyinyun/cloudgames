@@ -10,7 +10,7 @@
 import { WebSocketServer } from 'ws';
 import { createRoomManager } from './roomManager.js';
 import { getGameAdapter, listGameIds } from './games/index.js';
-import { generateRoomCode } from '../src/shared/p2p/roomCode.js';
+import { generateRoomCode } from '../src/shared/ws/roomCode.js';
 
 const PORT = Number(process.env.PORT) || 8080;
 const HOST = process.env.HOST || '0.0.0.0';

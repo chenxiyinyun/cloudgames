@@ -60,14 +60,8 @@ jobs:
 
       - name: Build
         env:
-          VITE_SELF_HOSTED_TURN_URLS: ${{ secrets.SELF_HOSTED_TURN_URLS }}
-          VITE_SELF_HOSTED_TURN_USERNAME: ${{ secrets.SELF_HOSTED_TURN_USERNAME }}
-          VITE_SELF_HOSTED_TURN_CREDENTIAL: ${{ secrets.SELF_HOSTED_TURN_CREDENTIAL }}
-          VITE_PEER_SERVER_HOST: ${{ secrets.VITE_PEER_SERVER_HOST }}
-          VITE_PEER_SERVER_PORT: ${{ secrets.VITE_PEER_SERVER_PORT }}
-          VITE_PEER_SERVER_PATH: ${{ secrets.VITE_PEER_SERVER_PATH }}
-          VITE_PEER_SERVER_KEY: ${{ secrets.VITE_PEER_SERVER_KEY }}
-          VITE_PEER_SERVER_SECURE: ${{ secrets.VITE_PEER_SERVER_SECURE }}
+          # 全部游戏已迁到服务器权威 WebSocket，不再需要 PeerJS 信令 / TURN 配置。
+          # 仓库里 VITE_PEER_* 与 *_TURN_* secrets 已不再使用，可在仓库设置里删除。
           VITE_WS_SERVER_URL: ${{ secrets.VITE_WS_SERVER_URL }}
         run: npm run build
 
