@@ -10,7 +10,8 @@
       :message="gameState.connectionMessage"
       :attempt="reconnectAttempt"
       :max-attempts="MAX_RECONNECT_ATTEMPTS"
-      :diagnostics="gameState.diagnostics"
+      :room-code="gameState.roomCode || ''"
+      :player-count="gameState.room.players.length"
       @retry="handleManualReconnect"
       @leave="handleForceLeave"
     />

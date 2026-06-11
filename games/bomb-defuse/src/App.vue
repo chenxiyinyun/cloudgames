@@ -44,7 +44,10 @@
     <ToastNotification :message="gameState.error || gameState.connectionMessage" />
     <DiagnosticsPanel
       v-if="gameState.screen !== 'menu'"
-      :diagnostics="gameState.diagnostics"
+      :connection-status="gameState.connectionStatus"
+      :connected="gameState.connected"
+      :room-code="gameState.roomCode || ''"
+      :player-count="gameState.room.players.length"
     />
     <ConnectionOverlay
       v-if="showConnectionOverlay"

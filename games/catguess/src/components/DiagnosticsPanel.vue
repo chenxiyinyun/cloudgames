@@ -18,35 +18,20 @@
       <div class="diag-title">连接诊断</div>
       <div class="diag-grid">
         <div class="diag-cell">
-          <span class="diag-label">信令</span>
-          <span class="diag-value" :class="signalingSeverity">
-            {{ signalingLabel }}
-          </span>
+          <span class="diag-label">连接方式</span>
+          <span class="diag-value">WebSocket</span>
         </div>
         <div class="diag-cell">
-          <span class="diag-label">TURN</span>
-          <span class="diag-value" :class="turnSeverity">
-            {{ turnLabel }}
-          </span>
+          <span class="diag-label">状态</span>
+          <span class="diag-value" :class="statusSeverity">{{ statusLabel }}</span>
         </div>
         <div class="diag-cell">
-          <span class="diag-label">当前模式</span>
-          <span class="diag-value" :class="modeSeverity">
-            {{ modeLabel }}
-          </span>
+          <span class="diag-label">房间号</span>
+          <span class="diag-value">{{ roomCode || '—' }}</span>
         </div>
-        <div v-if="lastChange" class="diag-cell full">
-          <span class="diag-label">最近切换</span>
-          <span class="diag-value">
-            {{ formatLastChange(lastChange) }}
-          </span>
-        </div>
-        <div v-for="(peer, peerId) in peers" :key="peerId" class="diag-cell full">
-          <span class="diag-label">对端 {{ shortPeerId(peerId) }}</span>
-          <span class="diag-value">
-            ICE: {{ peer.iceConnectionState || '?' }}
-            · conn: {{ peer.connectionState || '?' }}
-          </span>
+        <div class="diag-cell">
+          <span class="diag-label">在线人数</span>
+          <span class="diag-value">{{ playerCount }}</span>
         </div>
       </div>
     </div>
@@ -55,30 +40,21 @@
     <div v-if="variant === 'compact' && expanded" class="diag-expanded">
       <div class="diag-grid">
         <div class="diag-cell">
-          <span class="diag-label">信令</span>
-          <span class="diag-value" :class="signalingSeverity">{{ signalingLabel }}</span>
+          <span class="diag-label">连接方式</span>
+          <span class="diag-value">WebSocket</span>
         </div>
         <div class="diag-cell">
-          <span class="diag-label">TURN</span>
-          <span class="diag-value" :class="turnSeverity">{{ turnLabel }}</span>
+          <span class="diag-label">状态</span>
+          <span class="diag-value" :class="statusSeverity">{{ statusLabel }}</span>
         </div>
-        <div v-if="lastChange" class="diag-cell full">
-          <span class="diag-label">最近切换</span>
-          <span class="diag-value">{{ formatLastChange(lastChange) }}</span>
+        <div class="diag-cell">
+          <span class="diag-label">房间号</span>
+          <span class="diag-value">{{ roomCode || '—' }}</span>
         </div>
-        <div v-for="(peer, peerId) in peers" :key="peerId" class="diag-cell full">
-          <span class="diag-label">{{ shortPeerId(peerId) }}</span>
-          <span class="diag-value">
-            ICE: {{ peer.iceConnectionState || '?' }} · conn: {{ peer.connectionState || '?' }}
-          </span>
+        <div class="diag-cell">
+          <span class="diag-label">在线人数</span>
+          <span class="diag-value">{{ playerCount }}</span>
         </div>
-      </div>
-      <!-- 没配国内/自建基础设施时给玩家解释为啥 -->
-      <div v-if="!turnRelayInfo?.totalCount" class="diag-hint">
-        ⚠️ 未配置 TURN 中继，5G/4G 对称 NAT 设备大概率连不上。
-      </div>
-      <div v-else-if="signalingInfo?.isRisky" class="diag-hint">
-        ⚠️ 未配置国内/自建 PeerJS 信令，无法创建或加入房间。
       </div>
     </div>
   </div>
@@ -88,7 +64,10 @@
 import { computed, ref } from 'vue';
 
 const props = defineProps({
-  diagnostics: { type: Object, required: true },
+  connectionStatus: { type: String, default: 'disconnected' },
+  connected: { type: Boolean, default: false },
+  roomCode: { type: String, default: '' },
+  playerCount: { type: Number, default: 0 },
   variant: {
     type: String,
     default: 'compact',
@@ -98,35 +77,27 @@ const props = defineProps({
 
 const expanded = ref(false);
 
-const signalingInfo = computed(() => props.diagnostics?.signaling || null);
-const turnRelayInfo = computed(() => props.diagnostics?.turnRelay || null);
-const mode = computed(() => props.diagnostics?.mode || 'unknown');
-const lastChange = computed(() => props.diagnostics?.lastModeChange || null);
-const peers = computed(() => props.diagnostics?.peers || {});
+const STATUS_LABELS = {
+  connected: '已连接',
+  connecting: '连接中',
+  reconnecting: '重连中',
+  disconnected: '未连接',
+  error: '连接失败'
+};
 
-const signalingLabel = computed(() => signalingInfo.value?.label || '未初始化');
-const turnLabel = computed(() => turnRelayInfo.value?.label || '未初始化');
-const modeLabel = computed(() => {
-  const m = mode.value;
-  if (m === 'relay') return '中继 (TURN)';
-  if (m === 'direct-or-relay') return '尝试直连';
-  return m;
+const statusLabel = computed(
+  () => STATUS_LABELS[props.connectionStatus] || props.connectionStatus
+);
+
+const statusSeverity = computed(() => {
+  if (props.connectionStatus === 'connected') return 'severity-ok';
+  if (props.connectionStatus === 'error' || props.connectionStatus === 'disconnected') {
+    return 'severity-bad';
+  }
+  return 'severity-warn';
 });
 
-// 紧凑模式用一句话总结
-const summaryText = computed(() => {
-  const sig = signalingInfo.value?.isConfigured ? '✓ 国内信令' : '✗ 无信令';
-  const turn = turnRelayInfo.value?.tier === 'excellent'
-    ? '✓ TURN'
-    : '✗ 无 TURN';
-  return `${sig} · ${turn}`;
-});
-
-const severityClass = computed(() => {
-  if (signalingInfo.value?.isRisky && !turnRelayInfo.value?.hasSelfHosted) return 'severity-bad';
-  if (signalingInfo.value?.isRisky || !turnRelayInfo.value?.hasSelfHosted) return 'severity-warn';
-  return 'severity-ok';
-});
+const severityClass = computed(() => statusSeverity.value);
 
 const severityIcon = computed(() => {
   if (severityClass.value === 'severity-bad') return '🔴';
@@ -134,39 +105,13 @@ const severityIcon = computed(() => {
   return '🟢';
 });
 
-const signalingSeverity = computed(() => {
-  if (!signalingInfo.value) return '';
-  return signalingInfo.value.isRisky ? 'severity-warn' : 'severity-ok';
+// 紧凑模式用一句话总结
+const summaryText = computed(() => {
+  if (props.connected && props.roomCode) {
+    return `WebSocket · ${statusLabel.value} · 房间 ${props.roomCode}`;
+  }
+  return `WebSocket · ${statusLabel.value}`;
 });
-
-const turnSeverity = computed(() => {
-  if (!turnRelayInfo.value) return '';
-  if (turnRelayInfo.value.tier === 'excellent') return 'severity-ok';
-  return 'severity-bad';
-});
-
-const modeSeverity = computed(() => {
-  if (mode.value === 'relay') return 'severity-warn'; // 走中继说明直连不通
-  if (mode.value === 'direct-or-relay') return 'severity-ok';
-  return '';
-});
-
-function formatLastChange(c) {
-  if (!c) return '';
-  const phaseText = {
-    'trying-direct': '正在尝试直连',
-    'switching-to-relay': '切换到 TURN 中继',
-    'using-relay': '使用 TURN 中继',
-    'failed': '连接失败'
-  }[c.phase] || c.phase;
-  return c.reason ? `${phaseText} — ${c.reason}` : phaseText;
-}
-
-function shortPeerId(id) {
-  if (!id) return '';
-  if (id.length <= 12) return id;
-  return id.slice(0, 6) + '…' + id.slice(-4);
-}
 </script>
 
 <style scoped>
@@ -228,17 +173,6 @@ function shortPeerId(id) {
   background: rgba(255, 255, 255, 0.85);
   border: 1px solid var(--cat-border);
   border-radius: 12px;
-}
-
-.diag-hint {
-  margin-top: 8px;
-  padding: 6px 8px;
-  background: rgba(232, 112, 96, 0.1);
-  border-left: 3px solid #e87060;
-  border-radius: 4px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: #a04030;
 }
 
 /* 详情模式：连接/错误时显示 */

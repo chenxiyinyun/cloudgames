@@ -12,11 +12,6 @@ export const gameState = reactive({
   error: null,
   connectionStatus: 'disconnected',
   connectionMessage: '',
-  diagnostics: {
-    mode: 'websocket',
-    hasTurnRelay: false,
-    peers: {}
-  },
   room: createEmptyRoomMirror()
 })
 
@@ -82,10 +77,6 @@ export function resetLocalState() {
   gameState.connectionStatus = 'disconnected'
   gameState.connectionMessage = ''
   gameState.room = createEmptyRoomMirror()
-}
-
-export function getDiagnostics() {
-  return gameState.diagnostics
 }
 
 function createEmptyRoomMirror() {

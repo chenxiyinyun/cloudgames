@@ -90,7 +90,10 @@
 
       <!-- 诊断条：菜单页底部，点开看完整 -->
       <DiagnosticsPanel
-        :diagnostics="gameState.diagnostics"
+        :connection-status="gameState.connectionStatus"
+        :connected="gameState.connected"
+        :room-code="gameState.roomCode || ''"
+        :player-count="gameState.room.players.length"
         variant="compact"
         style="margin-top: 16px;"
       />

@@ -17,11 +17,6 @@ export const gameState = reactive({
   connectionStatus: 'disconnected',
   connectionMessage: '',
   toast: null,
-  diagnostics: {
-    mode: 'websocket',
-    hasTurnRelay: false,
-    peers: {}
-  },
 
   room: {
     players: [],
@@ -58,10 +53,6 @@ export function setRoom(room) {
 export function setConnectionStatus(status, message = '') {
   gameState.connectionStatus = status;
   gameState.connectionMessage = message;
-}
-
-export function getDiagnostics() {
-  return gameState.diagnostics;
 }
 
 // 离开房间 / 清理时把本地状态恢复到默认（保留 error 供展示）。
