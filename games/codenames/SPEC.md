@@ -20,8 +20,8 @@ WebSocket 服务器 (权威)
 ```
 
 - **服务器**：运行所有游戏逻辑（权威），处理意图、广播状态、驱动计时
-- **客户端**：只发意图（`INTENT`）、收权威状态（`STATE`），无 host/guest 之分
-- **无主机迁移**、无 ICE/NAT 穿透、无 P2P 连接管理
+- **客户端**：只发意图（`INTENT`）、收权威状态（`STATE`），不持有权威房间状态
+- **连接模型**：单一 WebSocket JSON 通道，由服务器按 `playerId` 处理断线重连
 
 ### 2.2 技术栈
 - **Vue.js 3** (Composition API)

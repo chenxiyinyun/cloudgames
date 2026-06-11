@@ -1,7 +1,7 @@
 /**
- * Input sanitization module for Codename P2P game.
+ * Input sanitization module for Codename.
  * Prevents XSS and injection by cleaning all user-facing string inputs
- * before they are stored or broadcast via WebRTC.
+ * before they are stored or sent through the WebSocket protocol.
  */
 
 /**

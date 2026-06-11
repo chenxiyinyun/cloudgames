@@ -685,10 +685,19 @@ function handleMapPointerUp(event) {
   }
 
   if (activePointers.size === 0) {
-    const durationMs = Date.now() - gestureState.startAt
-    const movementPx = Math.hypot(event.clientX - gestureState.startX, event.clientY - gestureState.startY)
-    if (!isTapGesture({ durationMs, movementPx }) || gestureState.moved) {
-      queueClickSuppression()
+    if (event.pointerType === 'mouse') {
+      // 鼠标：浏览器已区分 click 与拖拽，按住时长不应影响派兵；
+      // 仅在确实平移过地图时才抑制随后的 click。否则一次稍慢（>220ms）的
+      // 鼠标点击会被误判为非轻点而吞掉，导致 PC 端点击基地无反应。
+      if (gestureState.moved) {
+        queueClickSuppression()
+      }
+    } else {
+      const durationMs = Date.now() - gestureState.startAt
+      const movementPx = Math.hypot(event.clientX - gestureState.startX, event.clientY - gestureState.startY)
+      if (!isTapGesture({ durationMs, movementPx }) || gestureState.moved) {
+        queueClickSuppression()
+      }
     }
     isMapGestureActive.value = false
   }
@@ -774,13 +783,9 @@ function tickAnimation() {
     now: currentNow
   })
 
-  const arrivalBoost = {}
-  troopProgress.forEach(p => {
-    if (p.arrivedCount > 0) {
-      arrivalBoost[p.destId] = (arrivalBoost[p.destId] || 0) + p.arrivedCount
-    }
-  })
+  const territoryById = new Map(territories.value.map(t => [t.id, t]))
 
+  // 源头：在途部队从各自当前所在领地“分批离开”，已出发的逐个扣减
   const sourceTotalAmount = {}
   movingTroops.value.forEach(troop => {
     const src = troop.path[troop.currentStep]
@@ -792,17 +797,38 @@ function tickAnimation() {
     sourceDeparted[p.sourceId] = (sourceDeparted[p.sourceId] || 0) + p.departedCount
   })
 
+  // 终点：把抵达拆成“友方增援(+)”与“敌方/中立交战(-)”，随每个小兵抵达逐个结算
+  const friendlyArrived = {}
+  const hostileArrived = {}
+  troopProgress.forEach(p => {
+    if (p.arrivedCount <= 0) return
+    const dest = territoryById.get(p.destId)
+    if (dest && dest.ownerId === p.playerId) {
+      friendlyArrived[p.destId] = (friendlyArrived[p.destId] || 0) + p.arrivedCount
+    } else {
+      hostileArrived[p.destId] = (hostileArrived[p.destId] || 0) + p.arrivedCount
+    }
+  })
+
   territories.value.forEach(t => {
     const srcTotal = sourceTotalAmount[t.id] || 0
     const srcDep = sourceDeparted[t.id] || 0
-    const destBoost = arrivalBoost[t.id] || 0
+    const fAdd = friendlyArrived[t.id] || 0
+    const hSub = hostileArrived[t.id] || 0
 
-    if (srcTotal > 0 || srcDep > 0) {
-      const preDispatch = t.units + srcTotal
-      displayUnits.value[t.id] = Math.max(0, preDispatch - srcDep + destBoost)
-    } else {
-      displayUnits.value[t.id] = t.units + destBoost
+    // 源头扣减：还原派遣前总量，再随出发逐个减少
+    let value = (srcTotal > 0 || srcDep > 0) ? (t.units + srcTotal - srcDep) : t.units
+
+    // 友方增援：逐个加上
+    value += fAdd
+
+    // 交战：守军被逐个消耗；攻方一旦超过守军即翻面，改为攻方逐个累加
+    if (hSub > 0) {
+      const net = value - hSub
+      value = net >= 0 ? net : -net
     }
+
+    displayUnits.value[t.id] = Math.max(0, value)
   })
 
   animFrame.value = requestAnimationFrame(tickAnimation)

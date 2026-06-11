@@ -2,7 +2,7 @@
  * bomb-defuse 服务器适配器。
  *
  * 直接复用客户端的纯函数游戏引擎（gameEngine.js 已在 node 环境下被测试覆盖，
- * 不含任何浏览器/Vue/PeerJS 依赖），服务器作为权威跑同一套逻辑。
+ * 不含任何浏览器/Vue/联网层依赖），服务器作为权威跑同一套逻辑。
  * 新增其它游戏 = 再写一个这样的适配器即可。
  */
 import * as engine from '../../games/bomb-defuse/src/services/gameEngine.js';

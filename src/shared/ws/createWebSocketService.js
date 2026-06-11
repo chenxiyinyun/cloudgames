@@ -3,8 +3,8 @@ import { C2S, S2C } from './protocol.js';
 /**
  * 瘦客户端 WebSocket 传输层（服务器权威模型）。
  *
- * 取代 createP2PService：不再有 host/guest 之分、不再有主机迁移和三步重连握手。
  * 客户端只做三件事：连上服务器 → 发 CREATE/JOIN/INTENT/LEAVE → 收 JOINED/STATE/ERROR。
+ * 房间状态由服务器统一维护，客户端断线后按 playerId 重新加入。
  * 断线后自动重连并重新 JOIN（服务器按 playerId 识别为重连，保留座位与房主身份）。
  *
  * 与具体游戏、与 Vue 都解耦：只暴露回调，由各游戏的 store 把回调接到响应式状态上。

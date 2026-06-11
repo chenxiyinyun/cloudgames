@@ -14,7 +14,7 @@ import {
  * territory-control 游戏 store（服务器权威 / 瘦客户端）。
  *
  * 所有操作退化为向服务器发意图；生产/移动/离线中和/胜负全部由服务器 tick 权威推进，
- * 客户端只渲染服务器 STATE 下发的镜像。无主机迁移、无加入重试、无客户端定时器。
+ * 客户端只渲染服务器 STATE 下发的镜像，不再本地推进游戏逻辑。
  */
 
 export function createRoom(name) {

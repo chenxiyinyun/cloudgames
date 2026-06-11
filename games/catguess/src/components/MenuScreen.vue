@@ -158,7 +158,7 @@ async function handleJoin() {
 }
 
 async function handleRestore() {
-  // 先把缓存里的房间/玩家信息恢复到内存，再真正重建 P2P 连接。
+  // 先把缓存里的房间/玩家信息恢复到内存，再真正重建 WebSocket 连接。
   // 只调 restoreFromCache 会让界面"假活着"——状态有了但没有任何连接。
   if (!restoreFromCache()) {
     showToast('没有可恢复的对局', 'warning')

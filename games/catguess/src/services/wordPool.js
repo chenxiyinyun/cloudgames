@@ -2,7 +2,7 @@
  * catguess 默认词库（纯数据，无任何框架依赖）。
  *
  * 服务器适配器建房时用它初始化牌堆；保持纯模块以便被服务器 bundle 安全引入
- * （不像 stores/state.js 会拖入 vue / p2p）。
+ * （不像 stores/state.js 会拖入 vue / 响应式状态）。
  */
 export const DEFAULT_WORD_POOL = [
   '苹果', '月亮', '彩虹', '沙滩', '森林', '海洋', '星空', '火焰', '冰山', '沙漠',

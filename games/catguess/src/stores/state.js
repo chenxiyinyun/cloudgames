@@ -88,7 +88,7 @@ export function resetLocalStateToDefaults() {
 }
 
 // ── Local mirror update（收到服务器 STATE 时调用）────────────────────────────
-// 非 SCORING/ENDED 阶段隐藏 secret 标记（与原 P2P 客户端的展示行为一致）。
+// 非 SCORING/ENDED 阶段隐藏 secret 标记，避免提前暴露谜底。
 export function updateLocalState(room) {
   if (!room) return;
 

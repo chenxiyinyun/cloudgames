@@ -209,7 +209,7 @@ export function syncScreenToPhase(room) {
   }
 }
 
-// 重置纯本地状态（cleanup 的状态部分；P2P/定时器/缓存的清理由 connection.cleanup 负责）
+// 重置纯本地状态（cleanup 的状态部分；网络/定时器/缓存的清理由 connection.cleanup 负责）
 export function resetGameState() {
   setRoom(null);
   gameState.connected = false;

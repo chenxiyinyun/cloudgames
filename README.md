@@ -77,9 +77,8 @@ All games use a server-authoritative model: the server runs the game logic and c
 
 ### Key Design Decisions
 
-- **No host/guest distinction** — the server is the single authority
-- **No host migration** — not needed when the server holds all state
-- **No ICE/NAT traversal** — pure WebSocket, works reliably on mainland China networks
+- **Single authority** — the server owns room state; clients only render snapshots and send intents
+- **Single transport** — pure WebSocket JSON frames, works reliably on mainland China networks
 - **Engine reuse** — server adapters import the same pure-function `gameEngine.js` from each game, zero code duplication
 - **Server tick** — `roomManager.tickAll()` runs every 1s; games with time-driven logic (territory production, bomb countdown) implement `adapter.tick()`
 - **Host-only actions** — declared per adapter (`hostOnlyActions`), enforced by `roomManager`

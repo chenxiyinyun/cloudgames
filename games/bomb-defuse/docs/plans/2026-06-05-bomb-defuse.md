@@ -8,13 +8,11 @@
 
 ## Architecture Note
 
-This plan was originally written for the PeerJS/WebRTC P2P architecture. The game has since been migrated to the **server-authoritative WebSocket** model along with all other games. Key differences from the original plan:
+This plan has been updated to match the current **server-authoritative WebSocket** model used by all games. Key implementation points:
 
-- **Networking**: PeerJS/WebRTC → WebSocket (`src/shared/ws/createWebSocketService.js`)
-- **State authority**: Host client → Server (`server/roomManager.js` + `server/games/bombdefuse.js`)
-- **Client store**: 1000+ lines with P2P protocol → ~130 lines, only sends intents
-- **No host migration**: Server is the single authority
-- **No ICE/TURN/STUN**: Pure WebSocket, no NAT traversal needed
+- **Networking**: WebSocket transport via `src/shared/ws/createWebSocketService.js`
+- **State authority**: Server-owned room state via `server/roomManager.js` + `server/games/bombdefuse.js`
+- **Client store**: Thin client store that only sends intents and applies authoritative snapshots
 - **Reconnection**: Exponential backoff auto-reconnect + re-JOIN (server identifies by playerId)
 - **Server tick**: `bombdefuse.js` adapter has a `tick()` method for countdown/end-condition checks
 
