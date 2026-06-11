@@ -2,74 +2,80 @@
 
 ## 1. 项目概述
 
-截码战是一款四人桌游的网页版实现。**纯静态网站**，通过 WebRTC P2P 技术实现多设备联机，无需服务器，可直接部署到 GitHub Pages、Vercel、Netlify 等平台。
+截码战是一款四人桌游的网页版实现。采用**服务器权威 WebSocket** 架构实现多设备联机，客户端为瘦客户端（只发意图、收权威状态），游戏逻辑全部跑在服务器上。
 
 ## 2. 技术架构
 
-### 2.1 P2P 架构
+### 2.1 服务器权威模型
+
 ```
-浏览器 A (房主 - 运行完整游戏逻辑)
-    │  PeerJS (WebRTC)
-    │  国内/自建 PeerServer（仅用于信令）
+浏览器 A/B/C/D (瘦客户端)
+    │  WebSocket (JSON 帧)
+    │  协议：CREATE / JOIN / INTENT / LEAVE → JOINED / STATE / ERROR
     │
-浏览器 B/C/D (访客 - 接收状态同步)
+WebSocket 服务器 (权威)
+    ├── roomManager.js — 房间管理，与游戏/传输解耦
+    ├── games/codenames.js — 适配器，复用客户端纯函数引擎
+    └── 1s tick — 推进倒计时/胜负
 ```
 
-- **房主浏览器**：运行所有游戏逻辑（权威节点），处理加入/离开/线索/猜测等操作，广播状态给所有访客
-- **访客浏览器**：接收房主的状态广播，同步 UI，提交操作请求给房主
-- **PeerServer**：仅用于 P2P 连接建立（信令），不存储任何数据；必须使用显式配置的国内/自建服务
+- **服务器**：运行所有游戏逻辑（权威），处理意图、广播状态、驱动计时
+- **客户端**：只发意图（`INTENT`）、收权威状态（`STATE`），无 host/guest 之分
+- **无主机迁移**、无 ICE/NAT 穿透、无 P2P 连接管理
 
 ### 2.2 技术栈
 - **Vue.js 3** (Composition API)
 - **Vite** 构建工具
-- **PeerJS** (WebRTC P2P)
-- **原生 CSS** (赛博朋克风格)
-- **零后端 / 零数据库**
+- **ws** (Node.js WebSocket 服务器)
+- **原生 CSS** (二战电报风格)
 
 ## 3. 目录结构
 ```
-/workspace/
+games/codenames/
 ├── src/
 │   ├── components/
 │   │   ├── MenuScreen.vue      # 主菜单
 │   │   ├── LobbyScreen.vue     # 等待室
 │   │   ├── GameScreen.vue      # 游戏界面
-│   │   └── ResultScreen.vue    # 结果界面
+│   │   ├── ResultScreen.vue    # 结果界面
+│   │   └── ToastNotification.vue
 │   ├── services/
-│   │   ├── p2p.js              # P2P 通信层 (WebRTC)
-│   │   └── gameEngine.js       # 游戏引擎 (纯逻辑)
+│   │   ├── gameEngine.js       # 游戏引擎 (纯逻辑，服务器也复用)
+│   │   ├── logger.js
+│   │   └── sanitize.js
 │   ├── data/
 │   │   └── keywords.js         # 关键词库 (962个词)
 │   ├── stores/
-│   │   └── gameStore.js        # 状态管理
+│   │   ├── gameStore.js        # 状态管理 (瘦客户端，只发意图)
+│   │   ├── network.js          # 网络层 (createGameNetwork 样板)
+│   │   ├── state.js            # 响应式状态定义
+│   │   └── cache.js            # localStorage 缓存
 │   ├── App.vue
 │   ├── main.js
 │   └── style.css
-├── index.html
-├── package.json
-├── vite.config.js
-└── SPEC.md
+└── index.html
 ```
 
-## 4. P2P 通信协议
+## 4. 通信协议
 
 ### 4.1 消息类型
 | 消息类型 | 方向 | 说明 |
 |---------|------|------|
-| JOIN_REQUEST | 访客→房主 | 请求加入房间 |
-| JOIN_RESPONSE | 房主→访客 | 加入结果 |
-| ROOM_STATE | 房主→所有访客 | 完整房间状态同步 |
-| START_GAME | 房主→所有访客 | 开始游戏 |
-| SUBMIT_CLUES | 双向→房主 | 提交线索 |
-| SUBMIT_GUESS | 双向→房主 | 提交猜测 |
-| NEXT_ROUND | 房主→所有访客 | 下一回合 |
+| CREATE | C→S | 建房 |
+| JOIN | C→S | 加入/重连 |
+| INTENT | C→S | 游戏意图（START_GAME / SUBMIT_* 等） |
+| LEAVE | C→S | 主动离开 |
+| JOINED | S→C | 建房/加入成功（含全量房间状态） |
+| STATE | S→C | 权威房间状态（全量） |
+| ERROR | S→C | 意图被拒 / 房间不存在等（fatal=true 时不再重连） |
 
 ### 4.2 连接流程
-1. 房主创建 Peer (`codenames-{roomCode}`)
-2. 访客创建 Peer → 连接房主的 Peer ID
-3. 连接建立后，访客发送 JOIN_REQUEST
-4. 房主处理请求，广播 ROOM_STATE
-5. 所有操作由房主集中处理，结果广播给所有人
+1. 玩家输入名字，点击建房/加入
+2. 客户端通过 `createWebSocketService` 连接服务器，发送 CREATE 或 JOIN
+3. 服务器创建/加入房间，返回 JOINED（含全量状态）
+4. 游戏操作通过 `sendIntent(action, payload)` 发送
+5. 服务器运行权威逻辑后广播 STATE 给房内所有连接
+6. 断线后自动指数退避重连 + 重新 JOIN（服务器按 playerId 识别重连）
 
 ## 5. 游戏规则
 
@@ -87,26 +93,20 @@
 
 ## 6. 部署方式
 
-### 6.1 纯静态托管
-```bash
-# 构建
-npm install
-npm run build
+### 6.1 客户端
+构建后部署到任意静态托管服务（GitHub Pages、Vercel、Netlify 等）。
 
-# dist/ 目录即为完整网站，可部署到任意静态托管服务
+### 6.2 服务器
+```bash
+npm run server:build   # esbuild 打包
+npm run server:start   # 启动（默认 0.0.0.0:8080）
 ```
 
-### 6.2 支持的平台
-- **GitHub Pages**: 推送 dist/ 到 gh-pages 分支
-- **Vercel**: `vercel --prod`
-- **Netlify**: 拖拽 dist/ 文件夹
-- **Cloudflare Pages**: 连接仓库自动部署
-- **任何静态文件服务器**: nginx, Apache, etc.
+用 nginx / Caddy 反代到 `127.0.0.1:8080` 并升级为 `wss://`。客户端通过环境变量指向服务器：
 
-### 6.3 P2P 配置要求
-- 游戏业务无需后端，通信走浏览器 WebRTC
-- PeerServer 必须通过 `VITE_PEER_SERVER_HOST` 等环境变量配置国内/自建信令
-- TURN 只使用 `VITE_SELF_HOSTED_TURN_*` 配置的国内/自建中继，不回退公共或海外服务
+```bash
+VITE_WS_SERVER_URL=wss://<host>/ws
+```
 
 ## 7. 关键词库
 
