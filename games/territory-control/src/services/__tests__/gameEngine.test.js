@@ -11,6 +11,7 @@ import {
   restartGame,
   setMapSize,
   startGame,
+  tickMovingTroops,
   tickProduction
 } from '../gameEngine'
 
@@ -260,6 +261,21 @@ describe('territory control engine', () => {
 
     // 部队应到达目标并攻占
     expect(target.ownerId).toBe('p1')
+  })
+
+  it('reinforces a friendly connected territory', () => {
+    const room = makeRoom(2)
+    startGame(room, { seed: 'reinforce-friendly' })
+    const pair = findEnemyEdge(room, 'p1')
+    pair.source.units = 30
+    pair.target.ownerId = 'p1'
+    pair.target.units = 10
+
+    dispatchUnits(room, 'p1', pair.source.id, pair.target.id, 0.5, 3000)
+    tickMovingTroops(room, 5001)
+
+    expect(pair.target.ownerId).toBe('p1')
+    expect(pair.target.units).toBe(25)
   })
 
   it('ends when one player controls all remaining owned territory', () => {

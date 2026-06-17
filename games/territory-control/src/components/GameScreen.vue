@@ -549,15 +549,14 @@ function isEdgeOnPath(edge) {
 
 function handleTerritoryClick(territory) {
   if (territory.isObstacle) return
-  if (territory.ownerId === props.playerId && territory.units >= 1) {
+
+  if (selectedId.value) {
     if (selectedId.value === territory.id) {
       selectedId.value = null
       previewPath.value = null
-    } else {
-      selectedId.value = territory.id
-      previewPath.value = null
+      return
     }
-  } else if (selectedId.value && territory.id !== selectedId.value) {
+
     const path = findPath(edges.value, selectedId.value, territory.id, territories.value)
     if (!path) {
       previewPath.value = null
@@ -577,6 +576,12 @@ function handleTerritoryClick(territory) {
       seq: seq.value
     })
     selectedId.value = null
+    previewPath.value = null
+    return
+  }
+
+  if (territory.ownerId === props.playerId && territory.units >= 1) {
+    selectedId.value = territory.id
     previewPath.value = null
   }
 }
