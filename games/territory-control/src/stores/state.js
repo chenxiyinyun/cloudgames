@@ -50,9 +50,16 @@ export function updateLocalState(room) {
       height: room.gameState.height || 640,
       territories: room.gameState.territories ? room.gameState.territories.map(t => ({ ...t })) : [],
       edges: room.gameState.edges ? room.gameState.edges.map(e => ({ ...e })) : [],
+      items: room.gameState.items ? room.gameState.items.map(t => ({ ...t })) : [],
       // 派兵队列必须同步到镜像,否则 GameScreen 看不到 movingTroop 动画。
       // productionTick 同步过去,避免后续 diff 误判 gameState 整体变化。
       movingTroops: room.gameState.movingTroops ? room.gameState.movingTroops.map(t => ({ ...t })) : [],
+      weather: room.gameState.weather ? { ...room.gameState.weather } : null,
+      weatherRotationAt: room.gameState.weatherRotationAt || 0,
+      playerBuffs: room.gameState.playerBuffs
+        ? Object.fromEntries(Object.entries(room.gameState.playerBuffs).map(([k, v]) => [k, v.map(b => ({ ...b }))]))
+        : {},
+      nextItemRespawnAt: room.gameState.nextItemRespawnAt || 0,
       productionTick: room.gameState.productionTick || 0,
       startedAt: room.gameState.startedAt || null,
       lastTickAt: room.gameState.lastTickAt || null,
@@ -94,7 +101,12 @@ function createEmptyRoomMirror() {
       height: 640,
       territories: [],
       edges: [],
+      items: [],
       movingTroops: [],
+      weather: null,
+      weatherRotationAt: 0,
+      playerBuffs: {},
+      nextItemRespawnAt: 0,
       productionTick: 0,
       startedAt: null,
       lastTickAt: null,

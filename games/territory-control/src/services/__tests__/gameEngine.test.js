@@ -78,10 +78,11 @@ describe('territory control engine', () => {
     expect(result.error).toBeUndefined()
     expect(room.phase).toBe(GAME_PHASES.PLAYING)
     expect(room.gameState.mapSize).toBe(mapSize)
-    expect(room.gameState.territories).toHaveLength(config.territoryCount)
+    const realTerritories = room.gameState.territories.filter(t => t.kind !== 'item')
+    expect(realTerritories).toHaveLength(config.territoryCount)
     expect(room.gameState.edges.length).toBeGreaterThanOrEqual(config.territoryCount - 1)
     for (const player of room.players) {
-      expect(room.gameState.territories.some(t => t.ownerId === player.id && t.isCapital)).toBe(true)
+      expect(realTerritories.some(t => t.ownerId === player.id && t.isCapital)).toBe(true)
     }
   })
 
@@ -440,6 +441,244 @@ describe('territory control engine', () => {
     const p2Territory = room.gameState.territories.find(t => t.ownerId === 'p2')
     const result = dispatchUnits(room, 'p1', p2Territory.id, pair.target.id, 0.5, 3000)
     expect(result.error).toBe('只能从自己的领地派遣')
+  })
+
+  // ========== 肉鸽机制测试 ==========
+
+  it('spawns 4 items on the map and includes them in the territories graph', () => {
+    const room = makeRoom(2)
+    startGame(room, { seed: 'items-spawn' })
+    expect(room.gameState.items).toHaveLength(4)
+    const itemIds = room.gameState.items.map(i => i.id)
+    const itemInTerritories = room.gameState.territories.some(t => itemIds.includes(t.id) && t.kind === 'item')
+    expect(itemInTerritories).toBe(true)
+  })
+
+  it('grants player buff when a unit arrives at an item', () => {
+    const room = makeRoom(2)
+    startGame(room, { seed: 'pickup-item' })
+    const item = room.gameState.items[0]
+    item.itemKind = 'forcedMarch'
+    // 找一条从 p1 领地到 item 的可达路径，强行把 item 视作 p1 的可达目标
+    const p1Territory = room.gameState.territories.find(t => t.ownerId === 'p1')
+    p1Territory.units = 20
+    // 让 p1 的领地直接相邻到 item：在 edges 中加一条 p1→item
+    room.gameState.edges.push({ from: p1Territory.id, to: item.id })
+
+    const result = dispatchUnits(room, 'p1', p1Territory.id, item.id, 0.5, 3000)
+    expect(result.error).toBeUndefined()
+    // 推进时间让 troop 到达
+    let now = 3000
+    let safety = 20
+    while (room.gameState.movingTroops.length > 0 && safety > 0) {
+      now += 1000
+      tickProduction(room, now)
+      safety -= 1
+    }
+    // 玩家应获得 forcedMarch buff
+    const buffs = room.gameState.playerBuffs['p1'] || []
+    expect(buffs.some(b => b.type === 'forcedMarch')).toBe(true)
+    // item 已被消耗
+    expect(room.gameState.items.find(i => i.id === item.id)).toBeUndefined()
+  })
+
+  it('market territory increases march speed for troops dispatched from it', () => {
+    const room = makeRoom(2)
+    startGame(room, { seed: 'market-speed' })
+    // 直接取 p1 的 capital（必定 type=normal,不会因为市场赋值变成别的）
+    const p1Capital = room.gameState.territories.find(t => t.ownerId === 'p1' && t.isCapital)
+    p1Capital.units = 30
+    p1Capital.type = 'market'
+    // 找一个非障碍的可达目标
+    const targets = room.gameState.edges
+      .filter(e => e.from === p1Capital.id || e.to === p1Capital.id)
+      .map(e => e.from === p1Capital.id ? e.to : e.from)
+      .map(id => room.gameState.territories.find(t => t.id === id))
+      .filter(t => t && !t.isObstacle)
+    expect(targets.length).toBeGreaterThan(0)
+    const target = targets[0]
+    target.units = 2
+    target.ownerId = null
+
+    const result = dispatchUnits(room, 'p1', p1Capital.id, target.id, 0.5, 3000)
+    expect(result.error).toBeUndefined()
+    const troop = room.gameState.movingTroops[0]
+    // 集市 × 1.5 → 到达时间应 < TRAVEL_TIME_PER_EDGE (1500)
+    expect(troop.nextArrivalAt - 3000).toBeLessThan(1500)
+    expect(troop.sourceMarchMultiplier).toBe(1.5)
+  })
+
+  it('ruins territory adds +0.5 production to all owned territories of its owner', () => {
+    const room = makeRoom(2)
+    startGame(room, { seed: 'ruins-prod' })
+    // 把 p1 拥有的某个中立领地设为 ruins 并占领
+    const candidate = room.gameState.territories.find(t => !t.isObstacle && !t.ownerId)
+    candidate.type = 'ruins'
+    candidate.units = 1
+    candidate.ownerId = 'p1'
+    // p2 的 capital 作为对照(无废墟)
+    const p2Capital = room.gameState.territories.find(t => t.ownerId === 'p2' && t.isCapital)
+    const beforeRuins = candidate.units
+    const beforeP2 = p2Capital.units
+
+    // 跑 2 个生产 tick
+    tickProduction(room, 100)
+    tickProduction(room, 200)
+
+    // p2(无废墟): +1 per 2 tick = +1
+    // ruins owner p1: +1 (基础) + 0.5 (废墟全球加成) = +1.5
+    expect(p2Capital.units - beforeP2).toBe(1)
+    expect(candidate.units - beforeRuins).toBe(1.5)
+  })
+
+  it('weather rotates and applies production multiplier when bountiful is active', () => {
+    const room = makeRoom(2)
+    startGame(room, { seed: 'weather-rotate' })
+    // 强制设置当前天气为丰收
+    room.gameState.weather.type = 'bountiful'
+    room.gameState.weather.startedAt = Date.now()
+    room.gameState.weather.durationMs = 25000
+
+    const owned = room.gameState.territories.find(t => t.ownerId === 'p1' && !t.isObstacle)
+    const before = owned.units
+
+    // 2 个生产 tick：丰收取整 ×2
+    tickProduction(room, 100)
+    tickProduction(room, 200)
+
+    expect(owned.units - before).toBe(2)
+  })
+
+  it('storm weather slows troop arrival to 70%', () => {
+    const room = makeRoom(2)
+    startGame(room, { seed: 'storm-slow' })
+    // 强制设置天气为暴雨
+    room.gameState.weather.type = 'storm'
+    room.gameState.weather.startedAt = Date.now()
+    room.gameState.weather.durationMs = 25000
+
+    const pair = findEnemyEdge(room, 'p1')
+    pair.source.units = 30
+    pair.target.units = 2
+    pair.target.ownerId = null
+
+    // 反复派兵直到没有遭遇触发
+    let result, troop
+    for (let i = 0; i < 30; i += 1) {
+      pair.source.units = 30
+      result = dispatchUnits(room, 'p1', pair.source.id, pair.target.id, 0.5, 3000 + i)
+      if (result.error) continue
+      if (!result.encounter) {
+        troop = room.gameState.movingTroops[0]
+        break
+      }
+      // 重试前清掉 troop
+      room.gameState.movingTroops = []
+    }
+    expect(troop).toBeDefined()
+    // 暴雨 ×0.7 → 1500 / 0.7 ≈ 2142
+    expect(troop.nextArrivalAt - 3000).toBeGreaterThan(1500)
+    expect(troop.nextArrivalAt - 3000).toBeLessThan(2500)
+  })
+
+  it('player forcedMarch buff speeds up subsequent dispatches', () => {
+    const room = makeRoom(2)
+    startGame(room, { seed: 'buff-march' })
+    // 直接给 p1 注入 forcedMarch buff
+    room.gameState.playerBuffs['p1'] = [{ type: 'forcedMarch', appliedAt: Date.now(), expiresAt: Date.now() + 20000 }]
+
+    const pair = findEnemyEdge(room, 'p1')
+    pair.source.units = 30
+    pair.target.units = 2
+    pair.target.ownerId = null
+
+    // 反复派兵直到没有遭遇触发
+    let troop
+    for (let i = 0; i < 30; i += 1) {
+      pair.source.units = 30
+      const r = dispatchUnits(room, 'p1', pair.source.id, pair.target.id, 0.5, 3000 + i)
+      if (r.error) continue
+      if (!r.encounter) {
+        troop = room.gameState.movingTroops[0]
+        break
+      }
+      room.gameState.movingTroops = []
+    }
+    expect(troop).toBeDefined()
+    // 急行军 ×2 → 750
+    expect(troop.nextArrivalAt - 3000).toBeLessThan(1500)
+  })
+
+  it('buff expires after duration', () => {
+    const room = makeRoom(2)
+    startGame(room, { seed: 'buff-expire' })
+    const now = Date.now()
+    room.gameState.playerBuffs['p1'] = [{ type: 'forcedMarch', appliedAt: now - 1000, expiresAt: now + 50 }]
+
+    tickProduction(room, now + 100)
+    expect(room.gameState.playerBuffs['p1']).toBeUndefined()
+  })
+
+  it('plague weather reduces 1 unit per tick from a random owned territory', () => {
+    const room = makeRoom(2)
+    startGame(room, { seed: 'plague' })
+    room.gameState.weather.type = 'plague'
+    room.gameState.weather.startedAt = Date.now()
+    room.gameState.weather.durationMs = 25000
+
+    const owned = room.gameState.territories.filter(t => !t.isObstacle && t.ownerId && t.units > 5)
+    const totalBefore = owned.reduce((sum, t) => sum + t.units, 0)
+
+    // 跑 5 个 tick：每次瘟疫减 1 兵
+    for (let i = 0; i < 5; i += 1) {
+      tickProduction(room, Date.now() + i * 100)
+    }
+
+    const totalAfter = room.gameState.territories
+      .filter(t => !t.isObstacle && t.ownerId && t.units > 0)
+      .reduce((sum, t) => sum + t.units, 0)
+    // 瘟疫 -5，3 个生产 tick 期间 +3（每 2 tick 一次，5 tick 内应有 2 次产出）
+    // 保守断言：总兵数严格减少
+    expect(totalAfter).toBeLessThan(totalBefore)
+  })
+
+  it('encounter roll produces valid encounter types or null', () => {
+    const room = makeRoom(2)
+    startGame(room, { seed: 'encounter-test' })
+    const pair = findEnemyEdge(room, 'p1')
+    pair.source.units = 100
+    pair.target.units = 2
+    pair.target.ownerId = null
+
+    // 跑 100 次派兵，验证返回值结构与 encounter 类型
+    const validEncounters = ['bandit', 'volunteers', 'lost']
+    let triggered = 0
+    for (let i = 0; i < 100; i += 1) {
+      pair.source.units = 100
+      const r = dispatchUnits(room, 'p1', pair.source.id, pair.target.id, 0.5, 3000 + i)
+      expect(r.error).toBeUndefined()
+      if (r.encounter !== null && r.encounter !== undefined) {
+        expect(validEncounters).toContain(r.encounter)
+        triggered += 1
+      }
+    }
+    // 100 次派兵、20% 触发概率 → 期望至少 10 次
+    expect(triggered).toBeGreaterThanOrEqual(10)
+  })
+
+  it('item respawns after interval if below initial count', () => {
+    const room = makeRoom(2)
+    startGame(room, { seed: 'respawn' })
+    // 移除所有 item
+    const removedIds = room.gameState.items.map(i => i.id)
+    room.gameState.territories = room.gameState.territories.filter(t => !removedIds.includes(t.id))
+    room.gameState.items = []
+    room.gameState.edges = room.gameState.edges.filter(e => !removedIds.includes(e.from) && !removedIds.includes(e.to))
+    room.gameState.nextItemRespawnAt = Date.now() - 1  // 强制立即重生
+
+    tickProduction(room, Date.now())
+
+    expect(room.gameState.items.length).toBeGreaterThan(0)
   })
 
   it('rejects dispatching with zero troops (amount <= 0)', () => {

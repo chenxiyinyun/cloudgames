@@ -62,10 +62,52 @@
             <strong>{{ player.territories }}</strong>
           </div>
         </div>
+
+        <!-- 天气横幅 -->
+        <div
+          v-if="weatherInfo"
+          class="weather-banner"
+          :class="`weather-${weatherInfo ? Object.keys(WEATHER_TYPES).find(k => WEATHER_TYPES[k] === weatherInfo) : ''}`"
+        >
+          <span class="weather-icon">{{ weatherIcon(weatherInfo) }}</span>
+          <div>
+            <strong>{{ weatherInfo.label }}</strong>
+            <span>{{ weatherInfo.description }}</span>
+          </div>
+        </div>
+        <div
+          v-else
+          class="weather-banner idle"
+        >
+          <span class="weather-icon">晴</span>
+          <div>
+            <strong>晴朗</strong>
+            <span>无天气事件</span>
+          </div>
+        </div>
+
+        <!-- 个人 buff 状态 -->
+        <div
+          v-if="myBuffs.length > 0"
+          class="buff-list"
+        >
+          <h3>我的增益</h3>
+          <div
+            v-for="buff in myBuffs"
+            :key="buff.type"
+            class="buff-row"
+          >
+            <span
+              class="buff-glyph"
+              :class="`buff-${buff.type}`"
+            >{{ itemGlyphMap[buff.type] }}</span>
+            <span class="buff-name">{{ ITEM_TYPES[buff.type].label }}</span>
+            <span class="buff-time">{{ formatRemain(buff.expiresAt) }}</span>
+          </div>
+        </div>
+
         <p class="hint">
-          点击自己的领地选中，再点击目标领地派兵。移动端支持双指缩放与拖动战场。<br>
-          <span class="granary-hint">粮</span> 粮仓：占领后产兵翻倍 &nbsp;
-          <span class="fortress-hint">垒</span> 要塞：占领后防御 +30%
+          点击自己的领地选中，再点击目标派兵；移动端支持双指缩放与拖动。
         </p>
         <p
           v-if="selectedId"
@@ -79,6 +121,51 @@
         >
           {{ error }}
         </p>
+
+        <!-- 肉鸽机制图例 -->
+        <details
+          class="roguelike-legend"
+          open
+        >
+          <summary>肉鸽机制说明</summary>
+          <section class="legend-section">
+            <h4>领地效果</h4>
+            <ul class="legend-list">
+              <li><span class="granary-hint">粮</span> 粮仓：占领后产兵翻倍</li>
+              <li><span class="fortress-hint">垒</span> 要塞：占领后防御 +30%</li>
+              <li><span class="market-hint">市</span> 集市：从此地派兵行军 ×1.5</li>
+              <li><span class="ruins-hint">废</span> 废墟：占领者全部领地 +0.5 产兵</li>
+              <li><span class="item-hint">急</span> 道具：派兵抵达获得 20s 增益</li>
+            </ul>
+          </section>
+          <section class="legend-section">
+            <h4>天气事件（自动轮换）</h4>
+            <ul class="legend-list">
+              <li><span class="weather-hint">暴</span> 暴雨：全军行军 ×0.7</li>
+              <li><span class="weather-hint">雾</span> 大雾：战斗伤害 ×0.8</li>
+              <li><span class="weather-hint">丰</span> 丰收：全球产兵 ×2</li>
+              <li><span class="weather-hint">震</span> 地震：每 5s 随机领地 -30% 兵</li>
+              <li><span class="weather-hint">瘟</span> 瘟疫：每 tick 随机领地 -1 兵</li>
+            </ul>
+          </section>
+          <section class="legend-section">
+            <h4>拾取道具（4 种，地图随机生成）</h4>
+            <ul class="legend-list">
+              <li><span class="item-hint">急</span> 急行军令：派兵速度 ×2 (20s)</li>
+              <li><span class="item-hint">征</span> 征兵令：产兵 ×2 (20s)</li>
+              <li><span class="item-hint">烽</span> 烽火台：攻击 ×1.5 (20s)</li>
+              <li><span class="item-hint">空</span> 空城计：防御 ×1.5 (20s)</li>
+            </ul>
+          </section>
+          <section class="legend-section">
+            <h4>行军遭遇（派兵时 20% 概率）</h4>
+            <ul class="legend-list">
+              <li><span class="encounter-hint">山</span> 山贼伏击：损失 30% 兵力</li>
+              <li><span class="encounter-hint">义</span> 义军投奔：增加 20% 兵力</li>
+              <li><span class="encounter-hint">迷</span> 迷路：到达延迟 +50%</li>
+            </ul>
+          </section>
+        </details>
       </aside>
 
       <section
@@ -146,7 +233,30 @@
           />
 
           <g
-            v-for="territory in territories"
+            v-for="item in itemTerritories"
+            :key="item.id"
+            class="territory item-node"
+            :class="{ selected: selectedId === item.id, targetable: selectedId && selectedId !== item.id }"
+            :transform="`translate(${item.x}, ${item.y})`"
+            @click="handleTerritoryClick(item)"
+          >
+            <circle
+              class="item-ring"
+              r="22"
+            />
+            <circle
+              class="item-core"
+              r="14"
+            />
+            <text
+              class="item-glyph"
+              text-anchor="middle"
+              dominant-baseline="central"
+            >{{ itemGlyph(item) }}</text>
+          </g>
+
+          <g
+            v-for="territory in normalTerritories"
             :key="territory.id"
             class="territory"
             :class="territoryClasses(territory)"
@@ -195,7 +305,7 @@
               <!-- 大肉垫（掌心） -->
               <circle
                 class="territory-ring catpaw-ring"
-                :class="{ 'granary-ring': territory.type === 'granary', 'fortress-ring': territory.type === 'fortress' }"
+                :class="typeRingClass(territory)"
                 :r="TERRITORY_RING_RADIUS"
                 :fill="ownerColor(territory.ownerId)"
               />
@@ -246,7 +356,7 @@
               >
                 {{ getDisplayUnits(territory) }}
               </text>
-              <!-- 粮仓/要塞类型标识 -->
+              <!-- 特殊类型标识 -->
               <text
                 v-if="territory.type === 'granary'"
                 class="territory-type-badge granary-badge"
@@ -263,19 +373,35 @@
                 x="0"
                 y="-36"
               >垒</text>
+              <text
+                v-if="territory.type === 'market'"
+                class="territory-type-badge market-badge"
+                text-anchor="middle"
+                dominant-baseline="central"
+                x="0"
+                y="-36"
+              >市</text>
+              <text
+                v-if="territory.type === 'ruins'"
+                class="territory-type-badge ruins-badge"
+                text-anchor="middle"
+                dominant-baseline="central"
+                x="0"
+                y="-36"
+              >废</text>
             </template>
 
             <!-- 经典主题领地 -->
             <template v-else>
               <circle
                 class="territory-ring"
-                :class="{ 'granary-ring': territory.type === 'granary', 'fortress-ring': territory.type === 'fortress' }"
+                :class="typeRingClass(territory)"
                 :r="TERRITORY_RING_RADIUS"
                 :fill="ownerColor(territory.ownerId)"
               />
               <circle
                 class="territory-core"
-                :class="{ 'granary-core': territory.type === 'granary', 'fortress-core': territory.type === 'fortress' }"
+                :class="typeCoreClass(territory)"
                 r="31"
                 :fill="ownerColor(territory.ownerId)"
               />
@@ -286,7 +412,7 @@
               >
                 {{ getDisplayUnits(territory) }}
               </text>
-              <!-- 粮仓/要塞类型标识 -->
+              <!-- 特殊类型标识 -->
               <text
                 v-if="territory.type === 'granary'"
                 class="territory-type-badge granary-badge"
@@ -303,6 +429,22 @@
                 x="0"
                 y="-36"
               >垒</text>
+              <text
+                v-if="territory.type === 'market'"
+                class="territory-type-badge market-badge"
+                text-anchor="middle"
+                dominant-baseline="central"
+                x="0"
+                y="-36"
+              >市</text>
+              <text
+                v-if="territory.type === 'ruins'"
+                class="territory-type-badge ruins-badge"
+                text-anchor="middle"
+                dominant-baseline="central"
+                x="0"
+                y="-36"
+              >废</text>
             </template>
           </g>
 
@@ -367,7 +509,11 @@
 
 <script setup>
 import { computed, reactive, ref, onMounted, onUnmounted, watch } from 'vue'
-import { findPath } from '../services/gameEngine'
+import {
+  findPath,
+  WEATHER_TYPES,
+  ITEM_TYPES
+} from '../services/gameEngine'
 import { MAP_ASPECT_RATIO, getMovingTroopVisuals, getMovingTroopProgress } from '../services/gameView'
 import {
   MIN_MAP_SCALE,
@@ -440,10 +586,50 @@ const ratios = [
 ]
 
 const territories = computed(() => props.room.gameState.territories || [])
+const itemTerritories = computed(() => territories.value.filter(t => t.kind === 'item'))
+const normalTerritories = computed(() => territories.value.filter(t => t.kind !== 'item'))
 const edges = computed(() => props.room.gameState.edges || [])
 const movingTroops = computed(() => props.room.gameState.movingTroops || [])
 const currentTheme = computed(() => props.room.gameState?.theme || 'default')
 const isCatpawTheme = computed(() => currentTheme.value === 'catpaw')
+const weather = computed(() => props.room.gameState?.weather || null)
+const playerBuffs = computed(() => props.room.gameState?.playerBuffs || {})
+const myBuffs = computed(() => {
+  // 依赖 now.value 以触发倒计时重渲染
+  void now.value
+  const current = Date.now()
+  return (playerBuffs.value[props.playerId] || []).filter(b => b.expiresAt > current)
+})
+const weatherInfo = computed(() => {
+  const w = weather.value
+  if (!w || !w.type) return null
+  return WEATHER_TYPES[w.type] || null
+})
+
+const itemGlyphMap = {
+  forcedMarch: '急',
+  conscription: '征',
+  beacon: '烽',
+  emptyCity: '空'
+}
+
+const weatherIconMap = {
+  storm: '暴',
+  fog: '雾',
+  bountiful: '丰',
+  earthquake: '震',
+  plague: '瘟'
+}
+
+function itemGlyph(item) {
+  return itemGlyphMap[item.itemKind] || '?'
+}
+
+function weatherIcon(weatherInfo) {
+  if (!weatherInfo) return '晴'
+  const key = Object.keys(WEATHER_TYPES).find(k => WEATHER_TYPES[k] === weatherInfo)
+  return key ? weatherIconMap[key] || '?' : '?'
+}
 
 const playersById = computed(() =>
   Object.fromEntries(props.room.players.map(player => [player.id, player]))
@@ -520,6 +706,31 @@ function ownerColor(ownerId) {
   return playersById.value[ownerId]?.color || '#9ca3af'
 }
 
+function typeRingClass(territory) {
+  switch (territory.type) {
+    case 'granary': return 'granary-ring'
+    case 'fortress': return 'fortress-ring'
+    case 'market': return 'market-ring'
+    case 'ruins': return 'ruins-ring'
+    default: return ''
+  }
+}
+
+function typeCoreClass(territory) {
+  switch (territory.type) {
+    case 'granary': return 'granary-core'
+    case 'fortress': return 'fortress-core'
+    case 'market': return 'market-core'
+    case 'ruins': return 'ruins-core'
+    default: return ''
+  }
+}
+
+function formatRemain(expiresAt) {
+  const ms = Math.max(0, expiresAt - Date.now())
+  return `${Math.ceil(ms / 1000)}s`
+}
+
 function territoryClasses(territory) {
   if (territory.isObstacle) {
     return { obstacle: true }
@@ -531,7 +742,9 @@ function territoryClasses(territory) {
     selected: selectedId.value === territory.id,
     targetable: selectedId.value && selectedId.value !== territory.id,
     granary: territory.type === 'granary',
-    fortress: territory.type === 'fortress'
+    fortress: territory.type === 'fortress',
+    market: territory.type === 'market',
+    ruins: territory.type === 'ruins'
   }
 }
 
@@ -549,6 +762,30 @@ function isEdgeOnPath(edge) {
 
 function handleTerritoryClick(territory) {
   if (territory.isObstacle) return
+  // 道具节点：与领地点击一致处理（直接选中后派兵）
+  if (territory.kind === 'item') {
+    if (selectedId.value && selectedId.value !== territory.id) {
+      const path = findPath(edges.value, selectedId.value, territory.id, territories.value)
+      if (!path) {
+        previewPath.value = null
+        return
+      }
+      previewPath.value = path
+      const nowMs = Date.now()
+      if (nowMs - lastDispatchAt < DISPATCH_COOLDOWN_MS) return
+      lastDispatchAt = nowMs
+      seq.value += 1
+      emit('dispatch', {
+        sourceId: selectedId.value,
+        targetId: territory.id,
+        ratio: dispatchRatio.value,
+        seq: seq.value
+      })
+      selectedId.value = null
+      previewPath.value = null
+    }
+    return
+  }
 
   if (selectedId.value) {
     if (selectedId.value === territory.id) {

@@ -20,10 +20,52 @@ export const DEFAULT_THEME = 'default'
 export const TERRITORY_TYPES = {
   normal: { label: '普通' },
   granary: { label: '粮仓', productionBonus: 2 },
-  fortress: { label: '要塞', defenseMultiplier: 1.3 }
+  fortress: { label: '要塞', defenseMultiplier: 1.3 },
+  market: { label: '集市', marchSpeedMultiplier: 1.5 },
+  ruins: { label: '废墟', globalProductionBonus: 0.5 }
 }
 export const PLAYER_COLORS = ['#e84d4f', '#2f8cff', '#23a66f', '#f2b233']
 export const DISPATCH_RATIOS = [0.25, 0.5, 0.75]
+
+/**
+ * 天气事件：随机轮换的全局效果。所有天气效果通过 `getWeatherEffect` 统一定义，
+ * `tickWeather` 负责轮换（每隔 WEATHER_GAP_MS 在 null 与某个天气间切换）。
+ */
+export const WEATHER_TYPES = {
+  storm: { label: '暴雨', description: '全军行军 -30%', marchSpeedMultiplier: 0.7 },
+  fog: { label: '大雾', description: '战斗伤害 -20%', combatDamageMultiplier: 0.8 },
+  bountiful: { label: '丰收', description: '全球产兵 ×2', productionMultiplier: 2 },
+  earthquake: { label: '地震', description: '每 5s 随机领地减员 30%', periodicShake: 0.3 },
+  plague: { label: '瘟疫', description: '每 tick 随机领地 -1 兵', decay: 1 }
+}
+export const WEATHER_DURATION_MS = 25000
+export const WEATHER_GAP_MS = 6000
+export const WEATHER_EARTHQUAKE_INTERVAL_MS = 5000
+
+/**
+ * 拾取道具：地图上随机生成的小节点，派兵抵达即拾取并获得玩家级 buff。
+ * 4 种 buff 全部持续 20s，互不冲突可叠加。
+ */
+export const ITEM_TYPES = {
+  forcedMarch: { label: '急行军令', description: '派兵速度 ×2 (20s)', marchSpeedMultiplier: 2 },
+  conscription: { label: '征兵令', description: '产兵 ×2 (20s)', productionMultiplier: 2 },
+  beacon: { label: '烽火台', description: '战斗力 ×1.5 (20s)', attackMultiplier: 1.5 },
+  emptyCity: { label: '空城计', description: '防御 ×1.5 (20s)', defenseMultiplier: 1.5 }
+}
+export const BUFF_DURATION_MS = 20000
+export const INITIAL_ITEM_COUNT = 4
+export const ITEM_RESPAWN_INTERVAL_MS = 25000
+
+/**
+ * 行军遭遇：派兵时按概率触发，立即影响 troop.amount 或行进时间。
+ * 触发后视觉/日志由前端在 dispatch 返回值中读取。
+ */
+export const ENCOUNTER_TYPES = {
+  bandit: { label: '山贼伏击', description: '损失 30% 兵力', unitLossRatio: 0.3 },
+  volunteers: { label: '义军投奔', description: '增加 20% 兵力', unitGainRatio: 0.2 },
+  lost: { label: '迷路', description: '延迟 50% 到达', arrivalDelayRatio: 0.5 }
+}
+export const ENCOUNTER_CHANCE = 0.2
 
 export const MAP_WIDTH = 1000
 export const MAP_HEIGHT = 640
@@ -206,7 +248,12 @@ export function startGame(room, options = {}) {
     height: MAP_HEIGHT,
     territories: map.territories,
     edges: map.edges,
+    items: map.items,
     movingTroops: [],
+    weather: createEmptyWeather(),
+    weatherRotationAt: Date.now() + WEATHER_GAP_MS,
+    playerBuffs: {},
+    nextItemRespawnAt: Date.now() + ITEM_RESPAWN_INTERVAL_MS,
     startedAt: Date.now(),
     lastTickAt: Date.now(),
     winnerId: null,
@@ -224,6 +271,11 @@ export function tickProduction(room, now = Date.now()) {
   room.gameState.productionTick += 1
   const shouldProduce = room.gameState.productionTick % PRODUCTION_INTERVAL === 0
 
+  // 肉鸽机制：天气轮换 + 道具重生 + buff 过期清理。每 tick 都跑。
+  tickWeather(room, now)
+  tickItemRespawn(room, now)
+  expirePlayerBuffs(room, now)
+
   if (shouldProduce) {
     // 构建 owner 在线状态索引(每 tick 一次 O(n),避免在 territory.forEach 内重复 find)
     const ownerOnlineMap = new Map()
@@ -231,16 +283,40 @@ export function tickProduction(room, now = Date.now()) {
       ownerOnlineMap.set(player.id, player.isOnline !== false)
     })
 
+    // 废墟全局加成：拥有废墟的玩家其全部领地都获得 +0.5/次产出
+    const ruinsOwners = new Set(
+      room.gameState.territories
+        .filter(t => t.type === 'ruins' && t.ownerId)
+        .map(t => t.ownerId)
+    )
+
+    // 天气丰收取整加成(×2)
+    const weatherProductionMultiplier = getWeatherEffect(room, 'productionMultiplier') || 1
+
     room.gameState.territories.forEach(territory => {
       if (territory.isObstacle) return
       if (!territory.ownerId) return
-      // 离线玩家的 territory 停止 +1 兵:防止"断网 5 分钟回来看自己兵山"导致躺赢
-      // 现有兵不会被清零(仅停止 +1),玩家 reconnect 后立即恢复生产
       if (ownerOnlineMap.get(territory.ownerId) === false) return
-      const bonus = territory.type === 'granary' ? TERRITORY_TYPES.granary.productionBonus : 1
-      territory.units = Math.min(MAX_UNITS, territory.units + bonus)
+
+      // 基础产出（粮仓翻倍 + 玩家征兵 buff 翻倍 + 丰收再翻倍）
+      const baseBonus = territory.type === 'granary' ? TERRITORY_TYPES.granary.productionBonus : 1
+      const playerBuffMultiplier = getPlayerBuffEffect(room, territory.ownerId, 'productionMultiplier') || 1
+      let finalBonus = baseBonus * playerBuffMultiplier * weatherProductionMultiplier
+
+      // 废墟全球 +0.5：仅当主人拥有废墟时附加
+      if (ruinsOwners.has(territory.ownerId)) {
+        finalBonus += TERRITORY_TYPES.ruins.globalProductionBonus
+      }
+
+      territory.units = Math.min(MAX_UNITS, territory.units + Math.max(0.5, finalBonus))
     })
   }
+
+  // 瘟疫：每 tick 随机 1 个非障碍领地减 1 兵
+  applyPlague(room)
+
+  // 地震：每 WEATHER_EARTHQUAKE_INTERVAL_MS 一次随机减员
+  applyEarthquake(room, now)
 
   tickMovingTroops(room, now)
 
@@ -258,6 +334,9 @@ export function tickMovingTroops(room, now = Date.now()) {
     arrived.push(troop)
   })
 
+  const weatherMarchMultiplier = getWeatherEffect(room, 'marchSpeedMultiplier') || 1
+  const weatherCombatMultiplier = getWeatherEffect(room, 'combatDamageMultiplier') || 1
+
   arrived.forEach(troop => {
     troop.currentStep += 1
     const territoryId = troop.path[troop.currentStep]
@@ -271,6 +350,14 @@ export function tickMovingTroops(room, now = Date.now()) {
       return
     }
 
+    // 道具节点：派兵抵达直接拾取
+    if (territory.kind === 'item') {
+      grantItemBuff(room, troop.playerId, territory.itemKind)
+      removeItem(room, territory.id)
+      removeMovingTroop(room, troop.id)
+      return
+    }
+
     const isFinalStep = troop.currentStep >= troop.path.length - 1
 
     if (territory.ownerId === troop.playerId) {
@@ -279,23 +366,28 @@ export function tickMovingTroops(room, now = Date.now()) {
         territory.units = Math.min(MAX_UNITS, territory.units + troop.amount)
         removeMovingTroop(room, troop.id)
       } else {
-        troop.nextArrivalAt = now + TRAVEL_TIME_PER_EDGE
+        troop.nextArrivalAt = now + computeTravelDuration(room, troop, weatherMarchMultiplier)
       }
     } else {
       // 敌方/中立领地：战斗结算
-      // 要塞防御加成：守方有效兵力 = 实际兵力 × 防御系数
-      const defenseMultiplier = territory.type === 'fortress' ? TERRITORY_TYPES.fortress.defenseMultiplier : 1
+      // 防御系数：要塞 + 玩家空城计 buff（叠加），再叠加大雾减伤
+      const fortressMultiplier = territory.type === 'fortress' ? TERRITORY_TYPES.fortress.defenseMultiplier : 1
+      const emptyCityMultiplier = getPlayerBuffEffect(room, territory.ownerId, 'defenseMultiplier') || 1
+      const defenseMultiplier = fortressMultiplier * emptyCityMultiplier / weatherCombatMultiplier
       const effectiveDefense = Math.floor(territory.units * defenseMultiplier)
-      if (troop.amount > effectiveDefense) {
+      // 攻击系数：烽火台 buff
+      const attackMultiplier = getPlayerBuffEffect(room, troop.playerId, 'attackMultiplier') || 1
+      const effectiveAttack = Math.floor(troop.amount * attackMultiplier)
+      if (effectiveAttack > effectiveDefense) {
         territory.ownerId = troop.playerId
-        territory.units = Math.min(MAX_UNITS, troop.amount - territory.units)
+        territory.units = Math.min(MAX_UNITS, effectiveAttack - territory.units)
         if (isFinalStep) {
           removeMovingTroop(room, troop.id)
         } else {
-          troop.nextArrivalAt = now + TRAVEL_TIME_PER_EDGE
+          troop.nextArrivalAt = now + computeTravelDuration(room, troop, weatherMarchMultiplier)
         }
       } else {
-        territory.units -= Math.ceil(troop.amount / defenseMultiplier)
+        territory.units -= Math.ceil(effectiveAttack / defenseMultiplier)
         if (territory.units <= 0) {
           territory.units = 0
           territory.ownerId = null
@@ -363,10 +455,12 @@ export function dispatchUnits(room, playerId, sourceId, targetId, ratio = 0.5, n
     return { error: '玩家不在战局中' }
   }
 
+  // 源和目标都允许在 territories（含道具节点）中查找。
   const source = room.gameState.territories.find(territory => territory.id === sourceId)
   const target = room.gameState.territories.find(territory => territory.id === targetId)
   if (!source || !target) return { error: '领地不存在' }
   if (source.isObstacle || target.isObstacle) return { error: '不能对障碍领地操作' }
+  if (source.kind === 'item') return { error: '道具节点不能作为派兵起点' }
   if (source.ownerId !== playerId) return { error: '只能从自己的领地派遣' }
   if (source.id === target.id) return { error: '不能派遣到同一领地' }
 
@@ -374,22 +468,46 @@ export function dispatchUnits(room, playerId, sourceId, targetId, ratio = 0.5, n
   if (!path) return { error: '目标领地不可达' }
 
   const normalizedRatio = normalizeDispatchRatio(ratio)
-  const amount = Math.floor(source.units * normalizedRatio)
+  let amount = Math.floor(source.units * normalizedRatio)
   if (amount <= 0) return { error: '兵力不足' }
 
-  source.units -= amount
+  // 行军遭遇：派兵瞬间按概率触发，立即影响 amount 或到达时间
+  // 使用 seed-based rng 让测试可重放
+  const encounter = rollEncounter(room, now)
+  if (encounter) {
+    const effect = ENCOUNTER_TYPES[encounter]
+    if (effect.unitLossRatio) {
+      amount = Math.max(1, Math.floor(amount * (1 - effect.unitLossRatio)))
+    } else if (effect.unitGainRatio) {
+      amount = Math.min(MAX_UNITS, Math.floor(amount * (1 + effect.unitGainRatio)))
+    }
+  }
+
+  source.units -= Math.floor(source.units * normalizedRatio)
+
+  // 行军速度系数：源集市 × 玩家急行军 buff × 天气
+  const sourceMarchMultiplier = source.type === 'market' ? TERRITORY_TYPES.market.marchSpeedMultiplier : 1
+  const playerMarchMultiplier = getPlayerBuffEffect(room, playerId, 'marchSpeedMultiplier') || 1
+  const weatherMarchMultiplier = getWeatherEffect(room, 'marchSpeedMultiplier') || 1
+  const encounterDelay = encounter && ENCOUNTER_TYPES[encounter].arrivalDelayRatio
+    ? ENCOUNTER_TYPES[encounter].arrivalDelayRatio
+    : 0
+
   movingTroopIdCounter += 1
-  room.gameState.movingTroops.push({
+  const troop = {
     id: `mv${movingTroopIdCounter}`,
     playerId,
     amount,
     path,
     currentStep: 0,
-    nextArrivalAt: now + TRAVEL_TIME_PER_EDGE
-  })
+    nextArrivalAt: now + computeBaseTravelTime(encounterDelay, sourceMarchMultiplier, playerMarchMultiplier, weatherMarchMultiplier),
+    sourceMarchMultiplier,
+    encounter
+  }
+  room.gameState.movingTroops.push(troop)
 
   touch(room)
-  return { room, amount, path }
+  return { room, amount, path, encounter, troopId: troop.id }
 }
 
 export function restartGame(room) {
@@ -483,7 +601,7 @@ function normalizeDispatchRatio(ratio) {
 }
 
 function assignSpecialTerritoryTypes(territories, rng) {
-  // 从中立非障碍领地中随机选取 1-2 个粮仓和 1 个要塞
+  // 从中立非障碍领地中随机选取 5 种特殊类型: 1-2 粮仓 + 1 要塞 + 0-1 集市 + 0-1 废墟
   const candidates = territories
     .map((t, i) => ({ index: i, territory: t }))
     .filter(({ territory }) => !territory.ownerId && !territory.isObstacle)
@@ -501,10 +619,52 @@ function assignSpecialTerritoryTypes(territories, rng) {
     candidates[i].territory.type = 'granary'
   }
 
-  const fortressStart = granaryCount
-  if (fortressStart < candidates.length) {
-    candidates[fortressStart].territory.type = 'fortress'
+  let cursor = granaryCount
+  if (cursor < candidates.length) {
+    candidates[cursor].territory.type = 'fortress'
+    cursor += 1
   }
+  if (cursor < candidates.length) {
+    candidates[cursor].territory.type = 'market'
+  }
+  if (cursor + 1 < candidates.length) {
+    candidates[cursor + 1].territory.type = 'ruins'
+  }
+}
+
+function spawnItems(territories, rng, count) {
+  // 从非障碍、非己方领地的空位随机生成道具节点，与 territories 同结构以便参与寻路
+  const empty = []
+  for (let x = 120; x < MAP_WIDTH - 120; x += 80) {
+    for (let y = 120; y < MAP_HEIGHT - 120; y += 80) {
+      if (territories.some(t => distance(t, { x, y }) < 70)) continue
+      empty.push({ x, y })
+    }
+  }
+  if (empty.length === 0) return []
+
+  const kinds = Object.keys(ITEM_TYPES)
+  const items = []
+  const usedIndexes = new Set()
+  for (let i = 0; i < count && empty.length > 0; i += 1) {
+    const idx = Math.floor(rng() * empty.length)
+    if (usedIndexes.has(idx)) continue
+    usedIndexes.add(idx)
+    const pos = empty[idx]
+    items.push({
+      id: `item${i + 1}`,
+      x: pos.x,
+      y: pos.y,
+      ownerId: null,
+      units: 0,
+      isCapital: false,
+      isObstacle: false,
+      type: 'normal',
+      kind: 'item',
+      itemKind: kinds[i % kinds.length]
+    })
+  }
+  return items
 }
 
 function generateMap({ seed, mapSize, players }) {
@@ -535,8 +695,12 @@ function generateMap({ seed, mapSize, players }) {
     }
   })
 
-  // 肉鸽元素：随机分配粮仓/要塞类型给部分中立领地
+  // 肉鸽元素：随机分配 5 种领地类型给部分中立领地
   assignSpecialTerritoryTypes(territories, rng)
+
+  // 肉鸽元素：在地图空位生成道具节点，纳入 territories 以便参与寻路
+  const items = spawnItems(territories, rng, INITIAL_ITEM_COUNT)
+  territories.push(...items)
 
   const edges = createEdges(territories)
 
@@ -552,7 +716,8 @@ function generateMap({ seed, mapSize, players }) {
 
   return {
     territories,
-    edges
+    edges,
+    items
   }
 }
 
@@ -715,7 +880,12 @@ function createEmptyGameState() {
     height: MAP_HEIGHT,
     territories: [],
     edges: [],
+    items: [],
     movingTroops: [],
+    weather: createEmptyWeather(),
+    weatherRotationAt: 0,
+    playerBuffs: {},
+    nextItemRespawnAt: 0,
     productionTick: 0,
     startedAt: null,
     lastTickAt: null,
@@ -750,6 +920,173 @@ function randomInt(rng, min, max) {
 
 function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y)
+}
+
+// ========== 肉鸽机制辅助函数 ==========
+
+function createEmptyWeather() {
+  return { type: null, startedAt: 0, durationMs: 0, lastEarthquakeAt: 0 }
+}
+
+/**
+ * 天气轮换：每隔 WEATHER_GAP_MS 检查一次。如果当前有天气且已过期，切到 null；
+ * 如果当前 null 且已到轮换时间，随机选一个新天气。
+ */
+function tickWeather(room, now) {
+  const weather = room.gameState.weather
+  if (!weather) return
+  if (weather.type) {
+    if (now - weather.startedAt >= weather.durationMs) {
+      weather.type = null
+      weather.startedAt = 0
+      weather.durationMs = 0
+      room.gameState.weatherRotationAt = now + WEATHER_GAP_MS
+    }
+    return
+  }
+  if (now >= room.gameState.weatherRotationAt) {
+    const keys = Object.keys(WEATHER_TYPES)
+    const pick = keys[Math.floor(Math.random() * keys.length)]
+    weather.type = pick
+    weather.startedAt = now
+    weather.durationMs = WEATHER_DURATION_MS
+    weather.lastEarthquakeAt = now
+  }
+}
+
+/** 读取当前天气的某个效果字段（若无该字段则返回 fallback）。 */
+export function getWeatherEffect(room, field) {
+  const type = room.gameState.weather?.type
+  if (!type) return null
+  return WEATHER_TYPES[type]?.[field] ?? null
+}
+
+/** 读取某玩家所有未过期 buff 中指定字段的最大值。 */
+export function getPlayerBuffEffect(room, playerId, field) {
+  if (!playerId) return null
+  const buffs = room.gameState.playerBuffs?.[playerId] || []
+  let best = null
+  buffs.forEach(buff => {
+    const v = ITEM_TYPES[buff.type]?.[field]
+    if (v === undefined) return
+    if (best === null || v > best) best = v
+  })
+  return best
+}
+
+/** 玩家拾取道具：写入 playerBuffs 列表（同种 buff 续期而非叠加）。 */
+function grantItemBuff(room, playerId, itemKind) {
+  if (!ITEM_TYPES[itemKind]) return
+  if (!room.gameState.playerBuffs[playerId]) {
+    room.gameState.playerBuffs[playerId] = []
+  }
+  const list = room.gameState.playerBuffs[playerId]
+  const idx = list.findIndex(buff => buff.type === itemKind)
+  const now = Date.now()
+  if (idx >= 0) {
+    list[idx].expiresAt = now + BUFF_DURATION_MS
+    list[idx].appliedAt = now
+  } else {
+    list.push({ type: itemKind, appliedAt: now, expiresAt: now + BUFF_DURATION_MS })
+  }
+}
+
+/** 每 tick 清理已过期 buff。 */
+function expirePlayerBuffs(room, now) {
+  const all = room.gameState.playerBuffs || {}
+  Object.keys(all).forEach(playerId => {
+    all[playerId] = all[playerId].filter(buff => buff.expiresAt > now)
+    if (all[playerId].length === 0) delete all[playerId]
+  })
+}
+
+/** 瘟疫：每 tick 随机 1 个非障碍有主领地 -1 兵。 */
+function applyPlague(room) {
+  if (getWeatherEffect(room, 'decay') !== 1) return
+  const targets = room.gameState.territories.filter(t => !t.isObstacle && t.ownerId && t.units > 0)
+  if (targets.length === 0) return
+  const pick = targets[Math.floor(Math.random() * targets.length)]
+  pick.units = Math.max(0, pick.units - 1)
+  if (pick.units === 0) {
+    pick.ownerId = null
+    pick.isCapital = false
+  }
+}
+
+/** 地震：每 WEATHER_EARTHQUAKE_INTERVAL_MS 随机 1 个非障碍领地减 30% 兵。 */
+function applyEarthquake(room, now) {
+  if (!room.gameState.weather) return
+  if (getWeatherEffect(room, 'periodicShake') === null) return
+  if (now - room.gameState.weather.lastEarthquakeAt < WEATHER_EARTHQUAKE_INTERVAL_MS) return
+  room.gameState.weather.lastEarthquakeAt = now
+  const targets = room.gameState.territories.filter(t => !t.isObstacle && t.units > 0)
+  if (targets.length === 0) return
+  const pick = targets[Math.floor(Math.random() * targets.length)]
+  const loss = Math.ceil(pick.units * WEATHER_TYPES.earthquake.periodicShake)
+  pick.units = Math.max(0, pick.units - loss)
+  if (pick.units === 0) {
+    pick.ownerId = null
+    pick.isCapital = false
+  }
+}
+
+/** 道具定时重生：每隔 ITEM_RESPAWN_INTERVAL_MS 补一个随机空位道具。 */
+function tickItemRespawn(room, now) {
+  if (now < room.gameState.nextItemRespawnAt) return
+  room.gameState.nextItemRespawnAt = now + ITEM_RESPAWN_INTERVAL_MS
+  if (room.gameState.items.length >= INITIAL_ITEM_COUNT) return
+  // 用已生成的 territories 列表（含已存在的道具节点）做空位判断
+  const seed = `${room.gameState.seed || 'respawn'}-${now}`
+  const rng = createRng(seed)
+  const newItems = spawnItems(room.gameState.territories, rng, 1)
+  if (newItems.length === 0) return
+  room.gameState.territories.push(...newItems)
+  room.gameState.items.push(...newItems)
+  // 把新道具的边补进图
+  const newEdges = createEdges(newItems)
+  // 仅加入与现有节点相关的边
+  const existingNodeIds = new Set(room.gameState.edges.flatMap(e => [e.from, e.to]))
+  newEdges.forEach(e => {
+    if (existingNodeIds.has(e.from) || existingNodeIds.has(e.to)) {
+      // createEdges 在全图里建边，只取一端在原图且另一端是新道具的
+      // 这里更稳妥：直接重建
+    }
+  })
+  // 简单做法：重建全图边
+  room.gameState.edges = createEdges(room.gameState.territories)
+}
+
+function removeItem(room, itemId) {
+  room.gameState.territories = room.gameState.territories.filter(t => t.id !== itemId)
+  room.gameState.items = room.gameState.items.filter(t => t.id !== itemId)
+  // 移除与该节点相关的边
+  room.gameState.edges = room.gameState.edges.filter(e => e.from !== itemId && e.to !== itemId)
+}
+
+/** 派兵时按概率触发一次遭遇。使用 seed-based rng 让测试可重放。 */
+function rollEncounter(room, now) {
+  // 用 room seed + 派兵计数 + now 派生一个确定性 rng
+  if (!room.__encounterCounter) room.__encounterCounter = 0
+  room.__encounterCounter += 1
+  const seedStr = `${room.gameState.seed || 'no-seed'}|enc|${room.__encounterCounter}|${now}`
+  const rng = createRng(seedStr)
+  if (rng() >= ENCOUNTER_CHANCE) return null
+  const keys = Object.keys(ENCOUNTER_TYPES)
+  return keys[Math.floor(rng() * keys.length)]
+}
+
+/** 计算一段行军的基础耗时：源 × 玩家 buff × 天气 + 遭遇延迟 */
+function computeBaseTravelTime(encounterDelay, sourceMarch, playerMarch, weatherMarch) {
+  const multiplier = (sourceMarch || 1) * (playerMarch || 1) * (weatherMarch || 1)
+  const base = TRAVEL_TIME_PER_EDGE / multiplier
+  return base * (1 + (encounterDelay || 0))
+}
+
+/** 计算一段行军后续 step 的耗时（天气随时可能切换，重新读取） */
+function computeTravelDuration(room, troop, weatherMarchMultiplier) {
+  const sourceMarch = troop.sourceMarchMultiplier || 1
+  const playerMarch = getPlayerBuffEffect(room, troop.playerId, 'marchSpeedMultiplier') || 1
+  return computeBaseTravelTime(0, sourceMarch, playerMarch, weatherMarchMultiplier)
 }
 
 function touch(room) {

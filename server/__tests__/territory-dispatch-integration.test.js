@@ -88,10 +88,14 @@ describe('territory-control: end-to-end dispatch integration', () => {
     const srv = serverState(manager, roomCode)
     const source = srv.gameState.territories.find(t => t.ownerId === 'h1')
     // 选 source 的邻居作为 target,确保路径只有 2 步 [source, target]
-    const edge = srv.gameState.edges.find(
-      e => (e.from === source.id && !srv.gameState.territories.find(t => t.id === e.to)?.isObstacle)
-        || (e.to === source.id && !srv.gameState.territories.find(t => t.id === e.from)?.isObstacle)
-    )
+    // 排除道具节点（kind === 'item'），它们会被消耗而不是占领
+    const edge = srv.gameState.edges.find(e => {
+      const fromT = srv.gameState.territories.find(t => t.id === e.from)
+      const toT = srv.gameState.territories.find(t => t.id === e.to)
+      if (e.from === source.id && toT && !toT.isObstacle && toT.kind !== 'item') return true
+      if (e.to === source.id && fromT && !fromT.isObstacle && fromT.kind !== 'item') return true
+      return false
+    })
     expect(edge).toBeTruthy()
     const targetId = edge.from === source.id ? edge.to : edge.from
     const target = srv.gameState.territories.find(t => t.id === targetId)
