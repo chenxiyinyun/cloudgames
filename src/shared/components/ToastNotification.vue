@@ -18,6 +18,16 @@
 <script>
 import { reactive } from 'vue';
 
+/**
+ * 共享 Toast 通知 — 各游戏共用的全局提示条。
+ *
+ * 用法：任意模块 import { showToast } 即可弹出提示（模块级单例队列），
+ * 在 App 根组件挂一次 <ToastNotification /> 负责渲染。
+ *
+ * 主题：通过 CSS 变量接入各游戏配色（--toast-* 优先，回退到 --paper-bg/--ink-*
+ * 间谍电报风变量），无需修改组件本身。
+ */
+
 const typeIcons = {
   info: '·',
   error: '!',
@@ -64,10 +74,10 @@ export default {
   gap: 0.6rem;
   padding: 0.7rem 1.2rem;
   border: 2px solid;
-  font-family: var(--typewriter);
+  font-family: var(--typewriter, 'Courier New', monospace);
   font-size: 0.85rem;
   font-weight: 700;
-  background: var(--paper-bg);
+  background: var(--toast-bg, var(--paper-bg, #fffdf8));
   box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.15);
   animation: toast-slide-in 0.3s ease-out;
   pointer-events: auto;
@@ -80,7 +90,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--typewriter);
+  font-family: inherit;
   font-weight: 700;
   font-size: 1rem;
   flex-shrink: 0;
@@ -88,43 +98,43 @@ export default {
 
 /* Type styles */
 .toast-item.info {
-  border-color: var(--ink-blue);
-  color: var(--ink-blue);
+  border-color: var(--toast-info, var(--ink-blue, #34618f));
+  color: var(--toast-info, var(--ink-blue, #34618f));
 }
 
 .toast-item.info .toast-icon {
-  background: var(--ink-blue);
-  color: var(--paper-bg);
+  background: var(--toast-info, var(--ink-blue, #34618f));
+  color: var(--toast-bg, var(--paper-bg, #fffdf8));
 }
 
 .toast-item.error {
-  border-color: var(--ink-red);
-  color: var(--ink-red);
+  border-color: var(--toast-error, var(--ink-red, #c0392b));
+  color: var(--toast-error, var(--ink-red, #c0392b));
 }
 
 .toast-item.error .toast-icon {
-  background: var(--ink-red);
-  color: var(--paper-bg);
+  background: var(--toast-error, var(--ink-red, #c0392b));
+  color: var(--toast-bg, var(--paper-bg, #fffdf8));
 }
 
 .toast-item.warning {
-  border-color: var(--ink-brown);
-  color: var(--ink-brown);
+  border-color: var(--toast-warning, var(--ink-brown, #8a6d3b));
+  color: var(--toast-warning, var(--ink-brown, #8a6d3b));
 }
 
 .toast-item.warning .toast-icon {
-  background: var(--ink-brown);
-  color: var(--paper-bg);
+  background: var(--toast-warning, var(--ink-brown, #8a6d3b));
+  color: var(--toast-bg, var(--paper-bg, #fffdf8));
 }
 
 .toast-item.success {
-  border-color: var(--ink-green);
-  color: var(--ink-green);
+  border-color: var(--toast-success, var(--ink-green, #2e7d32));
+  color: var(--toast-success, var(--ink-green, #2e7d32));
 }
 
 .toast-item.success .toast-icon {
-  background: var(--ink-green);
-  color: var(--paper-bg);
+  background: var(--toast-success, var(--ink-green, #2e7d32));
+  color: var(--toast-bg, var(--paper-bg, #fffdf8));
 }
 
 @keyframes toast-slide-in {

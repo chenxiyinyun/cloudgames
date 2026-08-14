@@ -504,6 +504,22 @@
         </svg>
       </section>
     </section>
+
+    <!-- 肉鸽事件 toast 通知 -->
+    <div
+      class="event-toast-container"
+      aria-live="polite"
+    >
+      <div
+        v-for="toast in activeToasts"
+        :key="toast.id"
+        class="event-toast"
+        :class="`toast-${toast.kind}`"
+      >
+        <span class="toast-icon">{{ toastIcon(toast) }}</span>
+        <span class="toast-text">{{ toast.message }}</span>
+      </div>
+    </div>
   </main>
 </template>
 
@@ -605,6 +621,32 @@ const weatherInfo = computed(() => {
   if (!w || !w.type) return null
   return WEATHER_TYPES[w.type] || null
 })
+
+// ── 肉鸽事件 toast ──────────────────────────────────────────────
+const recentEvents = computed(() => props.room.gameState?.recentEvents || [])
+const activeToasts = ref([])
+const seenEventIds = new Set()
+
+const toastIconMap = {
+  encounter: '!',
+  itemPickup: '★',
+  weather: '☀'
+}
+
+function toastIcon(toast) {
+  return toastIconMap[toast.kind] || '·'
+}
+
+watch(recentEvents, (events) => {
+  events.forEach(evt => {
+    if (seenEventIds.has(evt.id)) return
+    seenEventIds.add(evt.id)
+    activeToasts.value.push({ ...evt })
+    setTimeout(() => {
+      activeToasts.value = activeToasts.value.filter(t => t.id !== evt.id)
+    }, 3500)
+  })
+}, { deep: true, immediate: true })
 
 const itemGlyphMap = {
   forcedMarch: '急',

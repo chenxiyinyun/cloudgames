@@ -1,13 +1,30 @@
 <template>
   <Transition name="overlay-fade">
-    <div v-if="visible" class="connection-overlay" :class="overlayClass">
+    <div
+      v-if="visible"
+      class="connection-overlay"
+      :class="overlayClass"
+    >
       <div class="overlay-card">
-        <div class="overlay-icon">{{ icon }}</div>
-        <div class="overlay-title">{{ title }}</div>
-        <div class="overlay-message">{{ message || defaultMessage }}</div>
-        <div v-if="showProgress" class="overlay-progress">
-          <div v-for="i in 3" :key="i" class="progress-dot"
-            :style="{ animationDelay: (i * 0.3) + 's' }" />
+        <div class="overlay-icon">
+          {{ icon }}
+        </div>
+        <div class="overlay-title">
+          {{ title }}
+        </div>
+        <div class="overlay-message">
+          {{ message || defaultMessage }}
+        </div>
+        <div
+          v-if="showProgress"
+          class="overlay-progress"
+        >
+          <div
+            v-for="i in 3"
+            :key="i"
+            class="progress-dot"
+            :style="{ animationDelay: (i * 0.3) + 's' }"
+          />
         </div>
         <DiagnosticsPanel
           v-if="status === 'error' || status === 'disconnected'"
@@ -18,10 +35,17 @@
           variant="detail"
         />
         <div class="overlay-actions">
-          <button v-if="showRetry" class="btn btn-primary" @click="$emit('retry')">
+          <button
+            v-if="showRetry"
+            class="overlay-btn overlay-btn-primary"
+            @click="$emit('retry')"
+          >
             🔄 手动重连
           </button>
-          <button v-if="showLeave" class="btn btn-secondary" @click="$emit('leave')">
+          <button
+            class="overlay-btn overlay-btn-secondary"
+            @click="$emit('leave')"
+          >
             🚪 离开房间
           </button>
         </div>
@@ -31,6 +55,12 @@
 </template>
 
 <script setup>
+/**
+ * 共享断线遮罩 — 连接中/重连中/断开/失败时的全屏提示与手动重连入口。
+ *
+ * props 与 createGameNetwork 的 RECONNECT_METADATA / gameState.connectionStatus 对齐。
+ * 主题：通过 CSS 变量接入各游戏配色（--overlay-* 优先，回退到 --cat-* / 中性默认值）。
+ */
 import { computed } from 'vue'
 import DiagnosticsPanel from './DiagnosticsPanel.vue'
 
@@ -38,9 +68,11 @@ const props = defineProps({
   status: { type: String, default: 'connected' },
   message: { type: String, default: '' },
   attempt: { type: Number, default: 0 },
-  maxAttempts: { type: Number, default: 8 },
+  maxAttempts: { type: Number, default: 6 },
   roomCode: { type: String, default: '' },
-  playerCount: { type: Number, default: 0 }
+  playerCount: { type: Number, default: 0 },
+  // 未知状态时的占位图标（各游戏可传自己的主题图标）
+  defaultIcon: { type: String, default: '📡' }
 })
 
 defineEmits(['retry', 'leave'])
@@ -55,15 +87,13 @@ const showRetry = computed(() =>
   props.status === 'error' || props.status === 'disconnected'
 )
 
-const showLeave = computed(() => true)
-
 const icon = computed(() => {
   switch (props.status) {
     case 'connecting': return '🔗'
     case 'reconnecting': return '🔄'
     case 'disconnected': return '⚠️'
     case 'error': return '❌'
-    default: return '🐱'
+    default: return props.defaultIcon
   }
 })
 
@@ -97,7 +127,7 @@ const overlayClass = computed(() => `overlay-${props.status}`)
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay-backdrop, rgba(0, 0, 0, 0.6));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -107,8 +137,8 @@ const overlayClass = computed(() => `overlay-${props.status}`)
 }
 
 .overlay-card {
-  background: white;
-  border: 3px solid var(--cat-border);
+  background: var(--overlay-card-bg, #fff);
+  border: 3px solid var(--overlay-card-border, var(--cat-border, #e0e0e0));
   border-radius: 20px;
   padding: 32px 28px;
   max-width: 360px;
@@ -126,12 +156,12 @@ const overlayClass = computed(() => `overlay-${props.status}`)
   font-size: 18px;
   font-weight: 700;
   margin-bottom: 8px;
-  color: var(--cat-text);
+  color: var(--overlay-title, var(--cat-text, #333));
 }
 
 .overlay-message {
   font-size: 14px;
-  color: var(--cat-text-light);
+  color: var(--overlay-text, var(--cat-text-light, #666));
   margin-bottom: 20px;
   line-height: 1.5;
 }
@@ -147,7 +177,7 @@ const overlayClass = computed(() => `overlay-${props.status}`)
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--cat-accent);
+  background: var(--overlay-accent, var(--cat-accent, #4a90d9));
   animation: dot-bounce 0.6s ease-in-out infinite alternate;
 }
 
@@ -168,8 +198,30 @@ const overlayClass = computed(() => `overlay-${props.status}`)
   gap: 8px;
 }
 
-.overlay-actions .btn {
+.overlay-btn {
   width: 100%;
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.overlay-btn:hover {
+  opacity: 0.85;
+}
+
+.overlay-btn-primary {
+  border: none;
+  background: var(--overlay-accent, var(--cat-accent, #4a90d9));
+  color: var(--overlay-btn-text, #fff);
+}
+
+.overlay-btn-secondary {
+  border: 2px solid var(--overlay-card-border, var(--cat-border, #ccc));
+  background: transparent;
+  color: var(--overlay-text, var(--cat-text-light, #666));
 }
 
 .overlay-fade-enter-active,
@@ -183,19 +235,19 @@ const overlayClass = computed(() => `overlay-${props.status}`)
 }
 
 .overlay-error .overlay-card {
-  border-color: var(--cat-red);
+  border-color: var(--overlay-error, var(--cat-red, #e87060));
 }
 
 .overlay-reconnecting .overlay-card {
-  border-color: var(--cat-accent);
+  border-color: var(--overlay-accent, var(--cat-accent, #4a90d9));
 }
 
 .overlay-connecting .overlay-card {
-  border-color: var(--cat-blue);
+  border-color: var(--overlay-info, var(--cat-blue, #7ab8d4));
 }
 
 .overlay-disconnected .overlay-card {
-  border-color: var(--cat-brown);
+  border-color: var(--overlay-warn, var(--cat-brown, #c47a30));
 }
 
 @media (max-width: 600px) {

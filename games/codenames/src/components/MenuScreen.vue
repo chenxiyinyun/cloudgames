@@ -99,7 +99,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { createRoom, joinRoom, gameState } from '../stores/gameStore';
-import { showToast } from './ToastNotification.vue';
+import { showToast } from '../../../../src/shared/components/ToastNotification.vue';
 import { sanitizePlayerName, sanitizeRoomCode } from '../services/sanitize';
 
 const playerName = ref('');

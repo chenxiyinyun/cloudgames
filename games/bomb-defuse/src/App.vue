@@ -55,6 +55,8 @@
       :message="gameState.connectionMessage"
       :attempt="RECONNECT_METADATA.attempt"
       :max-attempts="RECONNECT_METADATA.MAX_ATTEMPTS"
+      :room-code="gameState.roomCode || ''"
+      :player-count="gameState.room.players.length"
       @retry="handleReconnect"
       @leave="handleLeaveRoom"
     />
@@ -79,8 +81,8 @@ import {
   reconnectRoom,
   restoreFromCache
 } from './stores/gameStore'
-import ConnectionOverlay from './components/ConnectionOverlay.vue'
-import DiagnosticsPanel from './components/DiagnosticsPanel.vue'
+import ConnectionOverlay from '../../../src/shared/components/ConnectionOverlay.vue'
+import DiagnosticsPanel from '../../../src/shared/components/DiagnosticsPanel.vue'
 import GameScreen from './components/GameScreen.vue'
 import LobbyScreen from './components/LobbyScreen.vue'
 import MenuScreen from './components/MenuScreen.vue'

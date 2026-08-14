@@ -1,29 +1,18 @@
-function stripUnsafeText(value) {
-  return String(value ?? '')
-    .replace(/<[^>]*>/g, '')
-    .replace(/["'`]/g, '')
-    .replace(/[<>]/g, '')
-    .trim()
-}
+import {
+  createPlayerNameSanitizer,
+  createRoomCodeSanitizer
+} from '../../../../src/shared/sanitize'
 
-export function sanitizePlayerName(name) {
-  const value = stripUnsafeText(name).slice(0, 20)
-  if (!value) {
-    return { value: 'Player', error: 'Player name was empty; using Player.' }
-  }
-  return { value, error: null }
-}
+export const sanitizePlayerName = createPlayerNameSanitizer({
+  maxLength: 20,
+  fallback: 'Player',
+  emptyError: 'Player name was empty; using Player.'
+})
 
-export function sanitizeRoomCode(code) {
-  const value = stripUnsafeText(code).toUpperCase().replace(/[^A-Z0-9]/g, '')
-  if (!value) {
-    return { value: '', error: 'Room code is required.' }
-  }
-  if (value.length !== 6) {
-    return { value: '', error: 'Room code must be 6 letters or numbers.' }
-  }
-  return { value, error: null }
-}
+export const sanitizeRoomCode = createRoomCodeSanitizer({
+  emptyError: 'Room code is required.',
+  lengthError: 'Room code must be 6 letters or numbers.'
+})
 
 export function sanitizeModuleAction(action) {
   if (!action || typeof action !== 'object') {

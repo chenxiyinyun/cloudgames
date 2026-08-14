@@ -254,6 +254,7 @@ export function startGame(room, options = {}) {
     weatherRotationAt: Date.now() + WEATHER_GAP_MS,
     playerBuffs: {},
     nextItemRespawnAt: Date.now() + ITEM_RESPAWN_INTERVAL_MS,
+    recentEvents: [],
     startedAt: Date.now(),
     lastTickAt: Date.now(),
     winnerId: null,
@@ -353,6 +354,15 @@ export function tickMovingTroops(room, now = Date.now()) {
     // 道具节点：派兵抵达直接拾取
     if (territory.kind === 'item') {
       grantItemBuff(room, troop.playerId, territory.itemKind)
+      const itemEffect = ITEM_TYPES[territory.itemKind]
+      const picker = room.players.find(p => p.id === troop.playerId)
+      pushEvent(room, {
+        kind: 'itemPickup',
+        subtype: territory.itemKind,
+        playerId: troop.playerId,
+        playerName: picker?.name || '',
+        message: `${picker?.name || '玩家'} 拾取了 ${itemEffect?.label || '道具'}`
+      })
       removeItem(room, territory.id)
       removeMovingTroop(room, troop.id)
       return
@@ -481,6 +491,15 @@ export function dispatchUnits(room, playerId, sourceId, targetId, ratio = 0.5, n
     } else if (effect.unitGainRatio) {
       amount = Math.min(MAX_UNITS, Math.floor(amount * (1 + effect.unitGainRatio)))
     }
+    // 写入事件流，让客户端能看到遭遇触发的反馈
+    const player = room.players.find(p => p.id === playerId)
+    pushEvent(room, {
+      kind: 'encounter',
+      subtype: encounter,
+      playerId,
+      playerName: player?.name || '',
+      message: `${effect.label}：${effect.description}`
+    })
   }
 
   source.units -= Math.floor(source.units * normalizedRatio)
@@ -886,6 +905,7 @@ function createEmptyGameState() {
     weatherRotationAt: 0,
     playerBuffs: {},
     nextItemRespawnAt: 0,
+    recentEvents: [],
     productionTick: 0,
     startedAt: null,
     lastTickAt: null,
@@ -924,6 +944,22 @@ function distance(a, b) {
 
 // ========== 肉鸽机制辅助函数 ==========
 
+/**
+ * 向 gameState.recentEvents 推入一条事件，供客户端展示 toast。
+ * 最多保留 MAX_RECENT_EVENTS 条，超出则丢弃最旧的。
+ */
+const MAX_RECENT_EVENTS = 8
+let eventSeqCounter = 0
+
+function pushEvent(room, event) {
+  const list = room.gameState.recentEvents || (room.gameState.recentEvents = [])
+  eventSeqCounter += 1
+  list.push({ id: `evt${eventSeqCounter}`, at: Date.now(), ...event })
+  if (list.length > MAX_RECENT_EVENTS) {
+    list.splice(0, list.length - MAX_RECENT_EVENTS)
+  }
+}
+
 function createEmptyWeather() {
   return { type: null, startedAt: 0, durationMs: 0, lastEarthquakeAt: 0 }
 }
@@ -951,6 +987,12 @@ function tickWeather(room, now) {
     weather.startedAt = now
     weather.durationMs = WEATHER_DURATION_MS
     weather.lastEarthquakeAt = now
+    const w = WEATHER_TYPES[pick]
+    pushEvent(room, {
+      kind: 'weather',
+      subtype: pick,
+      message: `天气事件：${w.label} — ${w.description}`
+    })
   }
 }
 

@@ -796,7 +796,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { gameState, handleSubmitClues, handleSubmitTeamGuess, handleSubmitOpponentGuess, handleSubmitOpponentVote, handleSubmitTeamVote, handleNextRound, handlePlayAgain, reconnectRoom, GAME_PHASES } from '../stores/gameStore';
-import { showToast } from './ToastNotification.vue';
+import { showToast } from '../../../../src/shared/components/ToastNotification.vue';
 import { sanitizeClues } from '../services/sanitize';
 
 const showRules = ref(false);

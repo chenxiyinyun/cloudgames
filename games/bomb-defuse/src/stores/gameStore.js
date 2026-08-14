@@ -1,14 +1,19 @@
 import { generatePlayerId } from '../services/gameEngine'
 import { sanitizeModuleAction, sanitizePlayerName, sanitizeRoomCode } from '../services/sanitize'
-import { clearCache, flushCache, hasRestoreableState, restoreFromCache } from './cache'
-import { gameState, resetLocalState, setConnectionStatus } from './state'
 import {
   RECONNECT_METADATA,
   cleanupNetwork,
+  clearCache,
   connectCreate,
   connectJoin,
-  sendIntent
-} from './network'
+  flushCache,
+  gameState,
+  hasRestoreableState,
+  resetLocalState,
+  restoreFromCache,
+  sendIntent,
+  setConnectionStatus
+} from './state'
 
 /**
  * bomb-defuse 游戏 store（服务器权威 / 瘦客户端）。
@@ -69,7 +74,7 @@ export function reconnectRoom() {
 }
 
 export function leaveRoom() {
-  cleanup({ forceStatusReset: true })
+  cleanup()
 }
 
 export function handleStartGame() {
@@ -106,14 +111,11 @@ export function handleEndGame() {
   return sendIntent('END_GAME')
 }
 
-export function cleanup({ forceStatusReset = false } = {}) {
+export function cleanup() {
   flushCache()
   cleanupNetwork()
   resetLocalState()
   clearCache()
-  if (forceStatusReset) {
-    setConnectionStatus('disconnected', '')
-  }
 }
 
 export { gameState, restoreFromCache, hasRestoreableState, RECONNECT_METADATA }

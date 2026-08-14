@@ -823,6 +823,87 @@ button:disabled {
   stroke-width: 5;
 }
 
+/* ── 肉鸽事件 toast 通知 ────────────────────────────────────────── */
+
+.event-toast-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.event-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: rgba(30, 30, 40, 0.92);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  animation: toast-slide-in 0.3s ease-out;
+  max-width: 320px;
+}
+
+.event-toast .toast-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.toast-encounter {
+  border-left: 4px solid #f97316;
+}
+.toast-encounter .toast-icon {
+  background: #f97316;
+  color: #fff;
+}
+
+.toast-itemPickup {
+  border-left: 4px solid #eab308;
+}
+.toast-itemPickup .toast-icon {
+  background: #eab308;
+  color: #fff;
+}
+
+.toast-weather {
+  border-left: 4px solid #3b82f6;
+}
+.toast-weather .toast-icon {
+  background: #3b82f6;
+  color: #fff;
+}
+
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* catpaw 主题 toast */
+.game-screen[data-theme="catpaw"] .event-toast {
+  background: rgba(92, 45, 58, 0.92);
+  border-radius: 12px;
+}
+
 /* 猫爪主题：毛线球障碍 */
 .game-screen[data-theme="catpaw"] .catpaw-obstacle-ring {
   fill: #f5c6d0;
@@ -965,148 +1046,3 @@ button:disabled {
     max-height: 100%;
   }
 }
-
-/* === �����ƣ��������ʽ === */
-
-.weather-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-  padding: 10px 12px;
-  background: #ebf8ff;
-  border: 2px solid #2c5282;
-  border-radius: 8px;
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-.weather-banner.idle {
-  background: #f0fff4;
-  border-color: #38a169;
-  color: #22543d;
-}
-
-.weather-banner.weather-storm { background: #e6f0ff; border-color: #2b6cb0; color: #2a4365; }
-.weather-banner.weather-fog { background: #edf2f7; border-color: #4a5568; color: #1a202c; }
-.weather-banner.weather-bountiful { background: #f0fff4; border-color: #38a169; color: #22543d; }
-.weather-banner.weather-earthquake { background: #fff5f5; border-color: #c53030; color: #742a2a; }
-.weather-banner.weather-plague { background: #faf5ff; border-color: #805ad5; color: #44337a; }
-
-.weather-banner > div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.weather-banner strong {
-  font-size: 14px;
-}
-
-.weather-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.7);
-  font-weight: 900;
-  font-size: 16px;
-  color: #1a202c;
-  flex-shrink: 0;
-}
-
-.buff-list {
-  margin-top: 14px;
-  padding: 10px 12px;
-  background: #fffaf0;
-  border: 2px solid #b7791f;
-  border-radius: 8px;
-}
-
-.buff-list h3 {
-  margin: 0 0 8px;
-  font-size: 13px;
-  letter-spacing: 0.05em;
-  color: #744210;
-}
-
-.buff-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  padding: 4px 0;
-}
-
-.buff-glyph {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
-  font-weight: 900;
-  font-size: 13px;
-  background: #f6e05e;
-  color: #744210;
-  border: 1.5px solid #b7791f;
-}
-
-.buff-name {
-  flex: 1;
-}
-
-.buff-time {
-  font-variant-numeric: tabular-nums;
-  color: #b7791f;
-  font-weight: 900;
-}
-
-.roguelike-legend {
-  margin-top: 16px;
-  padding: 10px 12px;
-  background: rgba(247, 250, 252, 0.7);
-  border: 2px solid #cbd5e0;
-  border-radius: 8px;
-  font-size: 12px;
-  line-height: 1.7;
-}
-
-.roguelike-legend > summary {
-  cursor: pointer;
-  font-weight: 900;
-  color: #2d3748;
-  font-size: 13px;
-  letter-spacing: 0.05em;
-}
-
-.roguelike-legend > summary::marker { content: '�� '; }
-.roguelike-legend[open] > summary::marker { content: '�� '; }
-
-.legend-section {
-  margin-top: 10px;
-}
-
-.legend-section h4 {
-  margin: 0 0 4px;
-  font-size: 12px;
-  color: #4a5568;
-  letter-spacing: 0.05em;
-  border-bottom: 1px dashed #cbd5e0;
-  padding-bottom: 2px;
-}
-
-.legend-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.legend-list li {
-  padding: 1px 0;
-  color: #2d3748;
-}
-
-.territory.targetable.market-ring { stroke: #f2b233; }

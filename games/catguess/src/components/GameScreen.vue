@@ -521,7 +521,7 @@ import {
   GAME_PHASES
 } from '../stores/gameStore'
 import { getTargetScore } from '../services/gameEngine'
-import { showToast } from './ToastNotification.vue'
+import { showToast } from '../../../../src/shared/components/ToastNotification.vue'
 
 // ─── Reactive State ───
 

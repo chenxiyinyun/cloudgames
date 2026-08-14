@@ -12,6 +12,7 @@
       :max-attempts="MAX_RECONNECT_ATTEMPTS"
       :room-code="gameState.roomCode || ''"
       :player-count="gameState.room.players.length"
+      default-icon="🐱"
       @retry="handleManualReconnect"
       @leave="handleForceLeave"
     />
@@ -24,8 +25,8 @@ import { gameState, reconnectRoom, leaveRoom, RECONNECT_METADATA } from './store
 import MenuScreen from './components/MenuScreen.vue'
 import LobbyScreen from './components/LobbyScreen.vue'
 import GameScreen from './components/GameScreen.vue'
-import ToastNotification from './components/ToastNotification.vue'
-import ConnectionOverlay from './components/ConnectionOverlay.vue'
+import ToastNotification from '../../../src/shared/components/ToastNotification.vue'
+import ConnectionOverlay from '../../../src/shared/components/ConnectionOverlay.vue'
 
 const MAX_RECONNECT_ATTEMPTS = RECONNECT_METADATA.MAX_ATTEMPTS
 const reconnectAttempt = computed(() => RECONNECT_METADATA.attempt)

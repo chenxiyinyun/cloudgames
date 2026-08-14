@@ -16,6 +16,25 @@
   --amber: #d69b37;
   --green: #5ca96b;
   --muted: #b8aa91;
+  /* 共享 ConnectionOverlay / DiagnosticsPanel 的主题变量 */
+  --overlay-backdrop: rgba(10, 8, 6, 0.72);
+  --overlay-card-bg: var(--panel);
+  --overlay-card-border: var(--line);
+  --overlay-title: #f4efe4;
+  --overlay-text: var(--muted);
+  --overlay-accent: var(--amber);
+  --overlay-error: var(--danger);
+  --overlay-info: var(--amber);
+  --overlay-warn: var(--amber);
+  --diag-bg: rgba(23, 19, 15, 0.92);
+  --diag-border: var(--line);
+  --diag-text: #fff7e8;
+  --diag-text-light: var(--muted);
+  --diag-row-bg: rgba(255, 255, 255, 0.04);
+  --diag-row-hover-bg: rgba(255, 255, 255, 0.1);
+  --diag-row-bg-ok: rgba(92, 169, 107, 0.12);
+  --diag-row-bg-warn: rgba(214, 155, 55, 0.12);
+  --diag-row-bg-bad: rgba(225, 77, 56, 0.14);
 }
 
 * {
@@ -907,24 +926,6 @@ button:disabled {
   position: fixed;
   inset: 0;
   z-index: 20;
-  display: grid;
-  place-items: center;
-  padding: 18px;
-  background: rgba(10, 8, 6, 0.72);
-}
-
-.connection-dialog {
-  width: min(440px, 100%);
-  padding: 24px;
-}
-
-.connection-dialog h2 {
-  margin: 0;
-}
-
-.connection-dialog p {
-  color: var(--muted);
-  line-height: 1.6;
 }
 
 .diagnostics-panel {
@@ -933,36 +934,8 @@ button:disabled {
   bottom: 18px;
   z-index: 10;
   width: min(280px, calc(100vw - 36px));
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 10px 12px;
-  color: var(--muted);
-  background: rgba(23, 19, 15, 0.92);
   font-family: 'Courier Prime', monospace;
   font-size: 0.78rem;
-}
-
-.diagnostics-panel summary {
-  color: #fff7e8;
-  cursor: pointer;
-}
-
-.diagnostics-panel dl {
-  display: grid;
-  gap: 8px;
-  margin: 12px 0 0;
-}
-
-.diagnostics-panel div {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.diagnostics-panel dd {
-  margin: 0;
-  color: var(--amber);
-  text-align: right;
 }
 
 @media (max-width: 760px) {

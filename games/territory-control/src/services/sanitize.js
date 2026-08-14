@@ -1,25 +1,18 @@
-function stripUnsafeText(value) {
-  return String(value ?? '')
-    .replace(/<[^>]*>/g, '')
-    .replace(/["'`]/g, '')
-    .replace(/[<>]/g, '')
-    .trim()
-}
+import {
+  createPlayerNameSanitizer,
+  createRoomCodeSanitizer,
+  stripUnsafeText
+} from '../../../../src/shared/sanitize'
 
-export function sanitizePlayerName(name) {
-  const value = stripUnsafeText(name).slice(0, 18)
-  if (!value) {
-    return { value: '', error: '请输入玩家名' }
-  }
-  return { value, error: null }
-}
+export const sanitizePlayerName = createPlayerNameSanitizer({
+  maxLength: 18,
+  emptyError: '请输入玩家名'
+})
 
-export function sanitizeRoomCode(code) {
-  const value = stripUnsafeText(code).toUpperCase().replace(/[^A-Z0-9]/g, '')
-  if (!value) return { value: '', error: '请输入房间号' }
-  if (value.length !== 6) return { value: '', error: '房间号需要 6 位' }
-  return { value, error: null }
-}
+export const sanitizeRoomCode = createRoomCodeSanitizer({
+  emptyError: '请输入房间号',
+  lengthError: '房间号需要 6 位'
+})
 
 export function sanitizeMapSize(mapSize) {
   const value = stripUnsafeText(mapSize)

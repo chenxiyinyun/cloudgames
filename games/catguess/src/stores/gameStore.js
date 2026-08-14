@@ -3,17 +3,22 @@
 
 import { GAME_PHASES, generatePlayerId } from '../services/gameEngine';
 import { sanitizePlayerName, sanitizeRoomCode, sanitizeStoryClue } from '../services/sanitize';
-import { showToast } from '../components/ToastNotification.vue';
+import { showToast } from '../../../../src/shared/components/ToastNotification.vue';
 
-import { gameState, resetLocalStateToDefaults, setConnectionStatus } from './state';
-import { restoreFromCache, hasRestoreableState, clearCache, flushCache } from './cache';
 import {
+  gameState,
+  resetLocalState,
+  setConnectionStatus,
+  restoreFromCache,
+  hasRestoreableState,
+  clearCache,
+  flushCache,
   RECONNECT_METADATA,
   cleanupNetwork,
   connectCreate,
   connectJoin,
   sendIntent
-} from './network';
+} from './state';
 
 // ── High-Level API ────────────────────────────────────────────────────────────
 
@@ -65,7 +70,7 @@ export function reconnectRoom() {
 }
 
 export function leaveRoom() {
-  cleanup({ forceStatusReset: true });
+  cleanup();
   gameState.screen = 'menu';
 }
 
@@ -105,14 +110,11 @@ export function handleEndGame() {
 
 // ── Cleanup ──────────────────────────────────────────────────────────────────
 
-export function cleanup({ forceStatusReset = false } = {}) {
+export function cleanup() {
   flushCache();
   cleanupNetwork();
-  resetLocalStateToDefaults();
+  resetLocalState();
   clearCache();
-  if (forceStatusReset) {
-    setConnectionStatus('disconnected', '');
-  }
 }
 
 // ── Re-exports（保持组件 import 路径与公共 API 稳定）──────────────────────────

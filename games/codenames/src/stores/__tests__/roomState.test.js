@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// roomState 在模块加载时注册 window.beforeunload，node 环境需要 window 垫片。
+// state 在模块加载时注册 window.beforeunload，node 环境需要 window 垫片。
 // 必须在 import 之前生效，故用 vi.hoisted（会被提升到所有 import 之上）。
 vi.hoisted(() => {
   globalThis.window = {
@@ -10,20 +10,22 @@ vi.hoisted(() => {
 });
 
 // 隔离缓存副作用（watch 触发时会调用，且 node 环境无 localStorage）
-vi.mock('../../services/stateCache', () => ({
-  saveStateToCache: vi.fn(),
-  loadStateFromCache: vi.fn(() => null),
-  clearStateCache: vi.fn(),
-  hasCachedState: vi.fn(() => false),
-  flushStateCache: vi.fn(),
-  cancelPendingSave: vi.fn()
+vi.mock('../../../../src/shared/online/stateCache', () => ({
+  createStateCache: () => ({
+    saveStateToCache: vi.fn(),
+    loadStateFromCache: vi.fn(() => null),
+    clearStateCache: vi.fn(),
+    hasCachedState: vi.fn(() => false),
+    flushStateCache: vi.fn(),
+    cancelPendingSave: vi.fn()
+  })
 }));
 
-import { gameState, getRoom, setRoom, updateLocalState, resetGameState } from '../roomState';
+import { gameState, getRoom, setRoom, updateLocalState, resetLocalState } from '../state';
 
 describe('codenames roomState accessors', () => {
   beforeEach(() => {
-    resetGameState();
+    resetLocalState();
   });
 
   it('returns the latest room reference after reassignment (no stale binding)', () => {
@@ -63,11 +65,11 @@ describe('codenames roomState accessors', () => {
     expect(gameState.room.currentRound).toBe(2);
   });
 
-  it('resetGameState clears room and resets player identity', () => {
+  it('resetLocalState clears room and resets player identity', () => {
     gameState.playerId = 'p1';
     setRoom({ code: 'ABCDEF', players: [{ id: 'p1' }] });
 
-    resetGameState();
+    resetLocalState();
 
     expect(getRoom()).toBeNull();
     expect(gameState.playerId).toBeNull();

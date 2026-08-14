@@ -85,7 +85,7 @@ import GameScreen from './components/GameScreen.vue';
 import ResultScreen from './components/ResultScreen.vue';
 import { gameState, restoreFromCache, reconnectRoom, hasRestoreableState } from './stores/gameStore';
 import { createLogger } from './services/logger';
-import ToastNotification, { showToast } from './components/ToastNotification.vue';
+import ToastNotification, { showToast } from '../../../src/shared/components/ToastNotification.vue';
 
 const log = createLogger('App')
 
