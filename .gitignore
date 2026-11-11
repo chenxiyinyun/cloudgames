@@ -4,3 +4,8 @@ dist
 .env.local
 .DS_Store
 *.log
+
+# 本地后端密钥与凭据（绝不入库）
+*.pem
+*.key
+server/deploy/.secrets/
