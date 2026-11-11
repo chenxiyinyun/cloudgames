@@ -12,6 +12,10 @@ import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 
 const noopLogger = { debug() {}, info() {}, warn() {}, error() {} };
 
+// Agent 会话存活策略：HTTP 轮询会持续刷新 lastSeen；停止轮询超过 TTL 视为离线。
+const AGENT_SESSION_TTL_MS = 90_000;
+const AGENT_SESSION_MAX_IDLE_MS = 24 * 60 * 60_000;
+
 export function createRoomManager({
   getGameAdapter,
   generateRoomCode,
@@ -144,7 +148,12 @@ export function createRoomManager({
       revision: room.revision,
       serverTime: now(),
       room: projectRoom(room.state, playerId, room.gameId),
-      availableActions: getAgentActions(room.state, playerId, room.gameId)
+      availableActions: getAgentActions(room.state, playerId, room.gameId),
+      session: {
+        heartbeatIntervalMs: 20_000,
+        offlineAfterMs: AGENT_SESSION_TTL_MS,
+        expiresAt: room.agentSessions.get(playerId)?.expiresAt || null
+      }
     };
   }
 
@@ -221,7 +230,12 @@ export function createRoomManager({
       const me = room.state.players.find(player => player.id === playerId);
       if (me) me.type = 'agent';
       const nextAgentToken = randomBytes(32).toString('base64url');
-      room.agentSessions.set(playerId, { hash: hashToken(nextAgentToken), name, expiresAt: now() + 24 * 60 * 60_000 });
+      room.agentSessions.set(playerId, {
+        hash: hashToken(nextAgentToken),
+        name,
+        expiresAt: now() + AGENT_SESSION_MAX_IDLE_MS,
+        lastSeen: now()
+      });
       invite.uses += 1;
       conn.agentToken = nextAgentToken;
     }
@@ -298,6 +312,61 @@ export function createRoomManager({
     broadcast(room, conn);
   }
 
+
+  /** 让 Agent 玩家重新标记为在线（HTTP 轮询不持有持久连接，靠心跳维持）。 */
+  function recallAgent(room, playerId) {
+    const player = room.state.players.find(p => p.id === playerId);
+    if (!player) return;
+    let changed = false;
+    if (player.isOnline === false) { player.isOnline = true; changed = true; }
+    const queue = room.state.disconnectedPlayers;
+    if (Array.isArray(queue)) {
+      const index = queue.findIndex(p => p.id === playerId);
+      if (index >= 0) { queue.splice(index, 1); changed = true; }
+    }
+    if (changed) { touch(room); broadcast(room); }
+  }
+
+  /** Agent 主动退出：删除会话并按现有规则移除玩家（大厅移除 / 对局中标记离线）。 */
+  function releaseAgent(room, playerId, { explicit = true } = {}) {
+    room.agentSessions.delete(playerId);
+    const conn = room.conns.get(playerId);
+    if (conn) {
+      conn.roomCode = null;
+      conn.playerId = null;
+      conn.isAgent = false;
+    }
+    room.conns.delete(playerId);
+    room.adapter.removePlayer(room.state, playerId);
+    touch(room);
+    log.info('agent released', { roomCode: room.state.code, playerId, explicit });
+    if (room.conns.size === 0) {
+      rooms.delete(room.state.code);
+      log.info('room emptied and removed', { roomCode: room.state.code });
+      return;
+    }
+    broadcast(room);
+  }
+
+  /** 清理长时间无心跳的 Agent 会话（由 tickAll 周期调用）。 */
+  function sweepAgentSessions(room, t) {
+    if (!room.agentSessions || room.agentSessions.size === 0) return false;
+    let changed = false;
+    for (const [playerId, session] of room.agentSessions) {
+      const idle = t - (session.lastSeen || 0);
+      if (idle < AGENT_SESSION_TTL_MS) continue;
+      room.agentSessions.delete(playerId);
+      const conn = room.conns.get(playerId);
+      if (conn) { conn.roomCode = null; conn.playerId = null; conn.isAgent = false; }
+      room.conns.delete(playerId);
+      room.adapter.removePlayer(room.state, playerId);
+      log.info('agent session timed out', { roomCode: room.state.code, playerId, idleMs: idle });
+      changed = true;
+    }
+    if (changed) touch(room);
+    return changed;
+  }
+
   function handleIntent(conn, msg) {
     const room = conn.roomCode ? rooms.get(conn.roomCode) : null;
     if (!room || !conn.playerId) {
@@ -371,13 +440,29 @@ export function createRoomManager({
         return sendAgentView(room, conn);
       }
       case 'AGENT_INTENT': return handleAgentIntent(conn, msg);
+      case 'AGENT_LEAVE': {
+        const room = roomFor(conn);
+        if (!room || !conn.isAgent) return send(conn, S2C.ERROR, { message: 'Agent 尚未加入房间' });
+        const playerId = conn.playerId;
+        send(conn, 'AGENT_LEFT', { roomCode: room.state.code, playerId });
+        releaseAgent(room, playerId, { explicit: true });
+        return;
+      }
       case 'AGENT_HTTP': {
         const room = rooms.get(msg.roomCode);
         if (!room) return send(conn, S2C.ERROR, { code: 'ROOM_NOT_FOUND', message: '房间不存在', fatal: true });
         const playerId = msg.playerId;
         const session = room.agentSessions.get(playerId);
         if (!session || !validToken(msg.agentToken, session.hash) || now() > session.expiresAt) {
-          return send(conn, S2C.ERROR, { code: 'AGENT_AUTH_FAILED', message: 'Agent 会话无效或已过期', fatal: true });
+          return send(conn, S2C.ERROR, { code: 'AGENT_AUTH_FAILED', message: 'Agent 会话无效或已过期，请联系真人重新生成邀请', fatal: true });
+        }
+        // 每次合法请求都算心跳：刷新活跃时间并让玩家回到在线
+        session.lastSeen = now();
+        recallAgent(room, playerId);
+        if (msg.operation === 'leave') {
+          send(conn, 'AGENT_LEFT', { roomCode: room.state.code, playerId });
+          releaseAgent(room, playerId, { explicit: true });
+          return;
         }
         if (msg.operation === 'intent') {
           conn.isAgent = true;
@@ -409,6 +494,8 @@ export function createRoomManager({
   function tickAll() {
     const t = now();
     for (const room of rooms.values()) {
+      const swept = sweepAgentSessions(room, t);
+      if (swept) broadcast(room);
       if (typeof room.adapter.tick !== 'function') continue;
       const prevPhase = room.state.phase;
       let changed;

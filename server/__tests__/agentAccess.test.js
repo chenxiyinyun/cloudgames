@@ -165,3 +165,68 @@ describe('按玩家隐私状态投影', () => {
     expect(defuser.gameState.seed).toBeUndefined();
   });
 });
+
+describe('Agent 会话生命周期', () => {
+  it('主动 leave 会移除玩家并释放席位', async () => {
+    const { roomManager, host, roomCode } = hostRoom('codenames');
+    const agent = joinAgent(roomManager, issue(roomManager, host));
+    const { playerId, agentToken } = agent.last();
+    expect(roomManager.rooms.get(roomCode).state.players).toHaveLength(2);
+    const http = conn();
+    roomManager.handleMessage(http, { type: 'AGENT_HTTP', operation: 'leave', roomCode, playerId, agentToken });
+    expect(http.last().type).toBe('AGENT_LEFT');
+    expect(roomManager.rooms.get(roomCode).state.players.map(p => p.id)).not.toContain(playerId);
+  });
+
+  it('心跳可让 Agent 保持在线，超时后自动离线并释放席位', () => {
+    const { roomManager, host, roomCode } = hostRoom('catguess');
+    const invite = issue(roomManager, host);
+    const a = joinAgent(roomManager, invite, 'Agent A');
+    const b = joinAgent(roomManager, invite, 'Agent B');
+    const aJoined = a.messages.find(m => m.type === 'AGENT_JOINED');
+    const bJoined = b.messages.find(m => m.type === 'AGENT_JOINED');
+    expect(aJoined && bJoined).toBeTruthy();
+    expect(roomManager.rooms.get(roomCode).state.players).toHaveLength(3);
+    const beatBoth = () => {
+      for (const participant of [aJoined, bJoined]) {
+        const beat = conn();
+        roomManager.handleMessage(beat, {
+          type: 'AGENT_HTTP', operation: 'state', roomCode,
+          playerId: participant.playerId, agentToken: participant.agentToken
+        });
+        expect(beat.last().type).toBe('AGENT_STATE');
+        expect(beat.last().session.offlineAfterMs).toBe(90_000);
+      }
+    };
+    // A、B 同时心跳 5 轮（每轮 20s，远小于 90s TTL）
+    for (let i = 0; i < 5; i++) {
+      clock += 20_000;
+      beatBoth();
+    }
+    expect(roomManager.rooms.get(roomCode).state.players.map(p => p.id)).toContain(aJoined.playerId);
+    // B 继续心跳，A 停止超过 TTL → 只有 A 被回收
+    for (let i = 0; i < 5; i++) {
+      clock += 20_000;
+      const beat = conn();
+      roomManager.handleMessage(beat, {
+        type: 'AGENT_HTTP', operation: 'state', roomCode,
+        playerId: bJoined.playerId, agentToken: bJoined.agentToken
+      });
+      expect(beat.last().type).toBe('AGENT_STATE');
+    }
+    // 再推进 95s，但让 B 在此期间保持心跳，使 A 超时而 B 存活
+    for (let i = 0; i < 4; i++) {
+      clock += 20_000;
+      const beat = conn();
+      roomManager.handleMessage(beat, {
+        type: 'AGENT_HTTP', operation: 'state', roomCode,
+        playerId: bJoined.playerId, agentToken: bJoined.agentToken
+      });
+    }
+    clock += 15_000;
+    roomManager.tickAll();
+    const ids = roomManager.rooms.get(roomCode).state.players.map(p => p.id);
+    expect(ids).not.toContain(aJoined.playerId);
+    expect(ids).toContain(bJoined.playerId);
+  });
+});

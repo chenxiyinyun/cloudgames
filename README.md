@@ -153,6 +153,22 @@ Client is automatically deployed to GitHub Pages via GitHub Actions on push to `
 - 状态按玩家视角投影：他人手牌、拆弹答案、未公开投票、截码战密码不会下发
 - 动作仍由原权威引擎裁决，`requestId` 去重、参数校验、消息大小与频率限制
 
+### 房间生命周期与心跳
+
+- 房间是临时的，只存在于服务内存；**最后一个连接离开即销毁**，服务重启也会清空
+- Agent 席位靠心跳保活：每次 `state` / `intent` 请求刷新活跃时间，**连续 90 秒无请求判定离线并回收席位**（大厅移出 / 对局中标记离线）
+- 主动退出用 `{"operation":"leave"}`（HTTP）或 `AGENT_LEAVE`（WebSocket），返回 `AGENT_LEFT`
+- 邀请 30 分钟有效、最多绑定 4 个 Agent；Agent 会话最长 24 小时，失效返回 `AGENT_AUTH_FAILED`
+- 房间消失返回 `ROOM_NOT_FOUND`，Agent 应立即停止而非重试
+
+### 给 Agent 的执行要求
+
+接入指令（详见 `src/shared/components/AgentAccessPanel.vue` 生成的文案）明确要求：
+
+1. **必须后台执行**：用后台进程 / 子任务 / 队列 / 定时调度运行对局循环，禁止在主线程 `sleep` 轮询或 `while(true)`，以免阻塞前台、无法响应其他请求，也会错过阶段超时
+2. **实现自动退出**：正常结束先 `leave`；`ROOM_NOT_FOUND` / `AGENT_AUTH_FAILED` 立即停止；连续失败退避 5/10/20 秒后汇报
+3. **保持心跳**：轮询间隔 2–5 秒，最长不超过 60 秒
+
 ### 部署
 
 Agent 接口运行在 Node.js 游戏服务上，与 WebSocket 共用端口（默认 8080）。静态网页由 GitHub Pages 托管，Agent 连接地址来自构建变量：

@@ -146,7 +146,26 @@ AGENT_INTENT → AGENT_STATE</pre><p>WebSocket 使用与 HTTP 相同的字段，
           轮询与错误处理
         </h3>
         <ul class="guide-list">
-          <li>没有动作时每 2–5 秒轮询一次，不要高频请求。</li><li>AGENT_ACTION_RESULT 的 accepted=false 表示拒绝或规则内失误，读取 reason 和新状态后调整。</li><li>AGENT_AUTH_FAILED / INVITE_INVALID 时停止，联系真人重新生成邀请，不要冒用真人身份。</li><li>revision 可用于判断状态是否更新；serverTime 与游戏时钟用于安排下一次读取。</li>
+          <li>没有动作时每 2–5 秒轮询一次，最长不超过 60 秒；高频请求会被限流。</li><li>AGENT_ACTION_RESULT 的 accepted=false 表示拒绝或规则内失误，读取 reason 和新状态后调整。</li><li>AGENT_AUTH_FAILED / INVITE_INVALID 时停止，联系真人重新生成邀请，不要冒用真人身份。</li><li>revision 可用于判断状态是否更新；serverTime 与游戏时钟用于安排下一次读取。</li>
+        </ul>
+        <h3 class="subheading">
+          房间生命周期与退出
+        </h3>
+        <ul class="guide-list">
+          <li><strong>临时房间</strong>：房间只存在服务内存中，服务重启即清空；最后一个连接离开时房间立即销毁。</li>
+          <li><strong>你是房客</strong>：除 availableActions 明确授权外，不开始 / 不结束 / 不改设置。</li>
+          <li><strong>心跳保活</strong>：每次 state / intent 都刷新活跃时间；连续 90 秒无请求即判定离线并回收席位（大厅移出、对局中标记离线）。</li>
+          <li><strong>正常退出</strong>：本局结束后先 <code>leave</code>，再停止后台任务；收到 ROOM_NOT_FOUND 立即退出，不要重试轰炸。</li>
+          <li><strong>会话期限</strong>：邀请 30 分钟有效、最多绑定 4 个 Agent；Agent 会话最长 24 小时。</li>
+        </ul>
+        <h3 class="subheading">
+          必须后台执行
+        </h3>
+        <ul class="guide-list">
+          <li>对局是长时任务，必须放到后台进程 / 子任务 / 队列 / 定时调度中运行。</li>
+          <li>不要在会话主线程写 <code>sleep</code> 轮询或 <code>while(true)</code>，否则会占死前台、无法响应其他请求，也会错过服务端阶段超时。</li>
+          <li>无法后台运行时改为分片执行：每次只处理一轮（取状态 → 决策 → 提交 → 返回），由外部调度反复调用。</li>
+          <li>退出前保存可取消的任务句柄或停止标志，避免遗留僵尸任务。</li>
         </ul>
       </section>
 

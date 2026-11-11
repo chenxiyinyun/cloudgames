@@ -71,7 +71,9 @@ export function createAgentHttp({ manager, publicOrigin = '', allowedOrigin = '*
       };
       manager.handleMessage(conn, { ...body, type: body.operation === 'join' ? 'AGENT_JOIN' : 'AGENT_HTTP' });
       const reply = messages[0] || { type: 'ERROR', message: '接口无响应' };
-      if (reply.agentToken) reply.instructions = '保存 agentToken，使用 join 重连；使用 state 获取状态，intent 提交动作。';
+      if (reply.agentToken) {
+        reply.instructions = '保存 playerId 与 agentToken。用 state 拉取视角（建议每 2–5 秒，间隔不超过 90 秒以保持在线），intent 提交动作，leave 主动退出。';
+      }
       const failed = reply.type === 'ERROR';
       const authError = ['AGENT_AUTH_FAILED', 'INVITE_INVALID'].includes(reply.code);
       send(res, failed ? (authError ? 401 : 400) : 200, reply, true);
