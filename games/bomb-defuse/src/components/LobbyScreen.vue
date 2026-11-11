@@ -33,6 +33,10 @@
       >
         <span class="role-label">{{ roleLabel(slot.role) }}</span>
         <h2>{{ slot.name }}</h2>
+        <ParticipantTag
+          v-if="slot.id"
+          :type="slot.type"
+        />
         <p>{{ slot.isOnline ? '已连接' : '等待连接' }}</p>
         <small v-if="slot.id === playerId">你</small>
       </article>
@@ -71,6 +75,18 @@
       </p>
     </section>
 
+    <AgentAccessPanel
+      ref="agentPanel"
+      game-id="bombdefuse"
+      :room-code="roomCode"
+      :is-host="isHost"
+      :connected="connected"
+      :invite="agentInvite"
+      :expanded="agentOpen"
+      @toggle="agentOpen = $event"
+      @request-invite="requestAgentInvite"
+    />
+
     <button
       v-if="canSwapRoles"
       class="ghost-button wide"
@@ -92,8 +108,16 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { DIFFICULTY_PRESETS } from '../services/gameEngine'
+import ParticipantTag from '../../../../src/shared/components/ParticipantTag.vue'
+import AgentAccessPanel from '../../../../src/shared/components/AgentAccessPanel.vue'
+import { agentInvite, requestAgentInvite } from '../stores/state'
+
+const agentPanel = ref(null)
+const agentOpen = ref(false)
+watch(agentInvite, invite => { if (invite) agentPanel.value?.onInvite(invite) })
+
 
 const props = defineProps({
   roomCode: {

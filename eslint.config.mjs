@@ -11,7 +11,11 @@ export default [
   ...vuePlugin.configs['flat/recommended'],
   {
     languageOptions: {
-      globals: globals.browser
+      globals: {
+        ...globals.browser,
+        __CLOUD_GAMES_WS_URL__: 'readonly',
+        __CLOUD_GAMES_AGENT_URL__: 'readonly'
+      }
     },
     rules: {
       'no-console': 'off',           // console is used for debugging in P2P app

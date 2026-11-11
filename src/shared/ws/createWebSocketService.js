@@ -18,7 +18,7 @@ import { C2S, S2C } from './protocol.js';
  *   WebSocketImpl  注入 WebSocket 实现（测试用），默认全局 WebSocket
  */
 export function createWebSocketService({
-  url = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_SERVER_URL) || '',
+  url = (typeof __CLOUD_GAMES_WS_URL__ === 'string' ? __CLOUD_GAMES_WS_URL__ : '') || (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_SERVER_URL) || '',
   gameId,
   logger = console,
   maxReconnects = 6,
@@ -43,7 +43,8 @@ export function createWebSocketService({
     onJoined: () => {},
     onState: () => {},
     onError: () => {},
-    onStatus: () => {}
+    onStatus: () => {},
+    onAgentInvite: () => {}
   };
 
   function on(handlers) {
@@ -147,6 +148,9 @@ export function createWebSocketService({
       case S2C.STATE:
         cb.onState(msg.room);
         break;
+      case 'AGENT_INVITE':
+        cb.onAgentInvite(msg);
+        break;
       case S2C.ERROR:
         if (msg.fatal) {
           // 致命错误（房间不存在 / 已结束）：不再自动重连
@@ -209,6 +213,10 @@ export function createWebSocketService({
     return rawSend({ type: C2S.INTENT, action, payload });
   }
 
+  function requestAgentInvite() {
+    return rawSend({ type: 'AGENT_INVITE' });
+  }
+
   /** 主动离开并断开（不再自动重连）。 */
   function leave() {
     manualClose = true;
@@ -234,6 +242,7 @@ export function createWebSocketService({
     join,
     reconnect,
     sendIntent,
+    requestAgentInvite,
     leave,
     getRoomCode,
     getPlayerId,

@@ -6,6 +6,9 @@
  * 每次意图处理完后把全量状态广播给房内所有连接。
  */
 import { C2S, S2C } from './protocol.js';
+import { projectRoom } from './projectRoom.js';
+import { getAgentActions, validateAgentIntent } from './agentProtocol.js';
+import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 
 const noopLogger = { debug() {}, info() {}, warn() {}, error() {} };
 
@@ -29,7 +32,7 @@ export function createRoomManager({
   function broadcast(room, exceptConn = null) {
     for (const conn of room.conns.values()) {
       if (conn === exceptConn) continue;
-      send(conn, S2C.STATE, { room: room.state });
+      send(conn, S2C.STATE, { room: projectRoom(room.state, conn.playerId, room.gameId) });
     }
   }
 
@@ -41,6 +44,18 @@ export function createRoomManager({
 
   function handleCreate(conn, msg) {
     const { gameId, playerId, playerName } = msg;
+    if (typeof playerId !== 'string' || typeof playerName !== 'string' || !playerId || !playerName.trim() || playerId.length > 100 || playerName.length > 30) {
+      send(conn, S2C.ERROR, { message: '玩家身份格式不正确', fatal: true });
+      return;
+    }
+    if (playerId.startsWith('agent_')) {
+      send(conn, S2C.ERROR, { message: 'Agent 身份需通过邀请接口获取', fatal: true });
+      return;
+    }
+    if (conn.roomCode || conn.playerId) {
+      send(conn, S2C.ERROR, { message: '连接已加入房间，请先离开', fatal: true });
+      return;
+    }
     const adapter = getGameAdapter(gameId);
     if (!adapter) {
       send(conn, S2C.ERROR, { message: `未知游戏：${gameId}`, fatal: true });
@@ -52,17 +67,25 @@ export function createRoomManager({
     }
     const roomCode = uniqueRoomCode();
     const state = adapter.createRoom({ hostId: playerId, hostName: playerName, roomCode });
-    const room = { gameId, adapter, state, conns: new Map() };
+    const room = { gameId, adapter, state, conns: new Map(), agentInvites: new Map(), agentSessions: new Map(), agentRequests: new Map(), revision: 0 };
     rooms.set(roomCode, room);
 
     bind(conn, roomCode, playerId);
     room.conns.set(playerId, conn);
     log.info('room created', { roomCode, gameId, playerId });
-    send(conn, S2C.JOINED, { playerId, roomCode, room: state });
+    send(conn, S2C.JOINED, { playerId, roomCode, room: projectRoom(state, playerId, gameId) });
   }
 
   function handleJoin(conn, msg) {
     const { roomCode, playerId, playerName } = msg;
+    if (typeof playerId === 'string' && playerId.startsWith('agent_')) {
+      send(conn, S2C.ERROR, { message: '请使用 Agent 凭证重连', fatal: true });
+      return;
+    }
+    if (typeof playerId !== 'string' || typeof playerName !== 'string' || playerId.length > 100 || playerName.length > 30) {
+      send(conn, S2C.ERROR, { message: '玩家身份格式不正确', fatal: true });
+      return;
+    }
     const room = rooms.get(roomCode);
     if (!room) {
       send(conn, S2C.ERROR, { message: '房间不存在或已关闭', fatal: true });
@@ -90,7 +113,188 @@ export function createRoomManager({
     room.conns.set(playerId, conn);
     log.info('player joined', { roomCode, playerId, reconnected: !!result?.reconnected });
     // 加入者已在 JOINED 里拿到全量 room，只需把新状态广播给其他人
-    send(conn, S2C.JOINED, { playerId, roomCode, room: room.state });
+    send(conn, S2C.JOINED, { playerId, roomCode, room: projectRoom(room.state, playerId, room.gameId) });
+    broadcast(room, conn);
+  }
+
+  function touch(room) {
+    room.revision += 1;
+  }
+
+  function roomFor(conn) {
+    return conn.roomCode ? rooms.get(conn.roomCode) : null;
+  }
+
+  function agentView(room, playerId) {
+    // 读取前推进权威计时，避免定时阶段在两次 tick 之间返回过期状态。
+    const prevPhase = room.state.phase;
+    let changed = false;
+    try {
+      changed = room.adapter.tick?.(room.state, now()) || room.state.phase !== prevPhase;
+    } catch (err) {
+      log.error('agent view tick threw', { gameId: room.gameId, error: err?.message });
+    }
+    if (changed) touch(room);
+    return {
+      apiVersion: '1',
+      gameId: room.gameId,
+      roomCode: room.state.code,
+      playerId,
+      playerType: 'agent',
+      revision: room.revision,
+      serverTime: now(),
+      room: projectRoom(room.state, playerId, room.gameId),
+      availableActions: getAgentActions(room.state, playerId, room.gameId)
+    };
+  }
+
+  function sendAgentView(room, conn, requestId = null) {
+    send(conn, 'AGENT_STATE', { ...agentView(room, conn.playerId), ...(requestId ? { requestId } : {}) });
+  }
+
+  function hashToken(token) {
+    return createHash('sha256').update(token).digest();
+  }
+
+  function validToken(token, expected) {
+    if (typeof token !== 'string' || token.length > 200) return false;
+    const actual = hashToken(token);
+    return actual.length === expected.length && timingSafeEqual(actual, expected);
+  }
+
+  function humanName(value) {
+    return typeof value === 'string' && value.trim().length > 0 && value.length <= 30;
+  }
+
+  function handleAgentInvite(conn) {
+    const room = roomFor(conn);
+    if (!room || room.state.hostId !== conn.playerId) {
+      send(conn, S2C.ERROR, { message: '只有房主可以邀请 Agent' });
+      return;
+    }
+    const invite = {
+      gameId: room.gameId,
+      roomCode: room.state.code,
+      hostId: conn.playerId,
+      expiresAt: now() + 30 * 60_000,
+      uses: 0
+    };
+    const token = randomBytes(32).toString('base64url');
+    room.agentInvites.set(hashToken(token).toString('base64url'), invite);
+    send(conn, 'AGENT_INVITE', {
+      inviteToken: token,
+      roomCode: room.state.code,
+      gameId: room.gameId,
+      expiresAt: invite.expiresAt
+    });
+  }
+
+  function handleAgentJoin(conn, msg) {
+    const { roomCode, inviteToken, agentToken, playerName, agentName } = msg;
+    const room = rooms.get(roomCode);
+    if (!room) {
+      send(conn, S2C.ERROR, { code: 'ROOM_NOT_FOUND', message: '房间不存在或已关闭', fatal: true });
+      return;
+    }
+    let playerId;
+    let name;
+    if (agentToken) {
+      const session = room.agentSessions.get(playerId = msg.playerId);
+      if (!session || !validToken(agentToken, session.hash) || now() > session.expiresAt) {
+        send(conn, S2C.ERROR, { code: 'AGENT_AUTH_FAILED', message: 'Agent 会话无效或已过期', fatal: true });
+        return;
+      }
+    } else {
+      const key = hashToken(inviteToken || '').toString('base64url');
+      const invite = room.agentInvites.get(key);
+      if (!invite || now() > invite.expiresAt || invite.uses >= 4) {
+        send(conn, S2C.ERROR, { code: 'INVITE_INVALID', message: 'Agent 邀请无效、已过期或达到席位上限', fatal: true });
+        return;
+      }
+      name = humanName(agentName || playerName) ? (agentName || playerName).trim() : 'Cloud Agent';
+      playerId = `agent_${randomBytes(12).toString('base64url')}`;
+      const result = room.adapter.addPlayer(room.state, { playerId, playerName: name });
+      if (result?.error) {
+        send(conn, S2C.ERROR, { code: 'JOIN_REJECTED', message: result.error, fatal: true });
+        return;
+      }
+      const me = room.state.players.find(player => player.id === playerId);
+      if (me) me.type = 'agent';
+      const nextAgentToken = randomBytes(32).toString('base64url');
+      room.agentSessions.set(playerId, { hash: hashToken(nextAgentToken), name, expiresAt: now() + 24 * 60 * 60_000 });
+      invite.uses += 1;
+      conn.agentToken = nextAgentToken;
+    }
+    const previous = room.conns.get(playerId);
+    if (previous && previous !== conn) {
+      previous.roomCode = null;
+      previous.playerId = null;
+      previous.agentToken = null;
+    }
+    conn.isAgent = true;
+    bind(conn, roomCode, playerId);
+    room.conns.set(playerId, conn);
+    touch(room);
+    send(conn, 'AGENT_JOINED', { ...agentView(room, playerId), ...(conn.agentToken ? { agentToken: conn.agentToken } : {}) });
+    conn.agentToken = null;
+    broadcast(room, conn);
+  }
+
+  function executeIntent(room, playerId, action, payload, isAgent = false) {
+    if (room.adapter.hostOnlyActions?.includes(action) && playerId !== room.state.hostId) {
+      return { error: '只有房主可以执行此操作' };
+    }
+    if (isAgent) {
+      const validated = validateAgentIntent(room.gameId, action, payload || {});
+      if (validated.error) return validated;
+      payload = validated.value;
+    }
+    try {
+      return room.adapter.applyIntent(room.state, { action, playerId, payload, now: now() });
+    } catch (err) {
+      log.error('applyIntent threw', { action, error: err?.message });
+      return { error: '操作处理失败' };
+    }
+  }
+
+  function handleAgentIntent(conn, msg) {
+    const room = roomFor(conn);
+    if (!room || !conn.isAgent) {
+      send(conn, S2C.ERROR, { message: '请先用 Agent 邀请加入房间' });
+      return;
+    }
+    const requestId = msg.requestId;
+    if (typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{8,80}$/.test(requestId)) {
+      send(conn, S2C.ERROR, { code: 'REQUEST_ID_INVALID', message: 'requestId 需要 8–80 位字母、数字、下划线或连字符' });
+      return;
+    }
+    const previous = room.agentRequests.get(requestId);
+    if (previous) {
+      if (previous.playerId !== conn.playerId) {
+        send(conn, S2C.ERROR, { code: 'REQUEST_ID_CONFLICT', message: 'requestId 已被使用' });
+        return;
+      }
+      sendAgentView(room, conn, requestId);
+      return;
+    }
+    const result = executeIntent(room, conn.playerId, msg.action, msg.payload || {}, true);
+    if (result?.error || result?.correct === false) {
+      room.agentRequests.set(requestId, { playerId: conn.playerId, accepted: false });
+      if (room.agentRequests.size > 1000) room.agentRequests.delete(room.agentRequests.keys().next().value);
+      touch(room);
+      send(conn, 'AGENT_ACTION_RESULT', {
+        ...agentView(room, conn.playerId),
+        requestId,
+        accepted: false,
+        reason: result.error || '行动未命中，已按游戏规则记录失误'
+      });
+      broadcast(room, conn);
+      return;
+    }
+    touch(room);
+    room.agentRequests.set(requestId, { playerId: conn.playerId });
+    if (room.agentRequests.size > 1000) room.agentRequests.delete(room.agentRequests.keys().next().value);
+    sendAgentView(room, conn, requestId);
     broadcast(room, conn);
   }
 
@@ -105,18 +309,12 @@ export function createRoomManager({
       send(conn, S2C.ERROR, { message: '只有房主可以执行此操作' });
       return;
     }
-    let result;
-    try {
-      result = room.adapter.applyIntent(room.state, { action, playerId: conn.playerId, payload, now: now() });
-    } catch (err) {
-      log.error('applyIntent threw', { action, error: err?.message });
-      send(conn, S2C.ERROR, { message: '操作处理失败' });
-      return;
-    }
+    const result = executeIntent(room, conn.playerId, action, payload);
     if (result?.error) {
       send(conn, S2C.ERROR, { message: result.error });
       return;
     }
+    touch(room);
     broadcast(room);
   }
 
@@ -165,6 +363,32 @@ export function createRoomManager({
       case C2S.JOIN: return handleJoin(conn, msg);
       case C2S.INTENT: return handleIntent(conn, msg);
       case C2S.LEAVE: return handleLeave(conn);
+      case 'AGENT_INVITE': return handleAgentInvite(conn, msg);
+      case 'AGENT_JOIN': return handleAgentJoin(conn, msg);
+      case 'AGENT_STATE': {
+        const room = roomFor(conn);
+        if (!room || !conn.isAgent) return send(conn, S2C.ERROR, { message: 'Agent 尚未加入房间' });
+        return sendAgentView(room, conn);
+      }
+      case 'AGENT_INTENT': return handleAgentIntent(conn, msg);
+      case 'AGENT_HTTP': {
+        const room = rooms.get(msg.roomCode);
+        if (!room) return send(conn, S2C.ERROR, { code: 'ROOM_NOT_FOUND', message: '房间不存在', fatal: true });
+        const playerId = msg.playerId;
+        const session = room.agentSessions.get(playerId);
+        if (!session || !validToken(msg.agentToken, session.hash) || now() > session.expiresAt) {
+          return send(conn, S2C.ERROR, { code: 'AGENT_AUTH_FAILED', message: 'Agent 会话无效或已过期', fatal: true });
+        }
+        if (msg.operation === 'intent') {
+          conn.isAgent = true;
+          bind(conn, room.state.code, playerId);
+          handleAgentIntent(conn, msg);
+          conn.roomCode = null;
+          conn.playerId = null;
+          return;
+        }
+        return send(conn, 'AGENT_STATE', agentView(room, playerId));
+      }
       default:
         send(conn, S2C.ERROR, { message: `未知消息类型：${msg.type}` });
     }
@@ -195,6 +419,7 @@ export function createRoomManager({
         continue;
       }
       if (changed || room.state.phase !== prevPhase) {
+        touch(room);
         broadcast(room);
       }
     }

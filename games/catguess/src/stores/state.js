@@ -4,6 +4,9 @@
 // 权威状态全部来自服务器 STATE 下发；客户端不再本地推进游戏逻辑。
 
 import { createGameStore } from '../../../../src/shared/store/createGameStore';
+import { ref } from 'vue';
+
+const agentInvite = ref(null);
 import { showToast } from '../../../../src/shared/components/ToastNotification.vue';
 import { GAME_PHASES } from '../services/gameEngine';
 import { createLogger } from '../services/logger';
@@ -11,6 +14,7 @@ import { createLogger } from '../services/logger';
 const store = createGameStore({
   gameId: 'catguess',
   logger: createLogger('Catguess:Network'),
+  onAgentInvite: invite => { agentInvite.value = invite },
   onError: ({ message }) => {
     if (message) showToast(message, 'warning');
   },
@@ -34,6 +38,7 @@ export const {
   connectJoin,
   reconnectNetwork,
   sendIntent,
+  requestAgentInvite,
   leaveNetwork,
   cleanupNetwork,
   restoreFromCache,
@@ -41,6 +46,8 @@ export const {
   clearCache,
   flushCache
 } = store;
+
+export { agentInvite };
 
 // ── 本游戏特有部分 ──────────────────────────────────────────────────────────
 

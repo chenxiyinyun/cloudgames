@@ -1,5 +1,6 @@
 import { reactive } from 'vue'
 import { createWebSocketService } from './createWebSocketService'
+import { getAgentServiceUrl, getAgentWebSocketUrl } from '../agentAccess'
 
 /**
  * 把 WebSocket 传输层接到某个游戏的响应式状态上 —— 4 个游戏共用的网络层样板。
@@ -21,11 +22,18 @@ export function createGameNetwork({
   maxReconnects = 6,
   onJoined: extraOnJoined,
   onState: extraOnState,
-  onError: extraOnError
+  onError: extraOnError,
+  onAgentInvite: extraOnAgentInvite
 }) {
   const RECONNECT_METADATA = reactive({ attempt: 0, MAX_ATTEMPTS: maxReconnects })
 
-  const ws = createWebSocketService({ gameId, logger, maxReconnects })
+  const serviceUrl = getAgentServiceUrl()
+  const ws = createWebSocketService({
+    gameId,
+    logger,
+    maxReconnects,
+    ...(serviceUrl ? { url: getAgentWebSocketUrl(serviceUrl) } : {})
+  })
 
   function applyRoom(room) {
     if (!room) return
@@ -49,6 +57,10 @@ export function createGameNetwork({
     onState: (room) => {
       applyRoom(room)
       extraOnState?.(room)
+    },
+
+    onAgentInvite: (invite) => {
+      extraOnAgentInvite?.(invite);
     },
 
     onError: ({ message, fatal }) => {
@@ -79,6 +91,7 @@ export function createGameNetwork({
     connectJoin: (roomCode, playerId, playerName) => ws.join(roomCode, playerId, playerName),
     reconnectNetwork: () => ws.reconnect(),
     sendIntent: (action, payload) => ws.sendIntent(action, payload),
+    requestAgentInvite: () => ws.requestAgentInvite(),
     leaveNetwork: () => ws.leave(),
     cleanupNetwork: () => {
       ws.leave()

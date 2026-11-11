@@ -137,6 +137,7 @@
             class="online-player"
           >
             <span class="player-name">{{ player.name }}</span>
+            <ParticipantTag :type="player.type" />
             <span class="online-badge">在线</span>
           </div>
         </div>
@@ -157,6 +158,7 @@
       >
         <div class="current-encryptor-name">
           情报官: {{ currentEncryptorInfo.name }}
+          <ParticipantTag :type="currentEncryptorInfo.type" />
         </div>
         <div class="current-encryptor-team">
           {{ currentEncryptorInfo.teamName }} | 轮换顺序: {{ rotationOrder }}
@@ -177,6 +179,10 @@
             :class="{ online: player.isOnline, offline: !player.isOnline, you: player.id === gameState.playerId }"
           >
             <span class="avatar-name">{{ player.name.charAt(0) }}</span>
+            <ParticipantTag
+              :type="player.type"
+              compact
+            />
             <span class="avatar-status" />
           </div>
         </div>
@@ -797,6 +803,7 @@
 import { ref, computed } from 'vue';
 import { gameState, handleSubmitClues, handleSubmitTeamGuess, handleSubmitOpponentGuess, handleSubmitOpponentVote, handleSubmitTeamVote, handleNextRound, handlePlayAgain, reconnectRoom, GAME_PHASES } from '../stores/gameStore';
 import { showToast } from '../../../../src/shared/components/ToastNotification.vue';
+import ParticipantTag from '../../../../src/shared/components/ParticipantTag.vue';
 import { sanitizeClues } from '../services/sanitize';
 
 const showRules = ref(false);

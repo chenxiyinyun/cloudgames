@@ -99,7 +99,7 @@ const roleCopy = computed(() =>
 const onlineNames = computed(() =>
   props.room.players
     .filter(player => player.isOnline)
-    .map(player => `${player.name} · ${player.role === 'expert' ? '专家' : '拆弹员'}`)
+    .map(player => `${player.name} [${player.type === 'agent' ? 'Agent' : '真人'}] · ${player.role === 'expert' ? '专家' : '拆弹员'}`)
     .join(' / ')
 )
 const countdown = computed(() => {

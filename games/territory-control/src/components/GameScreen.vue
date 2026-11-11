@@ -59,6 +59,7 @@
               :style="{ background: player.color }"
             />
             <span>{{ player.name }}</span>
+            <ParticipantTag :type="player.type" />
             <strong>{{ player.territories }}</strong>
           </div>
         </div>
@@ -525,6 +526,7 @@
 
 <script setup>
 import { computed, reactive, ref, onMounted, onUnmounted, watch } from 'vue'
+import ParticipantTag from '../../../../src/shared/components/ParticipantTag.vue'
 import {
   findPath,
   WEATHER_TYPES,

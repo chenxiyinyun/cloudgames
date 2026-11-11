@@ -21,6 +21,7 @@ export function createGameStore({
   gameId,
   logger = console,
   onError,
+  onAgentInvite,
   maxReconnects,
   cacheKey,
   stateFields,
@@ -95,7 +96,8 @@ export function createGameStore({
     setRoom,
     updateLocalState,
     ...(maxReconnects != null ? { maxReconnects } : {}),
-    onError
+    onError,
+    onAgentInvite
   });
 
   // ── 本地缓存（刷新页面可继续之前的房间）─────────────────────────────────────
@@ -157,6 +159,7 @@ export function createGameStore({
     connectJoin: net.connectJoin,
     reconnectNetwork: net.reconnectNetwork,
     sendIntent: net.sendIntent,
+    requestAgentInvite: net.requestAgentInvite,
     leaveNetwork: net.leaveNetwork,
     cleanupNetwork: net.cleanupNetwork,
     // cache

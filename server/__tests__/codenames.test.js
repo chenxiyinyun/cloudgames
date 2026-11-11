@@ -53,13 +53,22 @@ describe('roomManager (codenames, server-authoritative)', () => {
   });
 
   it('START_GAME with 4 players enters encrypting with split keywords', () => {
-    const { host } = createAndStart();
+    const { conns, host, manager, roomCode } = createAndStart();
     const room = host.lastRoom();
     expect(room.status).toBe('playing');
     expect(room.phase).toBe('encrypting');
-    expect(room.whiteKeywords).toHaveLength(4);
-    expect(room.blackKeywords).toHaveLength(4);
     expect(room.encryptor).toBeTruthy();
+    const encryptorView = conns[room.encryptor].lastRoom();
+    expect(encryptorView.currentCode).toHaveLength(3);
+    expect(encryptorView[`${encryptorView.encryptorTeam}Keywords`]).toHaveLength(4);
+    for (const [id, connection] of Object.entries(conns)) {
+      if (id === room.encryptor) continue;
+      expect(connection.lastRoom().currentCode).toEqual([]);
+      expect(connection.lastRoom().whiteKeywords).toEqual([]);
+      expect(connection.lastRoom().blackKeywords).toEqual([]);
+    }
+    expect(manager.rooms.get(roomCode).state.whiteKeywords).toHaveLength(4);
+    expect(manager.rooms.get(roomCode).state.blackKeywords).toHaveLength(4);
   });
 
   it('host-only START_GAME is rejected from a guest', () => {
@@ -100,7 +109,8 @@ describe('roomManager (codenames, server-authoritative)', () => {
     // g3 掉线 → 房间暂停
     manager.handleDisconnect(conns.g3);
     expect(host.lastRoom().phase).toBe('paused');
-    expect(host.lastRoom().savedPhase).toBe('encrypting');
+    expect(host.lastRoom().savedPhase).toBeUndefined();
+    expect(manager.rooms.get(roomCode).state.savedPhase).toBe('encrypting');
 
     // g3 重连（同 playerId）→ 全员在线，恢复到原阶段
     const g3b = makeConn();

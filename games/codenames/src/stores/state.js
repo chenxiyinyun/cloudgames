@@ -4,6 +4,9 @@
 // 断线暂停/恢复、两段投票、回合结算由服务器权威处理。
 
 import { createGameStore } from '../../../../src/shared/store/createGameStore';
+import { ref } from 'vue';
+
+const agentInvite = ref(null);
 import { showToast } from '../../../../src/shared/components/ToastNotification.vue';
 import { GAME_PHASES } from '../services/gameEngine';
 import { createLogger } from '../services/logger';
@@ -16,6 +19,7 @@ function deepClone(value) {
 const store = createGameStore({
   gameId: 'codenames',
   logger: createLogger('Codenames:Network'),
+  onAgentInvite: invite => { agentInvite.value = invite },
   onError: ({ message }) => {
     if (message) showToast(message, 'warning');
   },
@@ -72,6 +76,7 @@ export const {
   connectJoin,
   reconnectNetwork,
   sendIntent,
+  requestAgentInvite,
   leaveNetwork,
   cleanupNetwork,
   restoreFromCache,
@@ -79,6 +84,8 @@ export const {
   clearCache,
   flushCache
 } = store;
+
+export { agentInvite };
 
 // ── 本游戏特有部分 ──────────────────────────────────────────────────────────
 

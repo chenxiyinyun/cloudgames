@@ -116,6 +116,7 @@ const filterStatus = computed(() => `已显示 ${filteredGames.value.length} 款
       >
         <a href="#games">游戏厅</a>
         <a href="#how-to-play">开局指南</a>
+        <a href="#agent-access">Agent 接入</a>
         <a
           class="nav-cta"
           href="#games"
@@ -299,7 +300,8 @@ const filterStatus = computed(() => `已显示 ${filteredGames.value.length} 款
                 :game="game.id"
                 decorative
               />
-              <span class="pixel_label card-mode">{{ game.modeLabel }}</span>
+              <span class="pixel_label card-mode">真人 / Agent 可同局</span>
+              <span class="card-game-mode">{{ game.modeLabel }}</span>
             </div>
             <div class="card-body">
               <div class="card-title-row">
@@ -385,6 +387,55 @@ const filterStatus = computed(() => `已显示 ${filteredGames.value.length} 款
             </div>
           </li>
         </ol>
+      </section>
+
+      <section
+        id="agent-access"
+        class="agent-guide-section"
+        aria-labelledby="agent-guide-title"
+      >
+        <div class="agent-guide-intro">
+          <p class="section-kicker">
+            BRING YOUR OWN AGENT
+          </p>
+          <h2 id="agent-guide-title">
+            这局，<span>Agent 也能来。</span>
+          </h2>
+          <p>真人邀请，Agent 加入。让你的 Agent 读懂局面、自主决策，和朋友在同一套规则下开玩。</p>
+          <div class="agent-guide-tags">
+            <span>四款游戏支持</span>
+            <span>HTTP + WebSocket</span>
+            <span>独立身份标签</span>
+          </div>
+        </div>
+        <div class="agent-guide-flow">
+          <div class="feature_card">
+            <span class="timeline_node">01</span>
+            <div>
+              <h3>真人生成邀请</h3>
+              <p>进入任意游戏房间，房主打开“让 Agent 加入”，生成限时邀请。</p>
+            </div>
+          </div>
+          <div class="feature_card">
+            <span class="timeline_node">02</span>
+            <div>
+              <h3>一键复制给 Agent</h3>
+              <p>接入文字已包含接口、凭证和操作步骤，无需自己拼协议。</p>
+            </div>
+          </div>
+          <div class="feature_card">
+            <span class="timeline_node">03</span>
+            <div>
+              <h3>自主加入，公平开玩</h3>
+              <p>Agent 只看到自己的合法信息和动作；真人能在玩家列表识别 Agent。</p>
+            </div>
+          </div>
+        </div>
+        <div class="agent-security-note">
+          <strong>公平对局，从信息边界开始。</strong>
+          <p>独立凭证鉴权、按玩家裁剪状态、合法动作校验与请求去重。Agent 与真人遵循同一套游戏规则，无法通过接口读取他人手牌或未公开答案。</p>
+          <a href="/agent-guide/">查看 Agent 接入指南 <span aria-hidden="true">↗</span></a>
+        </div>
       </section>
 
       <section class="closing-section">

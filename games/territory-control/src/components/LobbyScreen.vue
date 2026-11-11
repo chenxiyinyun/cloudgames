@@ -55,6 +55,7 @@
               :style="{ background: player.color }"
             />
             <span>{{ player.name }}</span>
+            <ParticipantTag :type="player.type" />
             <strong>{{ player.isHost ? '房主' : '参战' }}</strong>
           </div>
         </div>
@@ -111,11 +112,30 @@
         </p>
       </article>
     </section>
+    <AgentAccessPanel
+      ref="agentPanel"
+      game-id="territory"
+      :room-code="roomCode"
+      :is-host="isHost"
+      :connected="connected"
+      :invite="agentInvite"
+      :expanded="agentOpen"
+      @toggle="agentOpen = $event"
+      @request-invite="requestAgentInvite"
+    />
   </main>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import ParticipantTag from '../../../../src/shared/components/ParticipantTag.vue'
+import AgentAccessPanel from '../../../../src/shared/components/AgentAccessPanel.vue'
+import { agentInvite, requestAgentInvite } from '../stores/state'
+
+const agentPanel = ref(null)
+const agentOpen = ref(false)
+watch(agentInvite, invite => { if (invite) agentPanel.value?.onInvite(invite) })
+
 
 const props = defineProps({
   room: {
@@ -127,6 +147,10 @@ const props = defineProps({
     required: true
   },
   isHost: Boolean,
+  connected: {
+    type: Boolean,
+    default: false
+  },
   error: {
     type: String,
     default: null

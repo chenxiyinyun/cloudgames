@@ -52,11 +52,16 @@ describe('roomManager (catguess, server-authoritative)', () => {
   });
 
   it('START_GAME deals hands and enters storyteller picking', () => {
-    const { h } = createAndStart();
+    const { h, g1, g2, manager, roomCode } = createAndStart();
     const room = h.lastRoom();
     expect(room.phase).toBe('storyteller_picking');
     expect(room.gameState.storytellerId).toBe('h1');
-    expect(room.players.every(p => p.hand.length === 5)).toBe(true);
+    for (const connection of [h, g1, g2]) {
+      const player = connection.lastRoom().players.find(p => p.id === connection.playerId);
+      expect(player.hand).toHaveLength(5);
+      expect(connection.lastRoom().players.filter(p => p.id !== connection.playerId).every(p => p.hand === undefined)).toBe(true);
+    }
+    expect(manager.rooms.get(roomCode).state.players.every(p => p.hand.length === 5)).toBe(true);
   });
 
   it('rejects START_GAME with fewer than 3 players', () => {

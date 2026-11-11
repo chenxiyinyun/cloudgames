@@ -13,6 +13,7 @@
     :room="gameState.room"
     :room-code="gameState.roomCode || ''"
     :is-host="gameState.isHost"
+    :connected="gameState.connected"
     :error="gameState.error"
     @set-map-size="handleSetMapSize"
     @set-theme="handleSetTheme"

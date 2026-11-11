@@ -314,6 +314,7 @@
             </span>
             <span class="player-label">
               {{ player.name }}{{ player.id === gameState.playerId ? ' (你)' : '' }}
+              <ParticipantTag :type="player.type" />
             </span>
             <span :class="['score-change', { zero: roundScore(player.id) === 0 }]">
               {{ roundScore(player.id) > 0 ? '+' + roundScore(player.id) : roundScore(player.id) }}
@@ -341,7 +342,10 @@
                 <td :class="['rank', rankClass(idx)]">
                   {{ idx + 1 }}
                 </td>
-                <td>{{ player.name }}{{ player.id === gameState.playerId ? ' (你)' : '' }}</td>
+                <td>
+                  {{ player.name }}{{ player.id === gameState.playerId ? ' (你)' : '' }}
+                  <ParticipantTag :type="player.type" />
+                </td>
                 <td :class="['score-change', { zero: roundScore(player.id) === 0 }]">
                   {{ roundScoreStr(player.id) }}
                 </td>
@@ -522,6 +526,7 @@ import {
 } from '../stores/gameStore'
 import { getTargetScore } from '../services/gameEngine'
 import { showToast } from '../../../../src/shared/components/ToastNotification.vue'
+import ParticipantTag from '../../../../src/shared/components/ParticipantTag.vue'
 
 // ─── Reactive State ───
 

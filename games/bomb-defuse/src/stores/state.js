@@ -1,4 +1,7 @@
 import { createGameStore } from '../../../../src/shared/store/createGameStore'
+import { ref } from 'vue'
+
+const agentInvite = ref(null)
 import { DEFAULT_DIFFICULTY, GAME_PHASES } from '../services/gameEngine'
 import { createLogger } from '../services/logger'
 
@@ -11,6 +14,7 @@ import { createLogger } from '../services/logger'
 const store = createGameStore({
   gameId: 'bombdefuse',
   logger: createLogger('BombDefuse:Network'),
+  onAgentInvite: invite => { agentInvite.value = invite },
   cacheKey: 'bombdefuse_state_cache',
   stateFields: ['playerId', 'playerName', 'roomCode', 'isHost', 'screen', 'connectionStatus'],
   roomFields: ['players', 'phase', 'status', 'hostId', 'gameState', 'disconnectedPlayers'],
@@ -31,6 +35,7 @@ export const {
   connectJoin,
   reconnectNetwork,
   sendIntent,
+  requestAgentInvite,
   leaveNetwork,
   cleanupNetwork,
   restoreFromCache,
@@ -38,6 +43,8 @@ export const {
   clearCache,
   flushCache
 } = store
+
+export { agentInvite }
 
 // ── 本游戏特有部分 ──────────────────────────────────────────────────────────
 

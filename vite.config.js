@@ -1,10 +1,20 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  // 显式注入：确保共享 chunk 与各游戏入口都读取同一个服务地址
+  const env = loadEnv(mode, process.cwd(), '')
+  const wsUrl = process.env.VITE_WS_SERVER_URL || env.VITE_WS_SERVER_URL || ''
+  const agentUrl = process.env.VITE_AGENT_SERVER_URL || env.VITE_AGENT_SERVER_URL || wsUrl
+
+  return {
   plugins: [vue()],
+  define: {
+    __CLOUD_GAMES_WS_URL__: JSON.stringify(wsUrl),
+    __CLOUD_GAMES_AGENT_URL__: JSON.stringify(agentUrl)
+  },
   server: {
     port: 5173
   },
@@ -17,7 +27,8 @@ export default defineConfig({
         codenames: resolve(__dirname, 'games/codenames/index.html'),
         catguess: resolve(__dirname, 'games/catguess/index.html'),
         bombDefuse: resolve(__dirname, 'games/bomb-defuse/index.html'),
-        territoryControl: resolve(__dirname, 'games/territory-control/index.html')
+        territoryControl: resolve(__dirname, 'games/territory-control/index.html'),
+        agentGuide: resolve(__dirname, 'agent-guide/index.html')
       }
     }
   },
@@ -33,5 +44,6 @@ export default defineConfig({
         'src/shared/**/*.test.js',
         'server/**/*.test.js'
     ]
+  }
   }
 })

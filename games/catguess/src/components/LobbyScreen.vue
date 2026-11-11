@@ -46,6 +46,7 @@
           }"
         >
           <span class="player-name">{{ player.name }}</span>
+          <ParticipantTag :type="player.type" />
           <span
             v-if="player.id === gameState.playerId"
             class="badge badge-you"
@@ -60,6 +61,18 @@
           >离线</span>
         </div>
       </div>
+
+      <AgentAccessPanel
+        ref="agentPanel"
+        game-id="catguess"
+        :room-code="gameState.roomCode"
+        :is-host="gameState.isHost"
+        :connected="gameState.connected"
+        :invite="agentInvite"
+        :expanded="agentOpen"
+      @toggle="agentOpen = $event"
+      @request-invite="requestAgentInvite"
+      />
 
       <!-- Waiting / Start -->
       <div
@@ -154,8 +167,16 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { gameState, handleStartGame, leaveRoom } from '../stores/gameStore'
+import { agentInvite, requestAgentInvite } from '../stores/state'
+
+const agentPanel = ref(null)
+const agentOpen = ref(false)
+watch(agentInvite, invite => { if (invite) agentPanel.value?.onInvite(invite) })
+import ParticipantTag from '../../../../src/shared/components/ParticipantTag.vue'
+import AgentAccessPanel from '../../../../src/shared/components/AgentAccessPanel.vue'
+
 import { getTargetScore } from '../services/gameEngine'
 
 const showRules = ref(false)

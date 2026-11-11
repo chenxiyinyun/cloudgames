@@ -8,9 +8,14 @@
  * 再 `npm run server:start`。生产建议挂在 nginx 后做 wss/TLS，用 pm2/systemd 守护。
  */
 import { WebSocketServer } from 'ws';
+import { createServer } from 'node:http';
 import { createRoomManager } from './roomManager.js';
 import { getGameAdapter, listGameIds } from './games/index.js';
 import { generateRoomCode } from '../src/shared/ws/roomCode.js';
+import { createAgentHttp } from './agentHttp.js';
+
+process.on('uncaughtException', (err) => console.error('[ws] uncaught exception', err?.message));
+process.on('unhandledRejection', (err) => console.error('[ws] unhandled rejection', err?.message));
 
 const PORT = Number(process.env.PORT) || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -26,13 +31,31 @@ const log = {
 
 const manager = createRoomManager({ getGameAdapter, generateRoomCode, log });
 
-const wss = new WebSocketServer({ host: HOST, port: PORT });
+const agentHttp = createAgentHttp({
+  manager,
+  publicOrigin: process.env.PUBLIC_ORIGIN || 'https://cloudgames.chenximeow.icu'
+});
+const httpServer = createServer((req, res) => {
+  if (req.url?.startsWith('/api/agent/')) agentHttp.handle(req, res);
+  else {
+    res.writeHead(426, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('请使用 WebSocket 连接，Agent 文档位于 /api/agent/discovery');
+  }
+});
 
-wss.on('listening', () => {
-  log.info(`listening on ws://${HOST}:${PORT}`, { games: listGameIds() });
+const wss = new WebSocketServer({ server: httpServer, maxPayload: 32 * 1024 });
+httpServer.listen(PORT, HOST, () => {
+  log.info(`listening on ws://${HOST}:${PORT}`, { games: listGameIds(), agentApi: '/api/agent/rpc' });
 });
 
 wss.on('connection', (socket) => {
+  if (wss.clients.size > 2000) {
+    socket.close(1013, '服务器繁忙');
+    return;
+  }
+  let windowStarted = Date.now();
+  let messageCount = 0;
+  let rateLimitedUntil = 0;
   // roomManager 认识的连接句柄：只需要 send()，roomCode/playerId 由它绑定
   const conn = {
     roomCode: null,
@@ -51,6 +74,21 @@ wss.on('connection', (socket) => {
       msg = JSON.parse(data.toString());
     } catch {
       conn.send({ type: 'ERROR', message: '消息不是合法 JSON' });
+      return;
+    }
+    const current = Date.now();
+    if (current - windowStarted >= 1000) {
+      windowStarted = current;
+      messageCount = 0;
+    }
+    messageCount += 1;
+    if (messageCount > 30) {
+      if (current >= rateLimitedUntil) conn.send({ type: 'ERROR', code: 'RATE_LIMITED', message: '消息过于频繁，请稍后重试' });
+      rateLimitedUntil = current + 1000;
+      return;
+    }
+    if (!msg || typeof msg !== 'object' || Array.isArray(msg)) {
+      conn.send({ type: 'ERROR', message: '消息必须是 JSON 对象' });
       return;
     }
     manager.handleMessage(conn, msg);
@@ -78,7 +116,7 @@ const pingTimer = setInterval(() => {
 function shutdown() {
   clearInterval(tickTimer);
   clearInterval(pingTimer);
-  wss.close(() => process.exit(0));
+  wss.close(() => httpServer.close(() => process.exit(0)));
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
