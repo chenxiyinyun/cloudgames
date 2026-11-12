@@ -261,6 +261,109 @@ defineProps({
       />
     </g>
 
+    <g v-else-if="game === 'gomoku'">
+      <path
+        fill="#F4D03F"
+        d="m376 46 6 14 14 6-14 6-6 14-6-14-14-6 14-6 6-14Z"
+      />
+      <path
+        fill="#F0A6CA"
+        d="M62 219h8v8h-8zM405 239h8v8h-8z"
+      />
+      <g transform="rotate(-6 240 148)">
+        <path
+          fill="#E8BE7E"
+          d="M146 54h188v188H146z"
+        />
+        <path
+          fill="#F0D9A8"
+          d="M146 54h188v188H146z"
+          stroke="#0A0E27"
+          stroke-width="5"
+        />
+        <path
+          stroke="#5A3D1E"
+          stroke-width="3"
+          d="M162 70v156M188 70v156M214 70v156M240 70v156M266 70v156M292 70v156M318 70v156M162 70h156M162 96h156M162 122h156M162 148h156M162 174h156M162 200h156M162 226h156"
+        />
+        <path
+          fill="#0A0E27"
+          d="M236 144h8v8h-8z"
+        />
+        <circle
+          cx="240"
+          cy="122"
+          r="11"
+          fill="#181818"
+          stroke="#0A0E27"
+          stroke-width="3"
+        />
+        <circle
+          cx="266"
+          cy="122"
+          r="11"
+          fill="#F6F4EC"
+          stroke="#0A0E27"
+          stroke-width="3"
+        />
+        <circle
+          cx="214"
+          cy="148"
+          r="11"
+          fill="#181818"
+          stroke="#0A0E27"
+          stroke-width="3"
+        />
+        <circle
+          cx="240"
+          cy="148"
+          r="11"
+          fill="#F6F4EC"
+          stroke="#0A0E27"
+          stroke-width="3"
+        />
+        <circle
+          cx="266"
+          cy="174"
+          r="11"
+          fill="#181818"
+          stroke="#0A0E27"
+          stroke-width="3"
+        />
+        <circle
+          cx="188"
+          cy="174"
+          r="11"
+          fill="#181818"
+          stroke="#0A0E27"
+          stroke-width="3"
+        />
+        <circle
+          cx="292"
+          cy="148"
+          r="11"
+          fill="#F6F4EC"
+          stroke="#0A0E27"
+          stroke-width="3"
+        />
+        <circle
+          cx="214"
+          cy="200"
+          r="11"
+          fill="#F6F4EC"
+          stroke="#0A0E27"
+          stroke-width="3"
+        />
+      </g>
+      <path
+        fill="none"
+        stroke="#F4D03F"
+        stroke-width="5"
+        stroke-dasharray="8 9"
+        d="M64 260q88 46 176 8t176-4"
+      />
+    </g>
+
     <g v-else>
       <path
         fill="#5EDCF4"

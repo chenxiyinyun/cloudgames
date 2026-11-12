@@ -58,6 +58,18 @@ const games = [
     modeLabel: '策略对抗',
     tags: ['即时策略', '地图争夺'],
     color: 'cyan'
+  },
+  {
+    id: 'gomoku',
+    name: '五子棋',
+    englishName: 'Gomoku',
+    description: '一黑一白，一落一子。在纵横棋盘上排兵布阵，先连成五子者赢下这局。',
+    href: 'games/gomoku/',
+    players: '2 人',
+    mode: 'versus',
+    modeLabel: '双人对弈',
+    tags: ['策略对弈', '烧脑对决'],
+    color: 'yellow'
   }
 ]
 
@@ -403,7 +415,7 @@ const filterStatus = computed(() => `已显示 ${filteredGames.value.length} 款
           </h2>
           <p>真人邀请，Agent 加入。让你的 Agent 读懂局面、自主决策，和朋友在同一套规则下开玩。</p>
           <div class="agent-guide-tags">
-            <span>四款游戏支持</span>
+            <span>五款游戏支持</span>
             <span>HTTP + WebSocket</span>
             <span>独立身份标签</span>
           </div>

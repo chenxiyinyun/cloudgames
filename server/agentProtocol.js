@@ -58,6 +58,18 @@ export const GAME_AGENT_GUIDES = {
       action('RESTART_GAME', '房主重新开始。'),
       action('END_GAME', '房主结束游戏。')
     ]
+  },
+  gomoku: {
+    gameId: 'gomoku', name: '五子棋', path: '/games/gomoku/',
+    summary: '双人对弈，黑棋先行，先把 5 颗棋子连成一线（横/竖/斜）者获胜。',
+    rules: ['board 为 15×15 的二维数组（0 空、1 黑、2 白），行/列下标均为 0–14。', '只在自己的回合（room.currentTurn 与你的 role 相同）落子；每手限时 60 秒，超时判负。', 'moveHistory 记录全部落子；winner / winningLine / endReason 表示终局原因。'],
+    actions: [
+      action('START_GAME', '房主在两名玩家在线时开始。'),
+      action('PLACE_STONE', '当前回合玩家落子。', { type: 'object', required: ['row', 'col'], properties: { row: field('integer', { minimum: 0, maximum: 14 }), col: field('integer', { minimum: 0, maximum: 14 }) }, additionalProperties: false }),
+      action('RESIGN', '对局中认输，对方获胜。'),
+      action('RESTART_GAME', '房主在结束后交换先后手重新开始。'),
+      action('END_GAME', '房主提前结束对局。')
+    ]
   }
 };
 
@@ -86,6 +98,14 @@ export function getAgentActions(room, playerId, gameId) {
     if (isHost && room.phase === 'waiting') names = ['START_GAME', 'SET_MAP_SIZE', 'SET_THEME'];
     if (room.phase === 'playing' && me.isOnline && !me.isEliminated) names.push('DISPATCH_UNITS');
     if (isHost && room.phase === 'ended') names.push('RESTART_GAME', 'END_GAME');
+  } else if (gameId === 'gomoku') {
+    if (isHost && room.phase === 'waiting' && room.players.length === 2) names = ['START_GAME'];
+    if (room.phase === 'playing' && me.isOnline) {
+      if (me.role === room.currentTurn) names.push('PLACE_STONE');
+      names.push('RESIGN');
+    }
+    if (isHost && room.phase === 'playing') names.push('END_GAME');
+    if (isHost && room.phase === 'ended') names.push('RESTART_GAME', 'END_GAME');
   }
   const all = GAME_AGENT_GUIDES[gameId].actions;
   return names.map(name => all.find(item => item.action === name)).filter(Boolean);
@@ -102,8 +122,8 @@ export function validateAgentIntent(gameId, actionName, payload) {
     const value = payload[key];
     if (value === undefined) continue;
     if (rule.type === 'string' && (typeof value !== 'string' || !value.trim() || value.length > (rule.maxLength || 100))) return { error: `${key} 必须是非空短文本` };
-    if (rule.type === 'integer' && (!Number.isInteger(value) || value < (rule.minimum ?? -Infinity))) return { error: `${key} 必须是有效整数` };
-    if (rule.type === 'number' && typeof value !== 'number') return { error: `${key} 必须是数字` };
+    if (rule.type === 'integer' && (!Number.isInteger(value) || value < (rule.minimum ?? -Infinity) || value > (rule.maximum ?? Infinity))) return { error: `${key} 必须是有效整数` };
+    if (rule.type === 'number' && (typeof value !== 'number' || value < (rule.minimum ?? -Infinity) || value > (rule.maximum ?? Infinity))) return { error: `${key} 必须是数字` };
     if (rule.enum && !rule.enum.includes(value)) return { error: `${key} 不在允许范围` };
     if (rule.type === 'array') {
       if (!Array.isArray(value) || value.length < rule.minItems || value.length > rule.maxItems) return { error: `${key} 数量不正确` };

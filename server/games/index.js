@@ -6,12 +6,14 @@ import bombdefuse from './bombdefuse.js';
 import territory from './territory.js';
 import catguess from './catguess.js';
 import codenames from './codenames.js';
+import gomoku from './gomoku.js';
 
 const ADAPTERS = {
   [bombdefuse.gameId]: bombdefuse,
   [territory.gameId]: territory,
   [catguess.gameId]: catguess,
-  [codenames.gameId]: codenames
+  [codenames.gameId]: codenames,
+  [gomoku.gameId]: gomoku
 };
 
 export function getGameAdapter(gameId) {

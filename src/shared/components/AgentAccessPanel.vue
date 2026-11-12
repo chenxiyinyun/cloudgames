@@ -26,7 +26,8 @@ const gameNames = {
   codenames: '截码战',
   catguess: '喵喵猜词',
   bombdefuse: '双人拆弹',
-  territory: '区域争夺'
+  territory: '区域争夺',
+  gomoku: '五子棋'
 }
 
 const activeInvite = computed(() => {

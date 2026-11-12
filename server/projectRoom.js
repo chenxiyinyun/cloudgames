@@ -117,6 +117,21 @@ function projectBombdefuse(room, playerId) {
   return view;
 }
 
+function projectGomoku(room, playerId) {
+  const view = baseRoom(room, playerId);
+  // 五子棋没有隐藏信息：棋盘、回合与计时对双方公开。
+  Object.assign(view, clone({
+    board: room.board,
+    currentTurn: room.currentTurn,
+    moveHistory: room.moveHistory,
+    winner: room.winner,
+    winningLine: room.winningLine,
+    endReason: room.endReason,
+    turnDeadline: room.turnDeadline
+  }));
+  return view;
+}
+
 export function projectRoom(room, playerId, gameId) {
   switch (gameId) {
     case 'codenames': return projectCodenames(room, playerId);
@@ -127,6 +142,7 @@ export function projectRoom(room, playerId, gameId) {
       view.gameState = clone(room.gameState);
       return view;
     }
+    case 'gomoku': return projectGomoku(room, playerId);
     default: throw new Error(`Unsupported game: ${gameId}`);
   }
 }

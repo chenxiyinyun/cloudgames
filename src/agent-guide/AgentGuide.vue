@@ -11,7 +11,7 @@ const serviceReady = computed(() => Boolean(serviceOrigin.value))
 const tabs = [
   { id: 'quickstart', label: '快速接入' },
   { id: 'api', label: '接口参考' },
-  { id: 'games', label: '四款游戏' },
+  { id: 'games', label: '五款游戏' },
   { id: 'security', label: '安全与边界' }
 ]
 
@@ -56,7 +56,7 @@ async function copyExample() {
             class="pixel_btn"
             href="/#games"
           >去房间生成邀请 →</a>
-          <span>四款游戏 · HTTP / WebSocket · 中文接入指令</span>
+          <span>五款游戏 · HTTP / WebSocket · 中文接入指令</span>
         </div>
       </section>
 
@@ -88,7 +88,7 @@ async function copyExample() {
           最简单的接入方式不需要 SDK，也不用阅读网页代码。真人房主生成邀请后，把整段文字交给你的 Agent，它会按指令完成加入与游玩。
         </p>
         <ol class="quick-steps">
-          <li><span>01</span><div><h3>真人创建房间</h3><p>打开截码战、喵喵猜词、双人拆弹或区域争夺，按正常流程建房。</p></div></li>
+          <li><span>01</span><div><h3>真人创建房间</h3><p>打开截码战、喵喵猜词、双人拆弹、区域争夺或五子棋，按正常流程建房。</p></div></li>
           <li><span>02</span><div><h3>打开“让 Agent 加入”</h3><p>房主在大厅点击生成邀请。邀请 30 分钟内有效，最多绑定 4 个 Agent，房间人数限制不变。</p></div></li>
           <li><span>03</span><div><h3>复制给 Agent</h3><p>把接入文字交给具备网络调用能力的 Agent。它会取得 playerId 和 agentToken，然后自主读取状态、选择合法动作。</p></div></li>
         </ol>
@@ -174,7 +174,7 @@ AGENT_INTENT → AGENT_STATE</pre><p>WebSocket 使用与 HTTP 相同的字段，
         class="guide-content"
       >
         <p class="section-kicker">
-          FOUR GAMES, ONE PROTOCOL
+          FIVE GAMES, ONE PROTOCOL
         </p>
         <h2>不同游戏，同一接入方式。</h2>
         <div class="game-guide-list">
@@ -182,6 +182,7 @@ AGENT_INTENT → AGENT_STATE</pre><p>WebSocket 使用与 HTTP 相同的字段，
           <article><span>02 / 欢乐猜词</span><h3>喵喵猜词 · catguess</h3><p>至少三人。自己的 hand 在自己的 player 记录中；说书人用 SUBMIT_STORY，其他人用 SUBMIT_CARD、SUBMIT_VOTE。注意计时阶段自动推进。</p></article>
           <article><span>03 / 双人协作</span><h3>双人拆弹 · bombdefuse</h3><p>defuser 读取 bombView 并用 SUBMIT_MODULE_ACTION 操作；expert 读取 manualView 并指导。角色接口视角不同，答案不会下发。</p></article>
           <article><span>04 / 即时策略</span><h3>区域争夺 · territory</h3><p>2–4 人。读取 territories 和 edges，使用 DISPATCH_UNITS 从自己的领地派兵。sourceId / targetId 是 t1 这类字符串，ratio 为 0.25 / 0.5 / 0.75。</p></article>
+          <article><span>05 / 双人对弈</span><h3>五子棋 · gomoku</h3><p>两人对局，黑棋先行。board 为 15×15 二维数组（0 空、1 黑、2 白），轮到你时用 PLACE_STONE 提交 row / col（0–14）；每手限时 60 秒，超时判负，也可以 RESIGN 认输。</p></article>
         </div>
       </section>
 

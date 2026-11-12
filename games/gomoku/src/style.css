@@ -1,0 +1,451 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700;900&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --paper-bg: #f4f1e8;
+  --paper-dark: #e8e4d9;
+  --ink-black: #2c2416;
+  --ink-red: #8b2635;
+  --ink-blue: #2e4a62;
+  --ink-green: #3d5c3a;
+  --ink-brown: #6b4423;
+  --telegram-border: #c4b8a0;
+  --stamp-red: #b83a3a;
+  --wood: #e2b474;
+  --wood-dark: #c89450;
+  --wood-deep: #a87638;
+  --board-line: #4a3315;
+  --stone-black: #181818;
+  --stone-white: #f6f4ec;
+  --serif: 'Noto Serif SC', serif;
+}
+
+body {
+  font-family: var(--serif);
+  background: #171310;
+  color: var(--ink-black);
+  min-height: 100vh;
+  overflow-x: hidden;
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.03) 2px,
+      rgba(0, 0, 0, 0.03) 4px
+    );
+}
+
+#app {
+  min-height: 100vh;
+}
+
+/* ─── 屏幕切换 ─── */
+.screen {
+  display: none;
+  width: 100%;
+  min-height: 100vh;
+}
+
+.screen.active {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+/* ─── 标题 ─── */
+h1 {
+  font-size: 2.6rem;
+  font-weight: 900;
+  color: var(--ink-black);
+  text-align: center;
+  letter-spacing: 0.2em;
+  margin-bottom: 0.5rem;
+}
+
+h2 {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--ink-black);
+  text-align: center;
+  letter-spacing: 0.1em;
+  margin-bottom: 1rem;
+}
+
+.subtitle {
+  font-size: 0.95rem;
+  color: var(--ink-brown);
+  margin-bottom: 2rem;
+  opacity: 0.85;
+  text-align: center;
+  letter-spacing: 0.35em;
+}
+
+/* ─── 卡片（和纸质感） ─── */
+.card {
+  background: var(--paper-bg);
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 24px,
+      rgba(0, 0, 0, 0.04) 24px,
+      rgba(0, 0, 0, 0.04) 25px
+    );
+  border: 2px solid var(--telegram-border);
+  padding: 2.5rem;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.15),
+    0 8px 24px rgba(0, 0, 0, 0.1),
+    inset 0 0 80px rgba(139, 115, 85, 0.08);
+  max-width: 600px;
+  width: 100%;
+  position: relative;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  border: 1px solid rgba(196, 184, 160, 0.5);
+  pointer-events: none;
+}
+
+/* ─── 输入框 ─── */
+.input-group {
+  margin-bottom: 1.5rem;
+}
+
+label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--ink-brown);
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+}
+
+input {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  font-family: var(--serif);
+  font-size: 1rem;
+  background: rgba(255, 255, 255, 0.6);
+  border: 2px solid var(--telegram-border);
+  color: var(--ink-black);
+  outline: none;
+  transition: all 0.3s ease;
+}
+
+input:focus {
+  border-color: var(--ink-brown);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 3px rgba(107, 68, 35, 0.1);
+}
+
+input::placeholder {
+  color: rgba(44, 36, 22, 0.4);
+}
+
+/* ─── 按钮 ─── */
+.btn {
+  font-family: var(--serif);
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 0.9rem 1.8rem;
+  border: 2px solid var(--ink-black);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  letter-spacing: 0.1em;
+  background: var(--paper-bg);
+  color: var(--ink-black);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: var(--ink-black);
+  transition: left 0.3s ease;
+  z-index: 0;
+}
+
+.btn:hover::before {
+  left: 0;
+}
+
+.btn:hover {
+  color: var(--paper-bg);
+}
+
+.btn span, .btn {
+  position: relative;
+  z-index: 1;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn:disabled::before {
+  display: none;
+}
+
+.btn-primary {
+  border-color: var(--ink-black);
+  background: var(--ink-black);
+  color: var(--paper-bg);
+}
+
+.btn-primary::before {
+  background: var(--paper-bg);
+}
+
+.btn-primary:hover {
+  color: var(--ink-black);
+}
+
+.btn-secondary {
+  border-color: var(--ink-blue);
+  color: var(--ink-blue);
+}
+
+.btn-secondary::before {
+  background: var(--ink-blue);
+}
+
+.btn-secondary:hover {
+  color: var(--paper-bg);
+}
+
+.btn-danger {
+  border-color: var(--ink-red);
+  color: var(--ink-red);
+}
+
+.btn-danger::before {
+  background: var(--ink-red);
+}
+
+.btn-danger:hover {
+  color: var(--paper-bg);
+}
+
+.btn-group {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* ─── 分隔线 ─── */
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 1.5rem 0;
+  color: var(--ink-brown);
+}
+
+.divider::before, .divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--telegram-border);
+}
+
+.divider span {
+  padding: 0 1rem;
+  font-size: 0.85rem;
+}
+
+/* ─── 房间号 ─── */
+.room-code {
+  font-size: 2rem;
+  font-weight: 900;
+  color: var(--ink-black);
+  text-align: center;
+  letter-spacing: 0.35em;
+  padding: 0.9rem;
+  background: rgba(0, 0, 0, 0.05);
+  border: 2px solid var(--ink-black);
+  margin-bottom: 1rem;
+  position: relative;
+}
+
+.room-code::before {
+  content: 'ROOM';
+  position: absolute;
+  top: -10px;
+  left: 10px;
+  background: var(--paper-bg);
+  padding: 0 8px;
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+}
+
+/* ─── 玩家行 ─── */
+.player-row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem 0.6rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.player-row:last-child {
+  border-bottom: none;
+}
+
+.player-row.you {
+  background: rgba(46, 74, 98, 0.1);
+}
+
+.player-row.offline {
+  opacity: 0.55;
+}
+
+.player-info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.player-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.you-badge, .host-badge, .offline-badge {
+  font-size: 0.65rem;
+  padding: 0.15rem 0.4rem;
+  letter-spacing: 0.05em;
+}
+
+.you-badge {
+  background: var(--ink-blue);
+  color: var(--paper-bg);
+}
+
+.host-badge {
+  background: var(--ink-black);
+  color: var(--paper-bg);
+}
+
+.offline-badge {
+  background: var(--ink-red);
+  color: var(--paper-bg);
+}
+
+.player-status {
+  font-size: 0.75rem;
+}
+
+.status-online {
+  color: var(--ink-green);
+}
+
+.status-offline {
+  color: var(--ink-red);
+}
+
+/* ─── 连接状态提示 ─── */
+.connection-status {
+  padding: 0.8rem;
+  margin-bottom: 1rem;
+  text-align: center;
+  font-size: 0.85rem;
+  border: 2px solid;
+}
+
+.connection-status.connecting {
+  background: rgba(46, 74, 98, 0.1);
+  border-color: var(--ink-blue);
+  color: var(--ink-blue);
+}
+
+.connection-status.connected {
+  background: rgba(61, 92, 58, 0.1);
+  border-color: var(--ink-green);
+  color: var(--ink-green);
+}
+
+.connection-status.error {
+  background: rgba(139, 38, 53, 0.1);
+  border-color: var(--ink-red);
+  color: var(--ink-red);
+}
+
+.connection-status.reconnecting {
+  background: rgba(107, 68, 35, 0.1);
+  border-color: var(--ink-brown);
+  color: var(--ink-brown);
+  animation: blink 1.5s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* ─── 棋子圆点（用于玩家标识） ─── */
+.stone-dot {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.stone-dot.black {
+  background: radial-gradient(circle at 35% 30%, #555, var(--stone-black) 70%);
+  box-shadow: inset -1px -1px 2px rgba(0, 0, 0, 0.6);
+}
+
+.stone-dot.white {
+  background: radial-gradient(circle at 35% 30%, #fff, #d8d4c8 75%);
+  border: 1px solid #b8b4a8;
+  box-shadow: inset -1px -1px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* ─── 滚动条 ─── */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--paper-dark);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--telegram-border);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-brown);
+}
+
+/* ─── 响应式 ─── */
+@media (max-width: 768px) {
+  h1 { font-size: 1.8rem; }
+  .card { padding: 1.5rem; }
+}

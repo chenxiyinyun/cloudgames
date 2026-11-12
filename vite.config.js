@@ -28,6 +28,7 @@ export default defineConfig(({ mode }) => {
         catguess: resolve(__dirname, 'games/catguess/index.html'),
         bombDefuse: resolve(__dirname, 'games/bomb-defuse/index.html'),
         territoryControl: resolve(__dirname, 'games/territory-control/index.html'),
+        gomoku: resolve(__dirname, 'games/gomoku/index.html'),
         agentGuide: resolve(__dirname, 'agent-guide/index.html')
       }
     }
@@ -41,6 +42,7 @@ export default defineConfig(({ mode }) => {
         'games/catguess/src/**/*.test.js',
         'games/bomb-defuse/src/**/*.test.js',
         'games/territory-control/src/**/*.test.js',
+        'games/gomoku/src/**/*.test.js',
         'src/shared/**/*.test.js',
         'server/**/*.test.js'
     ]
