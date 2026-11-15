@@ -11,6 +11,11 @@
  * 断线处理：等待/结束阶段直接移除；对局中标记离线并保留席位，
  * 回合计时会自然推进（轮到离线方时超时判负），重连后恢复在线。
  */
+import {
+  addPlayerToRoom as addPlayer,
+  createBaseRoom,
+  removePlayerFromRoom as removePlayer
+} from '../../../../src/shared/game/roomLifecycle.js';
 
 export const GAME_PHASES = {
   WAITING: 'waiting',
@@ -47,112 +52,57 @@ export const STAR_POINTS = [
   [3, 3], [3, 11], [11, 3], [11, 11], [7, 7]
 ];
 
-export function generatePlayerId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
+export { generatePlayerId } from '../../../../src/shared/game/roomLifecycle.js';
 
 export function createEmptyBoard() {
   return Array.from({ length: BOARD_SIZE }, () => Array.from({ length: BOARD_SIZE }, () => EMPTY));
 }
 
 export function createInitialRoom(hostPlayerId, hostName, roomCode) {
-  return {
-    id: roomCode,
-    code: roomCode,
-    hostId: hostPlayerId,
+  return createBaseRoom({
+    hostPlayerId,
+    hostName,
+    roomCode,
     status: GAME_PHASES.WAITING,
     phase: GAME_PHASES.WAITING,
-    players: [{
-      id: hostPlayerId,
-      name: hostName,
-      role: null,          // 'black' | 'white'，开局时分配
-      isHost: true,
-      isOnline: true,
-      order: 0,
-      type: 'human'
-    }],
-    board: createEmptyBoard(),
-    currentTurn: null,     // 'black' | 'white'
-    moveHistory: [],       // [{ playerId, row, col, color, at }]
-    winner: null,          // 'black' | 'white' | 'draw'
-    winningLine: null,     // 获胜连线的棋子坐标 [{ row, col }]
-    endReason: null,
-    turnDeadline: null,    // 当前回合的落子截止时间戳（服务器时间）
-    settings: {
-      boardSize: BOARD_SIZE,
-      turnTimeMs: TURN_TIME_MS
-    },
-    disconnectedPlayers: [],
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  };
+    host: { role: null, type: 'human' },
+    extra: {
+      board: createEmptyBoard(),
+      currentTurn: null,     // 'black' | 'white'
+      moveHistory: [],       // [{ playerId, row, col, color, at }]
+      winner: null,          // 'black' | 'white' | 'draw'
+      winningLine: null,     // 获胜连线的棋子坐标 [{ row, col }]
+      endReason: null,
+      turnDeadline: null,    // 当前回合的落子截止时间戳（服务器时间）
+      settings: {
+        boardSize: BOARD_SIZE,
+        turnTimeMs: TURN_TIME_MS
+      }
+    }
+  });
 }
 
 export function addPlayerToRoom(room, playerName, playerId) {
-  // 断线重连：同 playerId 且当前离线 → 恢复在线
-  const existing = room.players.find(p => p.id === playerId);
-  if (existing) {
-    if (existing.isOnline) {
-      return { error: '玩家已在房间中' };
-    }
-    existing.isOnline = true;
-    existing.name = playerName;
-    room.disconnectedPlayers = (room.disconnectedPlayers || []).filter(p => p.id !== playerId);
-    room.updatedAt = Date.now();
-    return { room, reconnected: true };
-  }
-
-  if (room.phase !== GAME_PHASES.WAITING) {
-    return { error: '游戏已开始，无法加入' };
-  }
-  if (room.players.length >= MAX_PLAYERS) {
-    return { error: '房间已满（五子棋为双人对局）' };
-  }
-
-  room.players.push({
-    id: playerId,
-    name: playerName,
-    role: null,
-    isHost: false,
-    isOnline: true,
-    order: room.players.length,
-    type: 'human'
+  return addPlayer(room, playerName, playerId, {
+    maxPlayers: MAX_PLAYERS,
+    fullMessage: '房间已满（五子棋为双人对局）',
+    canJoin: room => room.phase !== GAME_PHASES.WAITING ? { error: '游戏已开始，无法加入' } : null,
+    createPlayer: ({ playerId: id, playerName: name, order }) => ({
+      id, name, role: null, isHost: false, isOnline: true, order, type: 'human'
+    })
   });
-  room.updatedAt = Date.now();
-  return { room, reconnected: false };
 }
 
 export function removePlayerFromRoom(room, playerId) {
-  const player = room.players.find(p => p.id === playerId);
-  if (!player) return room;
-
   // 对局中：标记离线并保留席位（回合计时会自然推进，重连可恢复）
-  if (room.phase === GAME_PHASES.PLAYING) {
-    player.isOnline = false;
-    if (!room.disconnectedPlayers) room.disconnectedPlayers = [];
-    if (!room.disconnectedPlayers.some(p => p.id === playerId)) {
-      room.disconnectedPlayers.push({
-        id: player.id,
-        name: player.name,
-        role: player.role,
-        disconnectedAt: Date.now()
-      });
+  return removePlayer(room, playerId, {
+    keepSeat: room => room.phase === GAME_PHASES.PLAYING,
+    dedupeDisconnected: true,
+    extraDisconnectedFields: player => ({ role: player.role }),
+    afterRemoval: (room, player) => {
+      room.disconnectedPlayers = (room.disconnectedPlayers || []).filter(entry => entry.id !== player.id);
     }
-    room.updatedAt = Date.now();
-    return room;
-  }
-
-  // 等待/结束阶段：直接移除
-  room.players = room.players.filter(p => p.id !== playerId);
-  room.disconnectedPlayers = (room.disconnectedPlayers || []).filter(p => p.id !== playerId);
-
-  if (room.players.length > 0 && !room.players.some(p => p.id === room.hostId)) {
-    room.hostId = room.players[0].id;
-    room.players[0].isHost = true;
-  }
-
-  room.updatedAt = Date.now();
-  return room;
+  });
 }
 
 export function startGame(room, now = Date.now()) {

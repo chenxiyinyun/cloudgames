@@ -1,4 +1,9 @@
 import { getAllKeywords, splitKeywords } from '../data/keywords';
+import {
+  addPlayerToRoom as addPlayer,
+  createBaseRoom,
+  removePlayerFromRoom as removePlayer
+} from '../../../../src/shared/game/roomLifecycle.js';
 
 export const GAME_PHASES = {
   WAITING: 'waiting',
@@ -25,155 +30,89 @@ const ROTATION_SEQUENCE = [
   { team: 'white', index: 1 }
 ];
 
-export function generatePlayerId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
+export { generatePlayerId } from '../../../../src/shared/game/roomLifecycle.js';
 
 export function createInitialRoom(hostPlayerId, hostName, roomCode) {
-  return {
-    id: roomCode,
-    code: roomCode,
-    hostId: hostPlayerId,
+  return createBaseRoom({
+    hostPlayerId,
+    hostName,
+    roomCode,
     status: GAME_PHASES.WAITING,
-    players: [{
-      id: hostPlayerId,
-      name: hostName,
-      team: null,
-      isHost: true,
-      isEncryptor: false,
-      order: 0,
-      isOnline: true,  // 新增：在线状态
-      _peerId: null
-    }],
-    teams: {
-      white: { players: [], encryptorIndex: 0, interceptionTokens: 0, miscommunicationTokens: 0 },
-      black: { players: [], encryptorIndex: 0, interceptionTokens: 0, miscommunicationTokens: 0 }
-    },
-    whiteKeywords: [],
-    blackKeywords: [],
-    currentCode: [],
-    currentRound: 0,
     phase: GAME_PHASES.WAITING,
-    encryptor: null,
-    encryptorTeam: null,
-    clues: [],
-    // 队内投票系统
-    teamVotes: {
-      white: { player1Guess: null, player2Guess: null, finalGuess: null },
-      black: { player1Guess: null, player2Guess: null, finalGuess: null }
-    },
-    // 对方拦截投票系统（与加密方对称）
-    opponentVotes: {
-      player1Guess: null,
-      player2Guess: null,
-      finalGuess: null
-    },
-    opponentGuess: null,
-    usedClues: [],
-    notes: { white: [], black: [] },
-    roundHistory: [],
-    winner: null,
-    // 轮换索引
-    rotationIndex: 0,
-    // 断线重连相关
-    disconnectedPlayers: [],  // 断线玩家列表
-    savedPhase: null,         // 暂停前保存的阶段
-    savedEncryptor: null,     // 暂停前保存的情报官
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  };
+    host: { team: null, isEncryptor: false, _peerId: null },
+    extra: {
+      teams: {
+        white: { players: [], encryptorIndex: 0, interceptionTokens: 0, miscommunicationTokens: 0 },
+        black: { players: [], encryptorIndex: 0, interceptionTokens: 0, miscommunicationTokens: 0 }
+      },
+      whiteKeywords: [],
+      blackKeywords: [],
+      currentCode: [],
+      currentRound: 0,
+      encryptor: null,
+      encryptorTeam: null,
+      clues: [],
+      // 队内投票系统
+      teamVotes: {
+        white: { player1Guess: null, player2Guess: null, finalGuess: null },
+        black: { player1Guess: null, player2Guess: null, finalGuess: null }
+      },
+      // 对方拦截投票系统（与加密方对称）
+      opponentVotes: {
+        player1Guess: null,
+        player2Guess: null,
+        finalGuess: null
+      },
+      opponentGuess: null,
+      usedClues: [],
+      notes: { white: [], black: [] },
+      roundHistory: [],
+      winner: null,
+      // 轮换索引
+      rotationIndex: 0,
+      // 断线重连相关
+      savedPhase: null,         // 暂停前保存的阶段
+      savedEncryptor: null      // 暂停前保存的情报官
+    }
+  });
 }
 
 export function addPlayerToRoom(room, playerName, playerId) {
-  // 检查是否是断线重连
-  const disconnectedPlayer = room.disconnectedPlayers?.find(p => p.id === playerId);
-  if (disconnectedPlayer) {
-    // 恢复玩家在线状态
-    const player = room.players.find(p => p.id === playerId);
-    if (player) {
-      player.isOnline = true;
-      player.name = playerName; // 更新名称
-      room.disconnectedPlayers = room.disconnectedPlayers.filter(p => p.id !== playerId);
-      room.updatedAt = Date.now();
-      return { room, reconnected: true };
-    }
-  }
-
-  if (room.players.length >= 4) {
-    return { error: '房间已满' };
-  }
-
-  if (room.players.find(p => p.id === playerId)) {
-    return { error: '玩家已在房间中' };
-  }
-
-  const player = {
-    id: playerId,
-    name: playerName,
-    team: null,
-    isHost: false,
-    isEncryptor: false,
-    order: room.players.length,
-    isOnline: true,
-    _peerId: null
-  };
-
-  room.players.push(player);
-  room.updatedAt = Date.now();
-  return { room, reconnected: false };
+  return addPlayer(room, playerName, playerId, {
+    maxPlayers: 4,
+    fullMessage: '房间已满',
+    createPlayer: ({ playerId: id, playerName: name, order }) => ({
+      id, name, team: null, isHost: false, isEncryptor: false, order, isOnline: true, _peerId: null
+    })
+  });
 }
 
 export function removePlayerFromRoom(room, playerId) {
-  const player = room.players.find(p => p.id === playerId);
-  if (!player) return room;
-
-  // 游戏进行中时，标记为断线而不是移除
-  if (room.status === GAME_PHASES.PLAYING && room.phase !== GAME_PHASES.WAITING) {
-    player.isOnline = false;
-    if (!room.disconnectedPlayers) room.disconnectedPlayers = [];
-    room.disconnectedPlayers.push({
-      id: player.id,
-      name: player.name,
-      team: player.team,
-      disconnectedAt: Date.now()
-    });
-    
-    // 暂停游戏
-    pauseGame(room);
-    room.updatedAt = Date.now();
-    return room;
-  }
-
-  // 等待阶段直接移除
-  room.players = room.players.filter(p => p.id !== playerId);
-
-  if (room.players.length > 0) {
-    const oldHost = room.players.find(p => p.id === room.hostId);
-    if (!oldHost) {
-      room.hostId = room.players[0].id;
-      room.players[0].isHost = true;
-    }
-
-    reconstructTeams(room);
-
-    if (room.status === GAME_PHASES.WAITING || room.status === GAME_PHASES.ASSIGNING_TEAMS) {
-      if (room.players.length < 4) {
-        room.status = GAME_PHASES.WAITING;
-        room.phase = GAME_PHASES.WAITING;
-        room.players.forEach(p => {
-          p.team = null;
-          p.isEncryptor = false;
-        });
-        room.teams = {
-          white: { players: [], encryptorIndex: 0, interceptionTokens: 0, miscommunicationTokens: 0 },
-          black: { players: [], encryptorIndex: 0, interceptionTokens: 0, miscommunicationTokens: 0 }
-        };
+  return removePlayer(room, playerId, {
+    // 游戏进行中时保留席位并暂停，等玩家重连
+    keepSeat: room => room.status === GAME_PHASES.PLAYING && room.phase !== GAME_PHASES.WAITING,
+    extraDisconnectedFields: player => ({ team: player.team }),
+    onSeatKept: room => pauseGame(room),
+    afterRemoval: room => {
+      if (room.players.length === 0) return;
+      reconstructTeams(room);
+      // 人数不足四人时退回等待阶段并清空分队
+      if (room.status === GAME_PHASES.WAITING || room.status === GAME_PHASES.ASSIGNING_TEAMS) {
+        if (room.players.length < 4) {
+          room.status = GAME_PHASES.WAITING;
+          room.phase = GAME_PHASES.WAITING;
+          room.players.forEach(player => {
+            player.team = null;
+            player.isEncryptor = false;
+          });
+          room.teams = {
+            white: { players: [], encryptorIndex: 0, interceptionTokens: 0, miscommunicationTokens: 0 },
+            black: { players: [], encryptorIndex: 0, interceptionTokens: 0, miscommunicationTokens: 0 }
+          };
+        }
       }
     }
-  }
-
-  room.updatedAt = Date.now();
-  return room;
+  });
 }
 
 // 暂停游戏

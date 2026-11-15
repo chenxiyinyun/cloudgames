@@ -1,4 +1,9 @@
 import { generateBombModules, resolveModuleAction } from './modules'
+import {
+  addPlayerToRoom as addPlayer,
+  createBaseRoom,
+  removePlayerFromRoom as removePlayer
+} from '../../../../src/shared/game/roomLifecycle.js'
 
 export const GAME_PHASES = {
   WAITING: 'waiting',
@@ -37,86 +42,42 @@ const MODULE_STATUS = {
 const DEFAULT_DURATION_MS = 300000
 const DEFAULT_STRIKE_LIMIT = 3
 
-export function generatePlayerId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
-}
+export { generatePlayerId } from '../../../../src/shared/game/roomLifecycle.js'
 
 export function createInitialRoom(hostPlayerId, hostName, roomCode) {
-  const now = Date.now()
-
-  return {
-    id: roomCode,
-    code: roomCode,
-    hostId: hostPlayerId,
+  return createBaseRoom({
+    hostPlayerId,
+    hostName,
+    roomCode,
     status: GAME_PHASES.WAITING,
     phase: GAME_PHASES.WAITING,
-    settings: { difficulty: DEFAULT_DIFFICULTY },
-    players: [{
-      id: hostPlayerId,
-      name: hostName,
-      isHost: true,
-      isOnline: true,
-      order: 0,
-      role: null
-    }],
-    gameState: createEmptyGameState(),
-    disconnectedPlayers: [],
-    createdAt: now,
-    updatedAt: now
-  }
+    host: { role: null },
+    extra: {
+      settings: { difficulty: DEFAULT_DIFFICULTY },
+      gameState: createEmptyGameState()
+    }
+  })
 }
 
 export function addPlayerToRoom(room, playerName, playerId) {
-  const existingPlayer = room.players.find(player => player.id === playerId)
-  if (existingPlayer) {
-    existingPlayer.name = playerName
-    existingPlayer.isOnline = true
-    touch(room)
-    return { room, reconnected: true }
-  }
-
-  if (room.players.length >= 2) {
-    return { error: '房间已满，需要刚好 2 名玩家' }
-  }
-
-  room.players.push({
-    id: playerId,
-    name: playerName,
-    isHost: false,
-    isOnline: true,
-    order: room.players.length,
-    role: null
+  return addPlayer(room, playerName, playerId, {
+    maxPlayers: 2,
+    fullMessage: '房间已满，需要刚好 2 名玩家',
+    allowOnlineReconnect: true,
+    createPlayer: ({ playerId: id, playerName: name, order }) => ({
+      id, name, isHost: false, isOnline: true, order, role: null
+    }),
+    // 两人到齐且尚未分配角色时自动分配
+    afterAdd: room => {
+      if (room.players.length === 2 && room.players.every(player => !player.role)) assignRoles(room)
+    }
   })
-
-  if (room.players.length === 2 && room.players.every(p => !p.role)) {
-    assignRoles(room)
-  }
-  touch(room)
-
-  return { room, reconnected: false }
 }
 
 export function removePlayerFromRoom(room, playerId) {
-  const player = room.players.find(candidate => candidate.id === playerId)
-  if (!player) return room
-
-  if (room.phase === GAME_PHASES.PLAYING) {
-    player.isOnline = false
-    room.disconnectedPlayers.push({
-      id: player.id,
-      name: player.name,
-      disconnectedAt: Date.now()
-    })
-  } else {
-    room.players = room.players.filter(candidate => candidate.id !== playerId)
-    if (room.players.length > 0 && !room.players.some(candidate => candidate.id === room.hostId)) {
-      room.hostId = room.players[0].id
-      room.players[0].isHost = true
-    }
-  }
-
-  touch(room)
-  return room
+  return removePlayer(room, playerId, {
+    keepSeat: room => room.phase === GAME_PHASES.PLAYING
+  })
 }
 
 export function startGame(room, options = {}) {

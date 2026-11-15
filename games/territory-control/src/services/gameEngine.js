@@ -1,3 +1,9 @@
+import {
+  addPlayerToRoom as addPlayer,
+  createBaseRoom,
+  removePlayerFromRoom as removePlayer
+} from '../../../../src/shared/game/roomLifecycle.js'
+
 export const GAME_PHASES = {
   WAITING: 'waiting',
   PLAYING: 'playing',
@@ -103,87 +109,49 @@ export function findPath(edges, sourceId, targetId, territories = []) {
   return null
 }
 
-export function generatePlayerId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
-}
+export { generatePlayerId } from '../../../../src/shared/game/roomLifecycle.js'
 
 export function createInitialRoom(hostPlayerId, hostName, roomCode) {
-  const now = Date.now()
-  return {
-    id: roomCode,
-    code: roomCode,
-    hostId: hostPlayerId,
+  return createBaseRoom({
+    hostPlayerId,
+    hostName,
+    roomCode,
     status: GAME_PHASES.WAITING,
     phase: GAME_PHASES.WAITING,
-    settings: {
-      mapSize: DEFAULT_MAP_SIZE
-    },
-    players: [{
-      id: hostPlayerId,
-      name: hostName,
-      isHost: true,
-      isOnline: true,
-      isEliminated: false,
-      order: 0,
-      color: PLAYER_COLORS[0]
-    }],
-    gameState: createEmptyGameState(),
-    disconnectedPlayers: [],
-    createdAt: now,
-    updatedAt: now
-  }
+    host: { isEliminated: false, color: PLAYER_COLORS[0] },
+    extra: {
+      settings: {
+        mapSize: DEFAULT_MAP_SIZE
+      },
+      gameState: createEmptyGameState()
+    }
+  })
 }
 
 export function addPlayerToRoom(room, playerName, playerId) {
-  const existing = room.players.find(player => player.id === playerId)
-  if (existing) {
-    existing.name = playerName
-    existing.isOnline = true
-    touch(room)
-    return { room, reconnected: true }
-  }
-
-  if (room.phase !== GAME_PHASES.WAITING) {
-    return { error: '战局已经开始' }
-  }
-
-  if (room.players.length >= MAX_PLAYERS) {
-    return { error: '房间已满，最多 4 人' }
-  }
-
-  const order = room.players.length
-  room.players.push({
-    id: playerId,
-    name: playerName,
-    isHost: false,
-    isOnline: true,
-    isEliminated: false,
-    order,
-    color: PLAYER_COLORS[order]
+  return addPlayer(room, playerName, playerId, {
+    maxPlayers: MAX_PLAYERS,
+    fullMessage: '房间已满，最多 4 人',
+    canJoin: room => room.phase !== GAME_PHASES.WAITING ? { error: '战局已经开始' } : null,
+    allowOnlineReconnect: true,
+    createPlayer: ({ playerId: id, playerName: name, order }) => ({
+      id, name, isHost: false, isOnline: true, isEliminated: false, order, color: PLAYER_COLORS[order]
+    })
   })
-  touch(room)
-  return { room, reconnected: false }
 }
 
 export function removePlayerFromRoom(room, playerId) {
-  const player = room.players.find(candidate => candidate.id === playerId)
-  if (!player) return room
-
-  if (room.phase === GAME_PHASES.PLAYING) {
-    markPlayerOffline(room, playerId)
-  } else {
-    room.players = room.players.filter(candidate => candidate.id !== playerId)
-    room.players.forEach((candidate, index) => {
-      candidate.order = index
-      candidate.color = PLAYER_COLORS[index]
-    })
-    if (room.players.length > 0 && !room.players.some(candidate => candidate.id === room.hostId)) {
-      room.hostId = room.players[0].id
-      room.players[0].isHost = true
+  return removePlayer(room, playerId, {
+    keepSeat: room => room.phase === GAME_PHASES.PLAYING,
+    dedupeDisconnected: true,
+    // 大厅内离开后重排座位号与配色，避免颜色空缺
+    afterRemoval: room => {
+      room.players.forEach((candidate, index) => {
+        candidate.order = index
+        candidate.color = PLAYER_COLORS[index]
+      })
     }
-    touch(room)
-  }
-  return room
+  })
 }
 
 export function setMapSize(room, mapSize) {
@@ -597,20 +565,6 @@ function checkVictory(room, now = Date.now()) {
   if (remaining.length === 1 && room.phase === GAME_PHASES.PLAYING) {
     endGame(room, remaining[0].id, now)
   }
-}
-
-function markPlayerOffline(room, playerId) {
-  const player = room.players.find(candidate => candidate.id === playerId)
-  if (!player) return
-  player.isOnline = false
-  if (!room.disconnectedPlayers.some(candidate => candidate.id === player.id)) {
-    room.disconnectedPlayers.push({
-      id: player.id,
-      name: player.name,
-      disconnectedAt: Date.now()
-    })
-  }
-  touch(room)
 }
 
 function normalizeDispatchRatio(ratio) {

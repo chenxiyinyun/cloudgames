@@ -21,117 +21,63 @@ export const GAME_PHASES = {
   PLAYING: 'playing'
 };
 
-export function generatePlayerId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
+import {
+  addPlayerToRoom as addPlayer,
+  createBaseRoom,
+  removePlayerFromRoom as removePlayer
+} from '../../../../src/shared/game/roomLifecycle.js';
+
+export { generatePlayerId } from '../../../../src/shared/game/roomLifecycle.js';
 
 export function createInitialRoom(hostPlayerId, hostName, roomCode, wordPool) {
-  return {
-    id: roomCode,
-    code: roomCode,
-    hostId: hostPlayerId,
+  return createBaseRoom({
+    hostPlayerId,
+    hostName,
+    roomCode,
     status: GAME_PHASES.WAITING,
     phase: GAME_PHASES.WAITING,
-    players: [{
-      id: hostPlayerId,
-      name: hostName,
-      isHost: true,
-      isOnline: true,
-      order: 0,
-      hand: []
-    }],
-    gameState: {
-      round: 0,
-      storytellerId: null,
-      secretCardId: null,
-      clue: '',
-      submittedCards: [],
-      shuffledCards: [],
-      votes: [],
-      roundScores: {},
-      scores: {},
-      roundHistory: [],
-      winner: null
-    },
-    wordPool: [...wordPool],
-    disconnectedPlayers: [],
-    savedPhase: null,
-    savedStorytellerId: null,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  };
+    host: { hand: [] },
+    extra: {
+      gameState: {
+        round: 0,
+        storytellerId: null,
+        secretCardId: null,
+        clue: '',
+        submittedCards: [],
+        shuffledCards: [],
+        votes: [],
+        roundScores: {},
+        scores: {},
+        roundHistory: [],
+        winner: null
+      },
+      wordPool: [...wordPool],
+      savedPhase: null,
+      savedStorytellerId: null
+    }
+  });
 }
 
 export function addPlayerToRoom(room, playerName, playerId) {
-  const disconnectedPlayer = room.disconnectedPlayers?.find(p => p.id === playerId);
-  if (disconnectedPlayer) {
-    const player = room.players.find(p => p.id === playerId);
-    if (player) {
-      player.isOnline = true;
-      player.name = playerName;
-      room.disconnectedPlayers = room.disconnectedPlayers.filter(p => p.id !== playerId);
-      room.updatedAt = Date.now();
-      return { room, reconnected: true };
-    }
-  }
-
-  if (room.players.length >= 6) {
-    return { error: '房间已满（最多6人）' };
-  }
-
-  if (room.players.find(p => p.id === playerId)) {
-    return { error: '玩家已在房间中' };
-  }
-
-  const player = {
-    id: playerId,
-    name: playerName,
-    isHost: false,
-    isOnline: true,
-    order: room.players.length,
-    hand: []
-  };
-
-  room.players.push(player);
-  room.updatedAt = Date.now();
-  return { room, reconnected: false };
+  return addPlayer(room, playerName, playerId, {
+    maxPlayers: 6,
+    fullMessage: '房间已满（最多6人）',
+    createPlayer: ({ playerId: id, playerName: name, order }) => ({
+      id, name, isHost: false, isOnline: true, order, hand: []
+    })
+  });
 }
 
 export function removePlayerFromRoom(room, playerId) {
-  const player = room.players.find(p => p.id === playerId);
-  if (!player) return room;
-
-  if (
-    room.status === GAME_PHASES.PLAYING &&
-    room.phase !== GAME_PHASES.WAITING &&
-    room.phase !== GAME_PHASES.ENDED
-  ) {
-    player.isOnline = false;
-    if (!room.disconnectedPlayers) room.disconnectedPlayers = [];
-    room.disconnectedPlayers.push({
-      id: player.id,
-      name: player.name,
-      disconnectedAt: Date.now()
-    });
-
-    room.savedPhase = room.phase;
-    room.savedStorytellerId = room.gameState.storytellerId;
-    room.updatedAt = Date.now();
-    return room;
-  }
-
-  room.players = room.players.filter(p => p.id !== playerId);
-
-  if (room.players.length > 0) {
-    const oldHost = room.players.find(p => p.id === room.hostId);
-    if (!oldHost) {
-      room.hostId = room.players[0].id;
-      room.players[0].isHost = true;
+  return removePlayer(room, playerId, {
+    keepSeat: room => room.status === GAME_PHASES.PLAYING
+      && room.phase !== GAME_PHASES.WAITING
+      && room.phase !== GAME_PHASES.ENDED,
+    onSeatKept: room => {
+      room.savedPhase = room.phase;
+      room.savedStorytellerId = room.gameState.storytellerId;
     }
-  }
-
-  room.updatedAt = Date.now();
-  return room;
+  });
 }
 
 export function dealCardsToPlayers(room, cardsPerPlayer = 5) {
