@@ -14,6 +14,7 @@ import { getGameAdapter, listGameIds } from './games/index.js';
 import { generateRoomCode } from '../src/shared/ws/roomCode.js';
 import { createAgentHttp } from './agentHttp.js';
 import { createLogger } from './logger.js';
+import { createShanhai } from './shanhai/index.js';
 
 process.on('uncaughtException', (err) => console.error('[ws] uncaught exception', err?.message));
 process.on('unhandledRejection', (err) => console.error('[ws] unhandled rejection', err?.message));
@@ -32,6 +33,14 @@ const agentHttp = createAgentHttp({
   manager,
   publicOrigin: process.env.PUBLIC_ORIGIN || 'https://cloudgames.chenximeow.icu'
 });
+
+// 云存档（路径 A）：初始化失败不影响联机大厅，只降级为 503
+let shanhai = null;
+try {
+  shanhai = createShanhai({ log });
+} catch (err) {
+  log.error('shanhai cloud save disabled', { error: err?.message });
+}
 
 function sendJson(res, status, body) {
   const payload = JSON.stringify(body);
@@ -62,11 +71,20 @@ const httpServer = createServer((req, res) => {
       uptimeSec: uptimeSec(),
       tickMs: TICK_MS,
       sockets: wss.clients.size,
-      ...manager.stats()
+      ...manager.stats(),
+      ...(shanhai ? shanhai.stats() : {})
     });
     return;
   }
 
+  if (req.url?.startsWith('/api/shanhai/')) {
+    if (!shanhai) {
+      sendJson(res, 503, { code: 'SHANHAI_DISABLED', message: '云存档服务未启用' });
+      return;
+    }
+    shanhai.handle(req, res);
+    return;
+  }
   if (req.url?.startsWith('/api/agent/')) agentHttp.handle(req, res);
   else {
     res.writeHead(426, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -147,6 +165,7 @@ const pingTimer = setInterval(() => {
 function shutdown() {
   clearInterval(tickTimer);
   clearInterval(pingTimer);
+  if (shanhai) shanhai.close();
   wss.close(() => httpServer.close(() => process.exit(0)));
 }
 process.on('SIGINT', shutdown);
