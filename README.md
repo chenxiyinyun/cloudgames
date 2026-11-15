@@ -10,6 +10,7 @@ A collection of browser-based party games built with Vue 3 + Vite, using a serve
 | [双人拆弹 (Bomb Defuse)](./games/bomb-defuse/) | 双人在线协作拆弹解谜游戏 |
 | [区域争夺 (Territory Control)](./games/territory-control/) | 2-4 人联机拖拽派兵占领地图 |
 | [喵喵猜词 (Cat Guess)](./games/catguess/) | 多人看图猜词派对游戏 |
+| [五子棋 (Gomoku)](./games/gomoku/) | 双人在线五子棋对弈 |
 
 ## Static Games (纯静态，零构建)
 
@@ -123,12 +124,12 @@ npm run server:dev
 
 ## Adding a New Game
 
-1. Create `games/<game-name>/` with `index.html` and `src/` directory
-2. Implement `games/<game-name>/src/services/gameEngine.js` as pure functions (no Vue/browser deps)
-3. Create a server adapter `server/games/<game>.js` that imports and wraps the engine
-4. Register the adapter in `server/games/index.js`
-5. Add the game entry in `src/portal/App.vue`
-6. Add the HTML entry to `build.rollupOptions.input` in `vite.config.js`
+1. 建 `games/<game-name>/`：`index.html` + `src/`（视图）+ `game.manifest.js`（门户元数据，纯数据、不 import 任何模块）
+2. 实现 `games/<game-name>/src/services/gameEngine.js`，纯函数、无 Vue/浏览器依赖（客户端与服务端共用同一份规则）
+3. 写服务端适配器 `server/games/<game>.js`，声明 `createRoom` / `addPlayer` / `removePlayer` / `applyIntent` / `tick` / `project` / `agentGuide` / `agentActions` / `hostOnlyActions`
+4. 在 `server/games/index.js` 注册一行适配器
+
+构建入口（`games/*/index.html`）、测试范围（`games/*/src/**/*.test.js`）与门户游戏列表（各游戏 `game.manifest.js`）都由目录自动派生，不需要再改 `vite.config.js` 或 `src/portal/App.vue`。只有本文件的 Games 表格需要手动补一行。
 
 ## Deployment
 

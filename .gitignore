@@ -5,6 +5,9 @@ dist
 .DS_Store
 *.log
 
+# 浏览器自动化缓存（agent 调试产物，不入库）
+.box-agent-scratch/
+
 # 本地后端密钥与凭据（绝不入库）
 *.pem
 *.key
