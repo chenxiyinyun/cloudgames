@@ -133,7 +133,7 @@ npm run server:dev
 
 ## Deployment
 
-Client is automatically deployed to GitHub Pages via GitHub Actions on push to `main`.
+> 当前仓库不含 CI 部署流程，实际部署方式待确认。
 
 ## Agent 接入（真人 + Agent 同局）
 
