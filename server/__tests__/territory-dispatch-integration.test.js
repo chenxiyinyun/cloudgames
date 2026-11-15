@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { createRoomManager } from '../roomManager.js'
 import { getGameAdapter } from '../games/index.js'
 import { C2S, S2C } from '../protocol.js'
+import { TRAVEL_TIME_PER_EDGE } from '../../games/territory-control/src/services/gameEngine.js'
+
+const TICK_MS = 1000
 
 let codeSeq = 0
 function generateRoomCode() {
@@ -59,9 +62,18 @@ describe('territory-control: end-to-end dispatch integration', () => {
 
     const latest = host.ofType(S2C.STATE).at(-1).room
     expect(latest.gameState.movingTroops).toHaveLength(1)
-    expect(latest.gameState.movingTroops[0].amount).toBe(20)
-    expect(latest.gameState.movingTroops[0].path[0]).toBe(source.id)
-    expect(latest.gameState.movingTroops[0].path.at(-1)).toBe(target.id)
+    const troop = latest.gameState.movingTroops[0]
+    // 行军遭遇是随机事件（山贼 -30% / 义军 +20%），只改运兵量、不改扣兵量；
+    // 地图与遭遇种子来自 startGame 的 Date.now()，因此这里按实际遭遇推导期望值，
+    // 而不是假定未触发遭遇。
+    const expectedAmount = troop.encounter === 'bandit'
+      ? 14
+      : troop.encounter === 'volunteers'
+        ? 24
+        : 20
+    expect(troop.amount).toBe(expectedAmount)
+    expect(troop.path[0]).toBe(source.id)
+    expect(troop.path.at(-1)).toBe(target.id)
     expect(source.units).toBe(20)
   })
 
@@ -110,10 +122,12 @@ describe('territory-control: end-to-end dispatch integration', () => {
       payload: { sourceId: source.id, targetId: target.id, ratio: 0.5 }
     })
 
-    // 推进足够多的 tick(路径只有 2 步 → 最多 2 个 travel time)
-    let safety = 10
+    // 推进预算按路径与单段行军时长推导（含「迷路 +50%」的最坏情况），不再用固定 tick 数
+    const dispatched = host.ofType(S2C.STATE).at(-1).room.gameState.movingTroops[0]
+    const worstStepMs = TRAVEL_TIME_PER_EDGE * 1.5
+    let safety = dispatched.path.length * Math.ceil(worstStepMs / TICK_MS) + 5
     while (host.ofType(S2C.STATE).at(-1).room.gameState.movingTroops.length > 0 && safety > 0) {
-      clock.now += 1000
+      clock.now += TICK_MS
       manager.tickAll()
       safety -= 1
     }
