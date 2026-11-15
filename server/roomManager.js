@@ -15,6 +15,8 @@ const noopLogger = { debug() {}, info() {}, warn() {}, error() {} };
 // Agent 会话存活策略：HTTP 轮询会持续刷新 lastSeen；停止轮询超过 TTL 视为离线。
 const AGENT_SESSION_TTL_MS = 90_000;
 const AGENT_SESSION_MAX_IDLE_MS = 24 * 60 * 60_000;
+// 单房间同时有效的 Agent 邀请上限：房主反复签发时淘汰最早的，避免无界增长
+const AGENT_INVITES_MAX = 20;
 
 export function createRoomManager({
   getGameAdapter,
@@ -215,6 +217,9 @@ export function createRoomManager({
     };
     const token = randomBytes(32).toString('base64url');
     room.agentInvites.set(hashToken(token).toString('base64url'), invite);
+    if (room.agentInvites.size > AGENT_INVITES_MAX) {
+      room.agentInvites.delete(room.agentInvites.keys().next().value);
+    }
     send(conn, 'AGENT_INVITE', {
       inviteToken: token,
       roomCode: room.state.code,
@@ -279,15 +284,14 @@ export function createRoomManager({
     broadcast(room, conn);
   }
 
-  function executeIntent(room, playerId, action, payload, isAgent = false) {
+  function executeIntent(room, playerId, action, payload) {
     if (room.adapter.hostOnlyActions?.includes(action) && playerId !== room.state.hostId) {
       return { error: '只有房主可以执行此操作' };
     }
-    if (isAgent) {
-      const validated = validateAgentIntent(room.gameId, action, payload || {});
-      if (validated.error) return validated;
-      payload = validated.value;
-    }
+    // 人类与 Agent 走同一套 payload schema：人类路径不再直接把任意 payload 透传给引擎
+    const validated = validateAgentIntent(room.gameId, action, payload || {});
+    if (validated.error) return validated;
+    payload = validated.value;
     try {
       return room.adapter.applyIntent(room.state, { action, playerId, payload, now: now() });
     } catch (err) {
@@ -316,7 +320,7 @@ export function createRoomManager({
       sendAgentView(room, conn, requestId);
       return;
     }
-    const result = executeIntent(room, conn.playerId, msg.action, msg.payload || {}, true);
+    const result = executeIntent(room, conn.playerId, msg.action, msg.payload || {});
     if (result?.error || result?.correct === false) {
       room.agentRequests.set(requestId, { playerId: conn.playerId, accepted: false });
       if (room.agentRequests.size > 1000) room.agentRequests.delete(room.agentRequests.keys().next().value);
@@ -371,6 +375,14 @@ export function createRoomManager({
       return;
     }
     broadcast(room);
+  }
+
+  /** 回收过期或已用满的 Agent 邀请（由 tickAll 周期调用），避免邀请表只增不减。 */
+  function sweepAgentInvites(room, t) {
+    if (!room.agentInvites || room.agentInvites.size === 0) return;
+    for (const [key, invite] of room.agentInvites) {
+      if (t > invite.expiresAt || invite.uses >= 4) room.agentInvites.delete(key);
+    }
   }
 
   /** 清理长时间无心跳的 Agent 会话（由 tickAll 周期调用）。 */
@@ -521,6 +533,7 @@ export function createRoomManager({
   function tickAll() {
     const t = now();
     for (const room of rooms.values()) {
+      sweepAgentInvites(room, t);
       const swept = sweepAgentSessions(room, t);
       if (swept) broadcast(room);
       if (typeof room.adapter.tick !== 'function') continue;
@@ -539,5 +552,18 @@ export function createRoomManager({
     }
   }
 
-  return { handleMessage, handleDisconnect, tickAll, rooms };
+  /** 运行时规模快照，供 /healthz 与 /metrics 使用（只读内存态，不触发任何广播）。 */
+  function stats() {
+    let connections = 0;
+    let players = 0;
+    let agentSessions = 0;
+    for (const room of rooms.values()) {
+      connections += room.conns.size;
+      players += room.state.players?.length || 0;
+      agentSessions += room.agentSessions?.size || 0;
+    }
+    return { rooms: rooms.size, connections, players, agentSessions };
+  }
+
+  return { handleMessage, handleDisconnect, tickAll, stats, rooms };
 }

@@ -119,6 +119,23 @@ describe('roomManager (bomb-defuse, server-authoritative)', () => {
     expect(manager.rooms.get(roomCode).state.phase).toBe('playing');
   });
 
+  it('validates human intent payloads with the same schema as agents', () => {
+    const { manager, host, roomCode } = createAndJoin();
+
+    // 枚举越界：在进入引擎前就被拒绝
+    manager.handleMessage(host, { type: C2S.INTENT, action: 'SET_DIFFICULTY', payload: { difficulty: 'impossible' } });
+    expect(host.last()).toMatchObject({ type: S2C.ERROR });
+    expect(host.last().message).toContain('difficulty');
+
+    // 未定义字段
+    manager.handleMessage(host, { type: C2S.INTENT, action: 'SET_DIFFICULTY', payload: { difficulty: 'hard', extra: 1 } });
+    expect(host.last().message).toContain('未定义字段');
+
+    // 合法 payload 仍然生效
+    manager.handleMessage(host, { type: C2S.INTENT, action: 'SET_DIFFICULTY', payload: { difficulty: 'hard' } });
+    expect(manager.rooms.get(roomCode).state.settings.difficulty).toBe('hard');
+  });
+
   it('server tick detonates the bomb past the deadline and broadcasts the phase change', () => {
     const { manager, host, guest, roomCode } = createAndJoin();
     manager.handleMessage(host, { type: C2S.INTENT, action: 'START_GAME' });
@@ -188,6 +205,13 @@ describe('roomManager (bomb-defuse, server-authoritative)', () => {
     expect(typeof token).toBe('string');
     expect(host.last().room.players.some(p => Object.keys(p).includes('playerToken'))).toBe(false);
     expect(JSON.stringify(host.messages)).not.toContain(token);
+  });
+
+  it('stats reports rooms, connections, players and agent sessions', () => {
+    const { manager, guest } = createAndJoin();
+    expect(manager.stats()).toEqual({ rooms: 1, connections: 2, players: 2, agentSessions: 0 });
+    manager.handleDisconnect(guest);
+    expect(manager.stats()).toMatchObject({ rooms: 1, connections: 1, players: 1 });
   });
 
   it('removes the room once the last connection leaves', () => {

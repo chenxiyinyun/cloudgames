@@ -64,6 +64,25 @@ describe('Agent 身份、邀请与动作', () => {
     expect(guest.last().message).toContain('只有房主');
   });
 
+  it('过期邀请会在 tick 中回收，邀请表不会只增不减', () => {
+    const { roomManager, host, roomCode } = hostRoom();
+    const invitation = issue(roomManager, host);
+    expect(roomManager.rooms.get(roomCode).agentInvites.size).toBe(1);
+
+    clock += 30 * 60_000 + 1;
+    roomManager.tickAll();
+    expect(roomManager.rooms.get(roomCode).agentInvites.size).toBe(0);
+
+    const late = joinAgent(roomManager, invitation);
+    expect(late.last().code).toBe('INVITE_INVALID');
+  });
+
+  it('单房间邀请数量有上限，超出时淘汰最早的邀请', () => {
+    const { roomManager, host, roomCode } = hostRoom();
+    for (let i = 0; i < 25; i += 1) issue(roomManager, host);
+    expect(roomManager.rooms.get(roomCode).agentInvites.size).toBe(20);
+  });
+
   it('Agent 可重连，非法 token 不能读取或行动', () => {
     const { roomManager, host } = hostRoom();
     const agent = joinAgent(roomManager, issue(roomManager, host));
