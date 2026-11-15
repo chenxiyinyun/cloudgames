@@ -1,7 +1,6 @@
 /* 存档结构与归一化（前后端共用）
    浏览器：普通 script 加载，挂到 window.SHSaveSchema
-   Node：ESM/CJS 直接 import 后读取 globalThis.SHSaveSchema（本文件无 export，
-   只做全局赋值，所以两种加载方式都能用，且只有这一份实现）
+   Node：side-effect import 后读取 globalThis.SHSaveSchema
    SAVE_MAX_BYTES 同时被服务端体积校验与客户端提示复用。
 ------------------------------------------------------------------ */
 (function () {
@@ -178,5 +177,4 @@
 
   const api = { SAVE_MAX_BYTES, createDefaultState, defaultBeastState, normalizeState, plainObject };
   globalThis.SHSaveSchema = api;
-  if (typeof module === 'object' && module && module.exports) module.exports = api;
 })();
