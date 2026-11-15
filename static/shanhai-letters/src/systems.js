@@ -233,6 +233,7 @@
     };
     state.trips[beastId] = trip;
     SH.save();
+    if (SH.cloud) SH.cloud.track('trip_start', { beastId, preference: pref.id, items: items.length });
     return { ok: true, trip };
   };
 
@@ -447,6 +448,14 @@
     state.letters = stageLetters.concat(letters, state.letters);
     delete state.trips[beastId];
     SH.save();
+    if (SH.cloud) {
+      SH.cloud.track('trip_resolve', {
+        beastId,
+        letters: stageLetters.length + letters.length,
+        gained: gained.length,
+        stages: stages.length
+      });
+    }
 
     return { beastId, letters: stageLetters.concat(letters), gained, causes: tripCauses, stages };
   };
@@ -504,6 +513,7 @@
     letter.replied = optionIndex;
     letter.replyText = opt.text;
     SH.save();
+    if (SH.cloud) SH.cloud.track('letter_reply', { visitor: !!letter.visitor, option: optionIndex });
     return { opt, letter };
   };
 
@@ -647,6 +657,7 @@
       got.push(it);
     }
     SH.save();
+    if (SH.cloud) SH.cloud.track('supply_claim', { items: got.length });
     return { ok: true, got };
   };
 
