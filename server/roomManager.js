@@ -6,7 +6,7 @@
  * 每次意图处理完后把全量状态广播给房内所有连接。
  */
 import { C2S, S2C } from './protocol.js';
-import { getAgentActions, validateAgentIntent } from './agentProtocol.js';
+import { validateAgentIntent } from './agentProtocol.js';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 
 const noopLogger = { debug() {}, info() {}, warn() {}, error() {} };
@@ -167,7 +167,7 @@ export function createRoomManager({
       revision: room.revision,
       serverTime: now(),
       room: room.adapter.project(room.state, playerId),
-      availableActions: getAgentActions(room.state, playerId, room.gameId),
+      availableActions: room.adapter.agentActions?.(room.state, playerId) ?? [],
       session: {
         heartbeatIntervalMs: 20_000,
         offlineAfterMs: AGENT_SESSION_TTL_MS,

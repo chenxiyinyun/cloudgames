@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createRoomManager } from '../roomManager.js';
 import { getGameAdapter } from '../games/index.js';
 import { C2S, S2C } from '../protocol.js';
-import { GAME_AGENT_GUIDES, getAgentActions, validateAgentIntent } from '../agentProtocol.js';
+import { GAME_AGENT_GUIDES, validateAgentIntent } from '../agentProtocol.js';
 import { BLACK, WHITE } from '../../games/gomoku/src/services/gameEngine.js';
 
 let codeSeq;
@@ -215,7 +215,7 @@ describe('gomoku agent protocol', () => {
 
     // Agent 不能开始（不是房主）
     let state = manager.rooms.get(roomCode).state;
-    expect(getAgentActions(state, agentId, 'gomoku').map(a => a.action)).toEqual([]);
+    expect(getGameAdapter('gomoku').agentActions(state, agentId).map(a => a.action)).toEqual([]);
 
     // 房主开始 → Agent 执白
     manager.handleMessage(host, { type: C2S.INTENT, action: 'START_GAME' });
@@ -225,7 +225,7 @@ describe('gomoku agent protocol', () => {
     // 黑棋（房主）走一步后，Agent 的可用动作出现 PLACE_STONE
     manager.handleMessage(host, { type: C2S.INTENT, action: 'PLACE_STONE', payload: { row: 7, col: 7 } });
     state = manager.rooms.get(roomCode).state;
-    const actions = getAgentActions(state, agentId, 'gomoku').map(a => a.action);
+    const actions = getGameAdapter('gomoku').agentActions(state, agentId).map(a => a.action);
     expect(actions).toContain('PLACE_STONE');
     expect(actions).toContain('RESIGN');
     expect(actions).not.toContain('START_GAME');

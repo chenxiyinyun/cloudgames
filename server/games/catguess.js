@@ -13,6 +13,40 @@
 import * as engine from '../../games/catguess/src/services/gameEngine.js';
 import { DEFAULT_WORD_POOL } from '../../games/catguess/src/services/wordPool.js';
 import { baseRoom, clone } from '../projection.js';
+import { action, field, text } from '../agentSchema.js';
+
+const AGENT_GUIDE = {
+  gameId: 'catguess',
+  name: '喵喵猜词',
+  path: '/games/catguess/',
+  summary: '3–6 人轮流出题、选牌与投票。自己的手牌只在 players 中自己的记录里。',
+  rules: [
+    '说书人选择手牌下标并写 1–20 字提示；其他玩家选择手牌下标，随后给公开卡牌 id 投票。',
+    'scoring 前不会泄露答案、他人手牌或他人投票。',
+    '计时阶段会自动推进，收到状态后及时行动。'
+  ],
+  actions: [
+    action('START_GAME', '房主在至少三人在线时开始。'),
+    action('SUBMIT_STORY', '说书人提交手牌下标和提示。', { type: 'object', required: ['cardIndex', 'clue'], properties: { cardIndex: field('integer', { minimum: 0 }), clue: text(20) }, additionalProperties: false }),
+    action('SUBMIT_CARD', '非说书人提交手牌下标。', { type: 'object', required: ['cardIndex'], properties: { cardIndex: field('integer', { minimum: 0 }) }, additionalProperties: false }),
+    action('SUBMIT_VOTE', '非说书人给 shuffledCards 中的 id 投票。', { type: 'object', required: ['votedCardId'], properties: { votedCardId: field('integer', { minimum: 0 }) }, additionalProperties: false }),
+    action('NEXT_ROUND', '房主在计分或结束后推进。'),
+    action('END_GAME', '房主结束游戏。')
+  ]
+};
+
+function agentActions(room, playerId) {
+  const me = room.players.find(player => player.id === playerId);
+  if (!me) return [];
+  const isHost = room.hostId === playerId;
+  const names = [];
+  if (isHost && room.phase === 'waiting') names.push('START_GAME');
+  if (room.phase === 'storyteller_picking' && room.gameState.storytellerId === playerId) names.push('SUBMIT_STORY');
+  if (room.phase === 'others_picking' && room.gameState.storytellerId !== playerId) names.push('SUBMIT_CARD');
+  if (room.phase === 'revealing' && room.gameState.storytellerId !== playerId) names.push('SUBMIT_VOTE');
+  if (isHost && ['scoring', 'ended'].includes(room.phase)) names.push('NEXT_ROUND', 'END_GAME');
+  return names.map(name => AGENT_GUIDE.actions.find(item => item.action === name)).filter(Boolean);
+}
 
 function projectCatguess(room, playerId) {
   const view = baseRoom(room, playerId);
@@ -165,6 +199,10 @@ export default {
   gameId: 'catguess',
 
   hostOnlyActions: ['START_GAME', 'NEXT_ROUND', 'END_GAME'],
+
+  agentGuide: AGENT_GUIDE,
+
+  agentActions,
 
   project: projectCatguess,
 

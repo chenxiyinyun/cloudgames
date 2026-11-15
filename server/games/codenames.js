@@ -25,6 +25,43 @@ import {
   resetGame
 } from '../../games/codenames/src/services/gameEngine.js';
 import { baseRoom, clone } from '../projection.js';
+import { action } from '../agentSchema.js';
+
+const guess = { type: 'array', items: 'integer', minItems: 3, maxItems: 3, minimum: 1, maximum: 4 };
+
+const AGENT_GUIDE = {
+  gameId: 'codenames',
+  name: '截码战',
+  path: '/games/codenames/',
+  summary: '四人两队，轮流给三项线索，队友按线索猜密码，另一队尝试拦截。',
+  rules: [
+    '关键词和当前密码只对当前情报官可见。',
+    '每轮提交三个 1–4 的整数；以 availableActions 为准，不要猜其他队伍的未公开投票。',
+    '房间需满四人才建议开始；Agent 不能自动成为真人。'
+  ],
+  actions: [
+    action('START_GAME', '房主开始游戏，等待或分队阶段且满四人。'),
+    action('SUBMIT_CLUES', '当前情报官提交恰好三条互不重复的线索。', { type: 'object', required: ['clues'], properties: { clues: { type: 'array', items: 'string', minItems: 3, maxItems: 3, maxLength: 40 } }, additionalProperties: false }),
+    action('SUBMIT_TEAM_GUESS', '加密方非情报官提交三位队伍猜测。', { type: 'object', required: ['guess'], properties: { guess }, additionalProperties: false }),
+    action('SUBMIT_OPPONENT_GUESS', '非加密方提交三位拦截猜测。', { type: 'object', required: ['guess'], properties: { guess }, additionalProperties: false }),
+    action('SUBMIT_TEAM_VOTE', '需要统一队内猜测时提交最终三位猜测。', { type: 'object', required: ['guess'], properties: { guess }, additionalProperties: false }),
+    action('SUBMIT_OPPONENT_VOTE', '需要统一拦截猜测时提交最终三位猜测。', { type: 'object', required: ['guess'], properties: { guess }, additionalProperties: false }),
+    action('NEXT_ROUND', '房主在结算后推进下一轮或重新开始。')
+  ]
+};
+
+function agentActions(room, playerId) {
+  const me = room.players.find(player => player.id === playerId);
+  if (!me) return [];
+  const isHost = room.hostId === playerId;
+  const names = [];
+  if (isHost && ['waiting', 'assigning_teams'].includes(room.phase) && room.players.length === 4) names.push('START_GAME');
+  if (room.phase === 'encrypting' && room.encryptor === playerId) names.push('SUBMIT_CLUES');
+  if (room.phase === 'guessing' && room.encryptor !== playerId) names.push(me.team === room.encryptorTeam ? 'SUBMIT_TEAM_GUESS' : 'SUBMIT_OPPONENT_GUESS');
+  if (room.phase === 'team_voting') names.push(me.team === room.encryptorTeam ? 'SUBMIT_TEAM_VOTE' : 'SUBMIT_OPPONENT_VOTE');
+  if (isHost && (room.phase === 'result' || room.status === 'ended')) names.push('NEXT_ROUND');
+  return names.map(name => AGENT_GUIDE.actions.find(item => item.action === name)).filter(Boolean);
+}
 
 function projectCodenames(room, playerId) {
   const view = baseRoom(room, playerId);
@@ -63,6 +100,10 @@ export default {
   gameId: 'codenames',
 
   hostOnlyActions: ['START_GAME', 'NEXT_ROUND'],
+
+  agentGuide: AGENT_GUIDE,
+
+  agentActions,
 
   project: projectCodenames,
 

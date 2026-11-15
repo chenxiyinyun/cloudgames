@@ -23,3 +23,8 @@ export function getGameAdapter(gameId) {
 export function listGameIds() {
   return Object.keys(ADAPTERS);
 }
+
+/** 注册表顺序即 Agent discovery 与文档的展示顺序。 */
+export function listAdapters() {
+  return Object.values(ADAPTERS);
+}

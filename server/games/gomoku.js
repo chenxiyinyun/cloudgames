@@ -7,11 +7,50 @@
  */
 import * as engine from '../../games/gomoku/src/services/gameEngine.js';
 import { baseRoom, clone } from '../projection.js';
+import { action, field } from '../agentSchema.js';
+
+const AGENT_GUIDE = {
+  gameId: 'gomoku',
+  name: '五子棋',
+  path: '/games/gomoku/',
+  summary: '双人对弈，黑棋先行，先把 5 颗棋子连成一线（横/竖/斜）者获胜。',
+  rules: [
+    'board 为 15×15 的二维数组（0 空、1 黑、2 白），行/列下标均为 0–14。',
+    '只在自己的回合（room.currentTurn 与你的 role 相同）落子；每手限时 60 秒，超时判负。',
+    'moveHistory 记录全部落子；winner / winningLine / endReason 表示终局原因。'
+  ],
+  actions: [
+    action('START_GAME', '房主在两名玩家在线时开始。'),
+    action('PLACE_STONE', '当前回合玩家落子。', { type: 'object', required: ['row', 'col'], properties: { row: field('integer', { minimum: 0, maximum: 14 }), col: field('integer', { minimum: 0, maximum: 14 }) }, additionalProperties: false }),
+    action('RESIGN', '对局中认输，对方获胜。'),
+    action('RESTART_GAME', '房主在结束后交换先后手重新开始。'),
+    action('END_GAME', '房主提前结束对局。')
+  ]
+};
+
+function agentActions(room, playerId) {
+  const me = room.players.find(player => player.id === playerId);
+  if (!me) return [];
+  const isHost = room.hostId === playerId;
+  const names = [];
+  if (isHost && room.phase === 'waiting' && room.players.length === 2) names.push('START_GAME');
+  if (room.phase === 'playing' && me.isOnline) {
+    if (me.role === room.currentTurn) names.push('PLACE_STONE');
+    names.push('RESIGN');
+  }
+  if (isHost && room.phase === 'playing') names.push('END_GAME');
+  if (isHost && room.phase === 'ended') names.push('RESTART_GAME', 'END_GAME');
+  return names.map(name => AGENT_GUIDE.actions.find(item => item.action === name)).filter(Boolean);
+}
 
 export default {
   gameId: 'gomoku',
 
   hostOnlyActions: ['START_GAME', 'RESTART_GAME', 'END_GAME'],
+
+  agentGuide: AGENT_GUIDE,
+
+  agentActions,
 
   // 五子棋没有隐藏信息：棋盘、回合与计时对双方公开
   project(room, playerId) {

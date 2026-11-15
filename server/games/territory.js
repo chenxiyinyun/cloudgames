@@ -8,11 +8,46 @@
  */
 import * as engine from '../../games/territory-control/src/services/gameEngine.js';
 import { baseRoom, clone } from '../projection.js';
+import { action, field, text } from '../agentSchema.js';
+
+const AGENT_GUIDE = {
+  gameId: 'territory',
+  name: '区域争夺',
+  path: '/games/territory-control/',
+  summary: '2–4 人即时策略，从自己领地派兵，经连通路线占领地图。',
+  rules: [
+    'gameState.territories 提供 id、ownerId、units、坐标；edges 提供连通关系。',
+    '只能由自己的领地派兵，ratio 为 0.25 / 0.5 / 0.75；每个 tick 地图都会变化。'
+  ],
+  actions: [
+    action('START_GAME', '房主在 2–4 名玩家在线时开始。'),
+    action('SET_MAP_SIZE', '房主设置 small / medium / large。', { type: 'object', required: ['mapSize'], properties: { mapSize: field('string', { enum: ['small', 'medium', 'large'] }) }, additionalProperties: false }),
+    action('SET_THEME', '房主设置 default / catpaw。', { type: 'object', required: ['theme'], properties: { theme: field('string', { enum: ['default', 'catpaw'] }) }, additionalProperties: false }),
+    action('DISPATCH_UNITS', '从自己领地派兵到可达领地。', { type: 'object', required: ['sourceId', 'targetId', 'ratio'], properties: { sourceId: text(60), targetId: text(60), ratio: field('number', { enum: [0.25, 0.5, 0.75] }) }, additionalProperties: false }),
+    action('RESTART_GAME', '房主重新开始。'),
+    action('END_GAME', '房主结束游戏。')
+  ]
+};
+
+function agentActions(room, playerId) {
+  const me = room.players.find(player => player.id === playerId);
+  if (!me) return [];
+  const isHost = room.hostId === playerId;
+  const names = [];
+  if (isHost && room.phase === 'waiting') names.push('START_GAME', 'SET_MAP_SIZE', 'SET_THEME');
+  if (room.phase === 'playing' && me.isOnline && !me.isEliminated) names.push('DISPATCH_UNITS');
+  if (isHost && room.phase === 'ended') names.push('RESTART_GAME', 'END_GAME');
+  return names.map(name => AGENT_GUIDE.actions.find(item => item.action === name)).filter(Boolean);
+}
 
 export default {
   gameId: 'territory',
 
   hostOnlyActions: ['SET_MAP_SIZE', 'SET_THEME', 'START_GAME', 'RESTART_GAME', 'END_GAME'],
+
+  agentGuide: AGENT_GUIDE,
+
+  agentActions,
 
   // 区域争夺没有隐藏信息：gameState 整体下发
   project(room, playerId) {
