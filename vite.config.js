@@ -45,7 +45,8 @@ export default defineConfig(({ mode }) => {
     include: [
         'games/*/src/**/*.test.js',
         'src/shared/**/*.test.js',
-        'server/**/*.test.js'
+        'server/**/*.test.js',
+        'static/shanhai-letters/src/**/*.test.js'
     ]
   }
   }
