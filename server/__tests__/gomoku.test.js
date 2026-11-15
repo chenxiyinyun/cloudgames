@@ -3,7 +3,6 @@ import { createRoomManager } from '../roomManager.js';
 import { getGameAdapter } from '../games/index.js';
 import { C2S, S2C } from '../protocol.js';
 import { GAME_AGENT_GUIDES, getAgentActions, validateAgentIntent } from '../agentProtocol.js';
-import { projectRoom } from '../projectRoom.js';
 import { BLACK, WHITE } from '../../games/gomoku/src/services/gameEngine.js';
 
 let codeSeq;
@@ -183,12 +182,12 @@ describe('roomManager (gomoku, server-authoritative)', () => {
     expect(host.lastRoom().players.find(p => p.id === 'g1').isOnline).toBe(true);
   });
 
-  it('projectRoom exposes the full board to both observers', () => {
+  it('adapter projection exposes the full board to both observers', () => {
     const { manager, conns, roomCode } = createAndStart();
     manager.handleMessage(conns.h1, { type: C2S.INTENT, action: 'PLACE_STONE', payload: { row: 3, col: 4 } });
     const state = manager.rooms.get(roomCode).state;
-    const blackView = projectRoom(state, 'h1', 'gomoku');
-    const whiteView = projectRoom(state, 'g1', 'gomoku');
+    const blackView = getGameAdapter('gomoku').project(state, 'h1');
+    const whiteView = getGameAdapter('gomoku').project(state, 'g1');
     expect(blackView.board[3][4]).toBe(BLACK);
     expect(whiteView.board[3][4]).toBe(BLACK);
     expect(blackView.currentTurn).toBe('white');

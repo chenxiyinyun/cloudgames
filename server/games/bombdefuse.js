@@ -6,12 +6,46 @@
  * 新增其它游戏 = 再写一个这样的适配器即可。
  */
 import * as engine from '../../games/bomb-defuse/src/services/gameEngine.js';
+import { baseRoom, clone } from '../projection.js';
+
+function projectBombdefuse(room, playerId) {
+  const view = baseRoom(room, playerId);
+  const role = room.players.find(player => player.id === playerId)?.role;
+  const source = room.gameState || {};
+  view.gameState = {
+    startedAt: source.startedAt,
+    deadlineAt: source.deadlineAt,
+    durationMs: source.durationMs,
+    strikeLimit: source.strikeLimit,
+    difficulty: source.difficulty,
+    strikes: clone(source.strikes || []),
+    serialNumber: source.serialNumber,
+    batteries: source.batteries,
+    indicators: clone(source.indicators || []),
+    solvedModuleIds: clone(source.solvedModuleIds || []),
+    actionLog: clone(source.actionLog || []),
+    result: source.result,
+    endedAt: source.endedAt
+  };
+  view.gameState.modules = (source.modules || []).map(module => {
+    const publicModule = clone(module);
+    delete publicModule.solution;
+    const { manualView, bombView } = publicModule;
+    delete publicModule.manualView;
+    delete publicModule.bombView;
+    if (role === 'expert') return { ...publicModule, manualView };
+    return { ...publicModule, bombView };
+  });
+  return view;
+}
 
 export default {
   gameId: 'bombdefuse',
 
   // 房主专属意图：只有 room.hostId 能触发（roomManager 统一校验）
   hostOnlyActions: ['START_GAME', 'SET_DIFFICULTY', 'RESTART', 'ASSIGN_ROLES', 'END_GAME'],
+
+  project: projectBombdefuse,
 
   createRoom({ hostId, hostName, roomCode }) {
     return engine.createInitialRoom(hostId, hostName, roomCode);

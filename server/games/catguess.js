@@ -12,6 +12,36 @@
  */
 import * as engine from '../../games/catguess/src/services/gameEngine.js';
 import { DEFAULT_WORD_POOL } from '../../games/catguess/src/services/wordPool.js';
+import { baseRoom, clone } from '../projection.js';
+
+function projectCatguess(room, playerId) {
+  const view = baseRoom(room, playerId);
+  const source = room.gameState || {};
+  const revealed = room.phase === 'scoring' || room.phase === 'ended';
+  const storyteller = source.storytellerId === playerId;
+  const gameState = clone({
+    round: source.round,
+    storytellerId: source.storytellerId,
+    clue: source.clue,
+    roundScores: source.roundScores,
+    scores: source.scores,
+    roundHistory: source.roundHistory,
+    winner: source.winner
+  });
+  gameState.secretCardId = storyteller ? source.secretCardId : null;
+  if (storyteller && source.secretWord !== undefined) gameState.secretWord = source.secretWord;
+  gameState.submittedCards = (source.submittedCards || []).map(card => revealed || card.playerId === playerId
+    ? clone(card)
+    : { playerId: card.playerId, submitted: true });
+  gameState.shuffledCards = (source.shuffledCards || []).map(card => revealed
+    ? clone(card)
+    : { id: card.id, word: card.word });
+  gameState.votes = (source.votes || []).map(vote => revealed || vote.voterId === playerId
+    ? clone(vote)
+    : { voterId: vote.voterId, hasVoted: true });
+  view.gameState = gameState;
+  return view;
+}
 
 const P = engine.GAME_PHASES;
 
@@ -135,6 +165,8 @@ export default {
   gameId: 'catguess',
 
   hostOnlyActions: ['START_GAME', 'NEXT_ROUND', 'END_GAME'],
+
+  project: projectCatguess,
 
   createRoom({ hostId, hostName, roomCode }) {
     return engine.createInitialRoom(hostId, hostName, roomCode, DEFAULT_WORD_POOL);

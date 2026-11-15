@@ -7,11 +7,19 @@
  * adapter.tick 返回 true 让 roomManager 每个 tick 广播全量状态。
  */
 import * as engine from '../../games/territory-control/src/services/gameEngine.js';
+import { baseRoom, clone } from '../projection.js';
 
 export default {
   gameId: 'territory',
 
   hostOnlyActions: ['SET_MAP_SIZE', 'SET_THEME', 'START_GAME', 'RESTART_GAME', 'END_GAME'],
+
+  // 区域争夺没有隐藏信息：gameState 整体下发
+  project(room, playerId) {
+    const view = baseRoom(room, playerId);
+    view.gameState = clone(room.gameState);
+    return view;
+  },
 
   createRoom({ hostId, hostName, roomCode }) {
     return engine.createInitialRoom(hostId, hostName, roomCode);

@@ -24,11 +24,47 @@ import {
   nextRound,
   resetGame
 } from '../../games/codenames/src/services/gameEngine.js';
+import { baseRoom, clone } from '../projection.js';
+
+function projectCodenames(room, playerId) {
+  const view = baseRoom(room, playerId);
+  const me = room.players.find(player => player.id === playerId);
+  const isEncryptor = room.encryptor === playerId;
+  Object.assign(view, clone({
+    teams: room.teams,
+    currentRound: room.currentRound,
+    encryptor: room.encryptor,
+    encryptorTeam: room.encryptorTeam,
+    clues: room.clues,
+    usedClues: room.usedClues,
+    notes: room.notes,
+    roundHistory: room.roundHistory,
+    roundResult: room.roundResult,
+    winner: room.winner,
+    rotationIndex: room.rotationIndex
+  }));
+  view.whiteKeywords = isEncryptor && me?.team === 'white' ? clone(room.whiteKeywords) : [];
+  view.blackKeywords = isEncryptor && me?.team === 'black' ? clone(room.blackKeywords) : [];
+  view.currentCode = isEncryptor ? clone(room.currentCode) : [];
+  const ownVotes = room.teamVotes?.[me?.team];
+  view.teamVotes = {
+    white: { player1Guess: null, player2Guess: null, finalGuess: null },
+    black: { player1Guess: null, player2Guess: null, finalGuess: null }
+  };
+  if (me?.team && ownVotes) view.teamVotes[me.team] = clone(ownVotes);
+  view.opponentVotes = me?.team && me.team !== room.encryptorTeam
+    ? clone(room.opponentVotes)
+    : { player1Guess: null, player2Guess: null, finalGuess: null };
+  view.opponentGuess = me?.team && me.team !== room.encryptorTeam ? clone(room.opponentGuess) : null;
+  return view;
+}
 
 export default {
   gameId: 'codenames',
 
   hostOnlyActions: ['START_GAME', 'NEXT_ROUND'],
+
+  project: projectCodenames,
 
   createRoom({ hostId, hostName, roomCode }) {
     return createInitialRoom(hostId, hostName, roomCode);

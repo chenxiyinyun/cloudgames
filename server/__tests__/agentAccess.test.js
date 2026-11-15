@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createRoomManager } from '../roomManager.js';
 import { getGameAdapter } from '../games/index.js';
-import { projectRoom } from '../projectRoom.js';
 import { createInitialRoom as createCodenames, startGame as startCodenames } from '../../games/codenames/src/services/gameEngine.js';
 import { createInitialRoom as createCatguess, startGame as startCatguess } from '../../games/catguess/src/services/gameEngine.js';
 import { DEFAULT_WORD_POOL } from '../../games/catguess/src/services/wordPool.js';
@@ -145,8 +144,8 @@ describe('按玩家隐私状态投影', () => {
     const room = createCodenames('h1', '一', 'SECRET');
     for (const [id, name] of [['h2', '二'], ['h3', '三'], ['h4', '四']]) room.players.push({ id, name, isOnline: true, order: room.players.length });
     startCodenames(room);
-    const encryptor = projectRoom(room, room.encryptor, 'codenames');
-    const observer = projectRoom(room, room.players.find(player => player.id !== room.encryptor).id, 'codenames');
+    const encryptor = getGameAdapter('codenames').project(room, room.encryptor);
+    const observer = getGameAdapter('codenames').project(room, room.players.find(player => player.id !== room.encryptor).id);
     expect(encryptor.currentCode).toHaveLength(3);
     expect(observer.currentCode).toEqual([]);
     expect(observer.whiteKeywords).toEqual([]);
@@ -160,7 +159,7 @@ describe('按玩家隐私状态投影', () => {
     const room = createCatguess('h1', '一', 'SECRET', DEFAULT_WORD_POOL);
     for (const [id, name] of [['h2', '二'], ['h3', '三']]) room.players.push({ id, name, isOnline: true, order: room.players.length, hand: [] });
     startCatguess(room);
-    const view = projectRoom(room, 'h2', 'catguess');
+    const view = getGameAdapter('catguess').project(room, 'h2');
     expect(view.wordPool).toBeUndefined();
     expect(view.players.find(player => player.id === 'h2').hand).toHaveLength(5);
     expect(view.players.find(player => player.id === 'h1').hand).toBeUndefined();
@@ -173,8 +172,8 @@ describe('按玩家隐私状态投影', () => {
     const room = createBomb('h1', '拆弹员', 'SECRET');
     addBombPlayer(room, '专家', 'h2');
     startBomb(room, { seed: 'agent-privacy-test' });
-    const defuser = projectRoom(room, 'h1', 'bombdefuse');
-    const expert = projectRoom(room, 'h2', 'bombdefuse');
+    const defuser = getGameAdapter('bombdefuse').project(room, 'h1');
+    const expert = getGameAdapter('bombdefuse').project(room, 'h2');
     expect(defuser.gameState.modules[0].bombView).toBeDefined();
     expect(defuser.gameState.modules[0].manualView).toBeUndefined();
     expect(expert.gameState.modules[0].manualView).toBeDefined();

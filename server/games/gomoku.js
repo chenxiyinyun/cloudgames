@@ -6,11 +6,27 @@
  * 断线不暂停对局：对局中掉线标记离线，轮到离线方时计时自然判负；重连恢复在线。
  */
 import * as engine from '../../games/gomoku/src/services/gameEngine.js';
+import { baseRoom, clone } from '../projection.js';
 
 export default {
   gameId: 'gomoku',
 
   hostOnlyActions: ['START_GAME', 'RESTART_GAME', 'END_GAME'],
+
+  // 五子棋没有隐藏信息：棋盘、回合与计时对双方公开
+  project(room, playerId) {
+    const view = baseRoom(room, playerId);
+    Object.assign(view, clone({
+      board: room.board,
+      currentTurn: room.currentTurn,
+      moveHistory: room.moveHistory,
+      winner: room.winner,
+      winningLine: room.winningLine,
+      endReason: room.endReason,
+      turnDeadline: room.turnDeadline
+    }));
+    return view;
+  },
 
   createRoom({ hostId, hostName, roomCode }) {
     return engine.createInitialRoom(hostId, hostName, roomCode);

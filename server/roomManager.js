@@ -6,7 +6,6 @@
  * 每次意图处理完后把全量状态广播给房内所有连接。
  */
 import { C2S, S2C } from './protocol.js';
-import { projectRoom } from './projectRoom.js';
 import { getAgentActions, validateAgentIntent } from './agentProtocol.js';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 
@@ -38,7 +37,7 @@ export function createRoomManager({
   function broadcast(room, exceptConn = null) {
     for (const conn of room.conns.values()) {
       if (conn === exceptConn) continue;
-      send(conn, S2C.STATE, { room: projectRoom(room.state, conn.playerId, room.gameId) });
+      send(conn, S2C.STATE, { room: room.adapter.project(room.state, conn.playerId) });
     }
   }
 
@@ -79,7 +78,7 @@ export function createRoomManager({
     bind(conn, roomCode, playerId);
     room.conns.set(playerId, conn);
     log.info('room created', { roomCode, gameId, playerId });
-    send(conn, S2C.JOINED, { playerId, roomCode, playerToken: issueHumanSession(room, playerId), room: projectRoom(state, playerId, gameId) });
+    send(conn, S2C.JOINED, { playerId, roomCode, playerToken: issueHumanSession(room, playerId), room: adapter.project(state, playerId) });
   }
 
   function handleJoin(conn, msg) {
@@ -136,7 +135,7 @@ export function createRoomManager({
       playerId,
       roomCode,
       ...(hasSeat ? {} : { playerToken: issueHumanSession(room, playerId) }),
-      room: projectRoom(room.state, playerId, room.gameId)
+      room: room.adapter.project(room.state, playerId)
     });
     broadcast(room, conn);
   }
@@ -167,7 +166,7 @@ export function createRoomManager({
       playerType: 'agent',
       revision: room.revision,
       serverTime: now(),
-      room: projectRoom(room.state, playerId, room.gameId),
+      room: room.adapter.project(room.state, playerId),
       availableActions: getAgentActions(room.state, playerId, room.gameId),
       session: {
         heartbeatIntervalMs: 20_000,
