@@ -76,8 +76,6 @@ const MAX_UNITS = 50
 export const TRAVEL_TIME_PER_EDGE = 1500
 const PRODUCTION_INTERVAL = 2
 
-let movingTroopIdCounter = 0
-
 export function findPath(edges, sourceId, targetId, territories = []) {
   if (sourceId === targetId) return null
   const obstacleIds = new Set(territories.filter(t => t.isObstacle).map(t => t.id))
@@ -250,6 +248,7 @@ export function startGame(room, options = {}) {
     edges: map.edges,
     items: map.items,
     movingTroops: [],
+    movingTroopSeq: 0,
     weather: createEmptyWeather(),
     weatherRotationAt: Date.now() + WEATHER_GAP_MS,
     playerBuffs: {},
@@ -512,9 +511,10 @@ export function dispatchUnits(room, playerId, sourceId, targetId, ratio = 0.5, n
     ? ENCOUNTER_TYPES[encounter].arrivalDelayRatio
     : 0
 
-  movingTroopIdCounter += 1
+  // 兵团序号属于房间状态：房间重开或多房间并存时不共享模块级计数
+  room.gameState.movingTroopSeq = (room.gameState.movingTroopSeq || 0) + 1
   const troop = {
-    id: `mv${movingTroopIdCounter}`,
+    id: `mv${room.gameState.movingTroopSeq}`,
     playerId,
     amount,
     path,
@@ -901,6 +901,7 @@ function createEmptyGameState() {
     edges: [],
     items: [],
     movingTroops: [],
+    movingTroopSeq: 0,
     weather: createEmptyWeather(),
     weatherRotationAt: 0,
     playerBuffs: {},
