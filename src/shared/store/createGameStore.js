@@ -36,6 +36,7 @@ export function createGameStore({
     screen: 'menu',
     playerId: null,
     playerName: '',
+    playerToken: null,
     isHost: false,
     roomCode: null,
     connected: false,
@@ -77,6 +78,7 @@ export function createGameStore({
     gameState.screen = 'menu';
     gameState.playerId = null;
     gameState.playerName = '';
+    gameState.playerToken = null;
     gameState.isHost = false;
     gameState.roomCode = null;
     gameState.connected = false;
@@ -101,7 +103,8 @@ export function createGameStore({
   });
 
   // ── 本地缓存（刷新页面可继续之前的房间）─────────────────────────────────────
-  const cache = createStateCache({ cacheKey, stateFields, roomFields });
+  // 席位凭证由共享层统一持久化，各游戏无需在 stateFields 里重复声明
+  const cache = createStateCache({ cacheKey, stateFields: [...(stateFields || []), 'playerToken'], roomFields });
 
   if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', () => {

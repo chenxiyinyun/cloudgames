@@ -175,9 +175,10 @@ describe('roomManager (gomoku, server-authoritative)', () => {
 
   it('reconnect restores the player online', () => {
     const { manager, conns, host, roomCode } = createAndStart();
+    const seatToken = conns.g1.ofType(S2C.JOINED).at(-1).playerToken;
     manager.handleDisconnect(conns.g1);
     const g2 = makeConn();
-    manager.handleMessage(g2, { type: C2S.JOIN, roomCode, playerId: 'g1', playerName: 'G1' });
+    manager.handleMessage(g2, { type: C2S.JOIN, roomCode, playerId: 'g1', playerName: 'G1', playerToken: seatToken });
     expect(g2.last().type).toBe(S2C.JOINED);
     expect(host.lastRoom().players.find(p => p.id === 'g1').isOnline).toBe(true);
   });

@@ -112,9 +112,10 @@ describe('roomManager (codenames, server-authoritative)', () => {
     expect(host.lastRoom().savedPhase).toBeUndefined();
     expect(manager.rooms.get(roomCode).state.savedPhase).toBe('encrypting');
 
-    // g3 重连（同 playerId）→ 全员在线，恢复到原阶段
+    // g3 重连（同 playerId + 席位凭证）→ 全员在线，恢复到原阶段
     const g3b = makeConn();
-    manager.handleMessage(g3b, { type: C2S.JOIN, roomCode, playerId: 'g3', playerName: 'G3' });
+    const seatToken = conns.g3.ofType(S2C.JOINED).at(-1).playerToken;
+    manager.handleMessage(g3b, { type: C2S.JOIN, roomCode, playerId: 'g3', playerName: 'G3', playerToken: seatToken });
     expect(host.lastRoom().phase).toBe('encrypting');
   });
 });

@@ -153,17 +153,41 @@ describe('roomManager (bomb-defuse, server-authoritative)', () => {
   it('reconnect with the same playerId during play marks the player back online', () => {
     const { manager, host, guest, roomCode } = createAndJoin();
     manager.handleMessage(host, { type: C2S.INTENT, action: 'START_GAME' });
+    const seatToken = guest.ofType(S2C.JOINED).at(-1).playerToken;
 
     // 游戏中访客掉线 → 标记离线、保留在房
     manager.handleDisconnect(guest);
     const room = manager.rooms.get(roomCode);
     expect(room.state.players.find(p => p.id === 'g1').isOnline).toBe(false);
 
-    // 同 playerId 重新 JOIN → 重新上线
+    // 同 playerId + 席位凭证重新 JOIN → 重新上线
     const guest2 = makeConn();
-    manager.handleMessage(guest2, { type: C2S.JOIN, roomCode, playerId: 'g1', playerName: '小喵' });
+    manager.handleMessage(guest2, { type: C2S.JOIN, roomCode, playerId: 'g1', playerName: '小喵', playerToken: seatToken });
     expect(guest2.last().type).toBe(S2C.JOINED);
     expect(room.state.players.find(p => p.id === 'g1').isOnline).toBe(true);
+  });
+
+  it('rejects JOIN that reuses an occupied playerId without the seat token', () => {
+    const { manager, guest, host, roomCode } = createAndJoin();
+
+    // 房内其他人拿着公开的 playerId 顶号：没有席位凭证一律拒绝
+    const intruder = makeConn();
+    manager.handleMessage(intruder, { type: C2S.JOIN, roomCode, playerId: 'g1', playerName: '冒名者' });
+    expect(intruder.last()).toMatchObject({ type: S2C.ERROR, code: 'SESSION_INVALID', fatal: true });
+
+    // 原玩家连接未被解绑，仍能收到广播
+    const before = host.ofType(S2C.STATE).length;
+    manager.handleMessage(host, { type: C2S.INTENT, action: 'SET_DIFFICULTY', payload: { difficulty: 'hard' } });
+    expect(host.ofType(S2C.STATE).length).toBeGreaterThan(before);
+    expect(manager.rooms.get(roomCode).conns.get('g1')).toBe(guest);
+  });
+
+  it('does not leak seat tokens through room projections', () => {
+    const { host, guest } = createAndJoin();
+    const token = guest.ofType(S2C.JOINED).at(-1).playerToken;
+    expect(typeof token).toBe('string');
+    expect(host.last().room.players.some(p => Object.keys(p).includes('playerToken'))).toBe(false);
+    expect(JSON.stringify(host.messages)).not.toContain(token);
   });
 
   it('removes the room once the last connection leaves', () => {

@@ -48,8 +48,8 @@ describe('createWebSocketService', () => {
     ws.create('p1', 'Host')
     const sock = FakeWS.instances[0]
     sock._open()
-    sock._message({ type: 'JOINED', playerId: 'p1', roomCode: 'ABC123', room: { code: 'ABC123' } })
-    expect(joined).toHaveBeenCalledWith({ playerId: 'p1', roomCode: 'ABC123', room: { code: 'ABC123' } })
+    sock._message({ type: 'JOINED', playerId: 'p1', roomCode: 'ABC123', playerToken: 'seat-token', room: { code: 'ABC123' } })
+    expect(joined).toHaveBeenCalledWith({ playerId: 'p1', roomCode: 'ABC123', playerToken: 'seat-token', room: { code: 'ABC123' } })
     expect(ws.getRoomCode()).toBe('ABC123')
     expect(statuses).toContain('connected')
   })
@@ -95,14 +95,14 @@ describe('createWebSocketService', () => {
     ws.create('p1', 'Host')
     const first = FakeWS.instances[0]
     first._open()
-    first._message({ type: 'JOINED', playerId: 'p1', roomCode: 'ABC123', room: {} })
+    first._message({ type: 'JOINED', playerId: 'p1', roomCode: 'ABC123', playerToken: 'seat-token', room: {} })
     first._drop()
     vi.advanceTimersByTime(2000)
     const second = FakeWS.instances[1]
     expect(second).toBeTruthy()
     second._open()
-    // 重连用 JOIN（而不是 CREATE），带回原 roomCode/playerId/name
-    expect(second.sent[0]).toEqual({ type: 'JOIN', roomCode: 'ABC123', playerId: 'p1', playerName: 'Host' })
+    // 重连用 JOIN（而不是 CREATE），带回原 roomCode/playerId/name 与席位凭证
+    expect(second.sent[0]).toEqual({ type: 'JOIN', roomCode: 'ABC123', playerId: 'p1', playerName: 'Host', playerToken: 'seat-token' })
   })
 
   it('leave() sends LEAVE, closes, and suppresses reconnect', () => {

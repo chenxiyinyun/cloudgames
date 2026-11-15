@@ -35,6 +35,8 @@ export function createWebSocketService({
   let playerId = null;
   let playerName = null;
   let roomCode = null;
+  // 席位凭证：服务器签发的人类席位 token，重连时必须带回
+  let playerToken = null;
   // 首次连接要发的帧（CREATE 或 JOIN）。JOINED 之后，重连一律改用 JOIN。
   let initialFrame = null;
 
@@ -65,7 +67,7 @@ export function createWebSocketService({
   /** 重连时要发的帧：一旦拿到 roomCode，就永远用 JOIN（CREATE 只在首次建房用一次）。 */
   function reconnectFrame() {
     if (roomCode && playerId && playerName) {
-      return { type: C2S.JOIN, roomCode, playerId, playerName };
+      return { type: C2S.JOIN, roomCode, playerId, playerName, ...(playerToken ? { playerToken } : {}) };
     }
     return initialFrame;
   }
@@ -139,11 +141,13 @@ export function createWebSocketService({
       case S2C.JOINED:
         playerId = msg.playerId ?? playerId;
         roomCode = msg.roomCode ?? roomCode;
+        // 席位凭证只在首次加入/建房时下发；重连时不覆盖原值
+        if (msg.playerToken) playerToken = msg.playerToken;
         // initialFrame 里带着 playerName（CREATE/JOIN 都有）
         if (initialFrame?.playerName) playerName = initialFrame.playerName;
         reconnectAttempts = 0;
         setStatus('connected', '');
-        cb.onJoined({ playerId, roomCode, room: msg.room });
+        cb.onJoined({ playerId, roomCode, ...(playerToken ? { playerToken } : {}), room: msg.room });
         break;
       case S2C.STATE:
         cb.onState(msg.room);
@@ -184,17 +188,19 @@ export function createWebSocketService({
     playerId = myPlayerId;
     playerName = myPlayerName;
     roomCode = null;
+    playerToken = null;
     initialFrame = { type: C2S.CREATE, gameId, playerId, playerName };
     setStatus('connecting', '正在建房…');
     openSocket(initialFrame);
   }
 
-  /** 加入指定房间（或断线重连：同 playerId 服务器视为重连）。 */
-  function join(code, myPlayerId, myPlayerName) {
+  /** 加入指定房间（或断线重连：同 playerId 需带上席位凭证 playerToken）。 */
+  function join(code, myPlayerId, myPlayerName, myPlayerToken = null) {
     playerId = myPlayerId;
     playerName = myPlayerName;
     roomCode = code;
-    initialFrame = { type: C2S.JOIN, roomCode, playerId, playerName };
+    playerToken = myPlayerToken;
+    initialFrame = { type: C2S.JOIN, roomCode, playerId, playerName, ...(playerToken ? { playerToken } : {}) };
     setStatus('connecting', '正在加入…');
     openSocket(initialFrame);
   }
@@ -229,6 +235,7 @@ export function createWebSocketService({
     playerId = null;
     playerName = null;
     roomCode = null;
+    playerToken = null;
     initialFrame = null;
   }
 

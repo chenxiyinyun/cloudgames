@@ -42,9 +42,11 @@ export function createGameNetwork({
   }
 
   ws.on({
-    onJoined: ({ playerId, roomCode, room }) => {
+    onJoined: ({ playerId, roomCode, playerToken, room }) => {
       gameState.playerId = playerId
       gameState.roomCode = roomCode
+      // 新席位才带 token；重连时保留缓存里的原令牌
+      if (playerToken) gameState.playerToken = playerToken
       gameState.connected = true
       gameState.connecting = false
       gameState.error = null
@@ -88,7 +90,7 @@ export function createGameNetwork({
   return {
     RECONNECT_METADATA,
     connectCreate: (playerId, playerName) => ws.create(playerId, playerName),
-    connectJoin: (roomCode, playerId, playerName) => ws.join(roomCode, playerId, playerName),
+    connectJoin: (roomCode, playerId, playerName) => ws.join(roomCode, playerId, playerName, gameState.playerToken),
     reconnectNetwork: () => ws.reconnect(),
     sendIntent: (action, payload) => ws.sendIntent(action, payload),
     requestAgentInvite: () => ws.requestAgentInvite(),

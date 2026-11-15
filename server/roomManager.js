@@ -71,13 +71,13 @@ export function createRoomManager({
     }
     const roomCode = uniqueRoomCode();
     const state = adapter.createRoom({ hostId: playerId, hostName: playerName, roomCode });
-    const room = { gameId, adapter, state, conns: new Map(), agentInvites: new Map(), agentSessions: new Map(), agentRequests: new Map(), revision: 0 };
+    const room = { gameId, adapter, state, conns: new Map(), humanSessions: new Map(), agentInvites: new Map(), agentSessions: new Map(), agentRequests: new Map(), revision: 0 };
     rooms.set(roomCode, room);
 
     bind(conn, roomCode, playerId);
     room.conns.set(playerId, conn);
     log.info('room created', { roomCode, gameId, playerId });
-    send(conn, S2C.JOINED, { playerId, roomCode, room: projectRoom(state, playerId, gameId) });
+    send(conn, S2C.JOINED, { playerId, roomCode, playerToken: issueHumanSession(room, playerId), room: projectRoom(state, playerId, gameId) });
   }
 
   function handleJoin(conn, msg) {
@@ -100,6 +100,18 @@ export function createRoomManager({
       return;
     }
 
+    // 席位凭证：房间已存在该玩家（含断线保留的席位）时，必须持有本人 token。
+    // 仅知道 playerId 不再等于拥有席位，避免房内他人顶号接管。
+    const hasSeat = room.state.players.some(player => player.id === playerId)
+      || (room.state.disconnectedPlayers || []).some(player => player.id === playerId);
+    if (hasSeat) {
+      const session = room.humanSessions.get(playerId);
+      if (!session || !validToken(msg.playerToken, session.hash)) {
+        send(conn, S2C.ERROR, { code: 'SESSION_INVALID', message: '席位凭证无效，请以新身份重新加入', fatal: true });
+        return;
+      }
+    }
+
     // 同 playerId 的旧连接（断线重连场景）：解绑旧连接，避免其断开时误删玩家
     const prev = room.conns.get(playerId);
     if (prev && prev !== conn) {
@@ -116,8 +128,14 @@ export function createRoomManager({
     bind(conn, roomCode, playerId);
     room.conns.set(playerId, conn);
     log.info('player joined', { roomCode, playerId, reconnected: !!result?.reconnected });
-    // 加入者已在 JOINED 里拿到全量 room，只需把新状态广播给其他人
-    send(conn, S2C.JOINED, { playerId, roomCode, room: projectRoom(room.state, playerId, room.gameId) });
+    // 加入者已在 JOINED 里拿到全量 room，只需把新状态广播给其他人；
+    // 新席位同时下发只属于本人的重连凭证。
+    send(conn, S2C.JOINED, {
+      playerId,
+      roomCode,
+      ...(hasSeat ? {} : { playerToken: issueHumanSession(room, playerId) }),
+      room: projectRoom(room.state, playerId, room.gameId)
+    });
     broadcast(room, conn);
   }
 
@@ -169,6 +187,13 @@ export function createRoomManager({
     if (typeof token !== 'string' || token.length > 200) return false;
     const actual = hashToken(token);
     return actual.length === expected.length && timingSafeEqual(actual, expected);
+  }
+
+  /** 为人类席位签发重连凭证：只保存哈希，明文仅出现在本人的 JOINED 里。 */
+  function issueHumanSession(room, playerId) {
+    const token = randomBytes(32).toString('base64url');
+    room.humanSessions.set(playerId, { hash: hashToken(token) });
+    return token;
   }
 
   function humanName(value) {
@@ -410,6 +435,8 @@ export function createRoomManager({
     if (room.conns.get(playerId) !== conn) return;
 
     room.conns.delete(playerId);
+    // 主动离开即放弃席位：凭证随之作废，座位不可被回收
+    if (explicit) room.humanSessions.delete(playerId);
     room.adapter.removePlayer(room.state, playerId);
     log.info('player left', { roomCode, playerId, explicit });
 
