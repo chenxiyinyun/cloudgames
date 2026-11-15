@@ -2,6 +2,15 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
+import { readdirSync, existsSync } from 'node:fs'
+
+// 游戏入口由目录派生：新增 games/<id>/index.html 即自动参与构建，无需改本文件
+const gamesDir = resolve(__dirname, 'games')
+const gameInputs = Object.fromEntries(
+  readdirSync(gamesDir, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && existsSync(resolve(gamesDir, entry.name, 'index.html')))
+    .map(entry => [entry.name, resolve(gamesDir, entry.name, 'index.html')])
+)
 
 export default defineConfig(({ mode }) => {
   // 显式注入：确保共享 chunk 与各游戏入口都读取同一个服务地址
@@ -24,11 +33,7 @@ export default defineConfig(({ mode }) => {
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
-        codenames: resolve(__dirname, 'games/codenames/index.html'),
-        catguess: resolve(__dirname, 'games/catguess/index.html'),
-        bombDefuse: resolve(__dirname, 'games/bomb-defuse/index.html'),
-        territoryControl: resolve(__dirname, 'games/territory-control/index.html'),
-        gomoku: resolve(__dirname, 'games/gomoku/index.html'),
+        ...gameInputs,
         agentGuide: resolve(__dirname, 'agent-guide/index.html')
       }
     }
@@ -38,11 +43,7 @@ export default defineConfig(({ mode }) => {
   test: {
     environment: 'node',
     include: [
-        'games/codenames/src/**/*.test.js',
-        'games/catguess/src/**/*.test.js',
-        'games/bomb-defuse/src/**/*.test.js',
-        'games/territory-control/src/**/*.test.js',
-        'games/gomoku/src/**/*.test.js',
+        'games/*/src/**/*.test.js',
         'src/shared/**/*.test.js',
         'server/**/*.test.js'
     ]

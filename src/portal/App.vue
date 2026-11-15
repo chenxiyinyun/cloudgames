@@ -10,68 +10,16 @@ const filters = [
 
 const activeFilter = ref('all')
 
-const games = [
-  {
-    id: 'codenames',
-    name: '截码战',
-    englishName: 'Codenames',
-    description: '一个词，藏着只有你们懂的暗号。给出巧妙线索，带队友避开对手布下的陷阱。',
-    href: 'games/codenames/',
-    players: '4 人',
-    mode: 'versus',
-    modeLabel: '团队对抗',
-    tags: ['语言联想', '脑力交锋'],
-    color: 'cyan'
-  },
-  {
-    id: 'catguess',
-    name: '喵喵猜词',
-    englishName: 'Cat Guess',
-    description: '让想象力坐上飞船。描述你的画，找出讲故事的人，看看谁最懂你的奇思妙想。',
-    href: 'games/catguess/',
-    players: '3–6 人',
-    mode: 'versus',
-    modeLabel: '欢乐猜词',
-    tags: ['脑洞表达', '轻松聚会'],
-    color: 'pink'
-  },
-  {
-    id: 'bomb-defuse',
-    name: '双人拆弹',
-    englishName: 'Bomb Defuse',
-    description: '一个人面对炸弹，一个人手握手册。保持沟通、拆解模块，在最后一秒拯救彼此。',
-    href: 'games/bomb-defuse/',
-    players: '2 人',
-    mode: 'coop',
-    modeLabel: '双人协作',
-    tags: ['实时沟通', '紧张解谜'],
-    color: 'yellow'
-  },
-  {
-    id: 'territory-control',
-    name: '区域争夺',
-    englishName: 'Territory Control',
-    description: '指尖派兵，步步为营。在不断变化的地图上扩张领地，用策略赢下最后的版图。',
-    href: 'games/territory-control/',
-    players: '2–4 人',
-    mode: 'versus',
-    modeLabel: '策略对抗',
-    tags: ['即时策略', '地图争夺'],
-    color: 'cyan'
-  },
-  {
-    id: 'gomoku',
-    name: '五子棋',
-    englishName: 'Gomoku',
-    description: '一黑一白，一落一子。在纵横棋盘上排兵布阵，先连成五子者赢下这局。',
-    href: 'games/gomoku/',
-    players: '2 人',
-    mode: 'versus',
-    modeLabel: '双人对弈',
-    tags: ['策略对弈', '烧脑对决'],
-    color: 'yellow'
-  }
-]
+// 游戏列表来自各游戏的 game.manifest.js：新增游戏只需提供 manifest，无需改门户
+const games = Object.values(import.meta.glob('/games/*/game.manifest.js', { eager: true }))
+  .map(module => module.default)
+  .sort((a, b) => a.order - b.order)
+  .map(manifest => {
+    const game = { ...manifest, id: manifest.gameId }
+    delete game.gameId
+    delete game.order
+    return game
+  })
 
 const filtersWithCounts = computed(() => filters.map(filter => ({
   ...filter,
