@@ -13,6 +13,7 @@ import { createRoomManager } from './roomManager.js';
 import { getGameAdapter, listGameIds } from './games/index.js';
 import { generateRoomCode } from '../src/shared/ws/roomCode.js';
 import { createAgentHttp } from './agentHttp.js';
+import { createLogger } from './logger.js';
 
 process.on('uncaughtException', (err) => console.error('[ws] uncaught exception', err?.message));
 process.on('unhandledRejection', (err) => console.error('[ws] unhandled rejection', err?.message));
@@ -21,13 +22,9 @@ const PORT = Number(process.env.PORT) || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
 const TICK_MS = Number(process.env.TICK_MS) || 1000;
 const PING_MS = Number(process.env.PING_MS) || 30000;
+const STARTED_AT = Date.now();
 
-const log = {
-  debug: () => {},
-  info: (msg, meta) => console.log(`[ws] ${msg}`, meta ?? ''),
-  warn: (msg, meta) => console.warn(`[ws] ${msg}`, meta ?? ''),
-  error: (msg, meta) => console.error(`[ws] ${msg}`, meta ?? '')
-};
+const log = createLogger({ name: 'ws' });
 
 const manager = createRoomManager({ getGameAdapter, generateRoomCode, log });
 
@@ -35,11 +32,45 @@ const agentHttp = createAgentHttp({
   manager,
   publicOrigin: process.env.PUBLIC_ORIGIN || 'https://cloudgames.chenximeow.icu'
 });
+
+function sendJson(res, status, body) {
+  const payload = JSON.stringify(body);
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(payload),
+    'Cache-Control': 'no-store'
+  });
+  res.end(payload);
+}
+
+function uptimeSec() {
+  return Math.round((Date.now() - STARTED_AT) / 1000);
+}
+
 const httpServer = createServer((req, res) => {
+  let pathname = '';
+  try {
+    pathname = new URL(req.url, 'http://localhost').pathname;
+  } catch { /* 非法 URL 走默认分支 */ }
+
+  if (pathname === '/healthz') {
+    sendJson(res, 200, { status: 'ok', uptimeSec: uptimeSec(), ...manager.stats() });
+    return;
+  }
+  if (pathname === '/metrics') {
+    sendJson(res, 200, {
+      uptimeSec: uptimeSec(),
+      tickMs: TICK_MS,
+      sockets: wss.clients.size,
+      ...manager.stats()
+    });
+    return;
+  }
+
   if (req.url?.startsWith('/api/agent/')) agentHttp.handle(req, res);
   else {
     res.writeHead(426, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('请使用 WebSocket 连接，Agent 文档位于 /api/agent/discovery');
+    res.end('请使用 WebSocket 连接，Agent 文档位于 /api/agent/discovery，健康检查位于 /healthz');
   }
 });
 
