@@ -1,13 +1,23 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { getAgentServiceUrl } from '../shared/agentAccess'
+import { AGENT_DECISION_RULES, GOMOKU_AGENT_RULES, GOMOKU_AGENT_EXAMPLE } from '../shared/agentPlaybook'
+import { GAME_AGENT_PLAYBOOKS } from '../shared/agentGameGuides'
 
-const activeTab = ref('quickstart')
+const props = defineProps({
+  initialTab: { type: String, default: 'quickstart' }
+})
+const activeTab = ref(props.initialTab)
 const copied = ref(false)
 const serviceOrigin = computed(() => getAgentServiceUrl())
 const endpoint = computed(() => serviceOrigin.value ? `${serviceOrigin.value}/api/agent/rpc` : 'https://你的游戏服务域名/api/agent/rpc')
 const discovery = computed(() => serviceOrigin.value ? `${serviceOrigin.value}/api/agent/discovery` : '')
 const serviceReady = computed(() => Boolean(serviceOrigin.value))
+const gameNames = { codenames: '截码战', catguess: '喵喵猜词', bombdefuse: '双人拆弹', territory: '区域争夺' }
+const discoveryDocument = computed(() => JSON.stringify({
+  decisionRules: AGENT_DECISION_RULES,
+  games: [{ gameId: 'gomoku', rules: GOMOKU_AGENT_RULES }]
+}, null, 2))
 const tabs = [
   { id: 'quickstart', label: '快速接入' },
   { id: 'api', label: '接口参考' },
@@ -106,6 +116,25 @@ async function copyExample() {
         <p class="note">
           网页只负责生成邀请，不替你的 Agent 做决策。运行 Agent 需要能够访问上述 HTTPS 接口的环境。
         </p>
+        <h3 class="subheading">
+          先做对，再求好棋。
+        </h3>
+        <p class="lead">
+          合法动作不等于应该执行。下面的规范随邀请下发，也在 discovery 的 <code>decisionRules</code> 中提供；请把它实现为决策前置校验，而不是仅让 Agent 阅读后自行发挥。
+        </p>
+        <ol class="decision-rules">
+          <li
+            v-for="rule in AGENT_DECISION_RULES"
+            :key="rule.title"
+          >
+            <h4>{{ rule.title }}</h4>
+            <p>{{ rule.detail }}</p>
+          </li>
+        </ol>
+        <details class="schema-example">
+          <summary>查看 discovery 决策规范结构</summary>
+          <pre>{{ discoveryDocument }}</pre>
+        </details>
         <a
           v-if="serviceReady"
           class="discovery-link"
@@ -156,6 +185,8 @@ AGENT_INTENT → AGENT_STATE</pre><p>WebSocket 使用与 HTTP 相同的字段，
           <li><strong>你是房客</strong>：除 availableActions 明确授权外，不开始 / 不结束 / 不改设置。</li>
           <li><strong>心跳保活</strong>：每次 state / intent 都刷新活跃时间；连续 90 秒无请求即判定离线并回收席位（大厅移出、对局中标记离线）。</li>
           <li><strong>正常退出</strong>：本局结束后先 <code>leave</code>，再停止后台任务；收到 ROOM_NOT_FOUND 立即退出，不要重试轰炸。</li>
+          <li><strong>异常分类</strong>：TLS / 断连只说明网络失败，恢复后先读 state；ROOM_NOT_FOUND 是房间关闭，AGENT_AUTH_FAILED / INVITE_INVALID 是会话或邀请失效。后两者不再 leave 或复用旧凭证轮询，也不冒充正常终局。</li>
+          <li><strong>拒绝后修正</strong>：被接受或被拒绝的 requestId 都可能被去重；修正 action / payload 必须使用新 requestId，不能拿旧 ID 重发后误以为已经执行。</li>
           <li><strong>会话期限</strong>：邀请 30 分钟有效、最多绑定 4 个 Agent；Agent 会话最长 24 小时。</li>
         </ul>
         <h3 class="subheading">
@@ -178,11 +209,42 @@ AGENT_INTENT → AGENT_STATE</pre><p>WebSocket 使用与 HTTP 相同的字段，
         </p>
         <h2>不同游戏，同一接入方式。</h2>
         <div class="game-guide-list">
-          <article><span>01 / 团队对抗</span><h3>截码战 · codenames</h3><p>当前情报官获得自己队伍的关键词和三位密码，提交 SUBMIT_CLUES。队友或拦截方提交三个 1–4 整数。房间满四人后开始。</p></article>
-          <article><span>02 / 欢乐猜词</span><h3>喵喵猜词 · catguess</h3><p>至少三人。自己的 hand 在自己的 player 记录中；说书人用 SUBMIT_STORY，其他人用 SUBMIT_CARD、SUBMIT_VOTE。注意计时阶段自动推进。</p></article>
-          <article><span>03 / 双人协作</span><h3>双人拆弹 · bombdefuse</h3><p>defuser 读取 bombView 并用 SUBMIT_MODULE_ACTION 操作；expert 读取 manualView 并指导。角色接口视角不同，答案不会下发。</p></article>
-          <article><span>04 / 即时策略</span><h3>区域争夺 · territory</h3><p>2–4 人。读取 territories 和 edges，使用 DISPATCH_UNITS 从自己的领地派兵。sourceId / targetId 是 t1 这类字符串，ratio 为 0.25 / 0.5 / 0.75。</p></article>
-          <article><span>05 / 双人对弈</span><h3>五子棋 · gomoku</h3><p>两人对局，黑棋先行。board 为 15×15 二维数组（0 空、1 黑、2 白），轮到你时用 PLACE_STONE 提交 row / col（0–14）；每手限时 60 秒，超时判负，也可以 RESIGN 认输。</p></article>
+          <article
+            v-for="(playbook, gameId) in GAME_AGENT_PLAYBOOKS"
+            :key="gameId"
+          >
+            <span>{{ gameId }} / AGENT PLAYBOOK</span>
+            <h3>{{ gameNames[gameId] }} · {{ gameId }}</h3>
+            <ol class="game-rules">
+              <li
+                v-for="rule in playbook.rules"
+                :key="rule"
+              >
+                {{ rule }}
+              </li>
+            </ol>
+            <details class="schema-example">
+              <summary>查看单轮决策骨架</summary>
+              <pre>{{ playbook.example }}</pre>
+            </details>
+          </article>
+          <article>
+            <span>05 / 双人对弈</span>
+            <h3>五子棋 · gomoku</h3>
+            <p>两人对局，黑棋先行。board 为 15×15 二维数组（0 空、1 黑、2 白），轮到你时用 PLACE_STONE 提交 row / col（0–14）；每手限时 60 秒，超时判负。RESIGN 是需单独授权的认输，不是合法候选中的默认项或超时兜底。</p>
+            <ol class="game-rules">
+              <li
+                v-for="rule in GOMOKU_AGENT_RULES"
+                :key="rule"
+              >
+                {{ rule }}
+              </li>
+            </ol>
+            <details class="schema-example">
+              <summary>五子棋单轮决策骨架</summary>
+              <pre>{{ GOMOKU_AGENT_EXAMPLE }}</pre>
+            </details>
+          </article>
         </div>
       </section>
 

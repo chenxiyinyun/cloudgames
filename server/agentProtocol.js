@@ -1,3 +1,6 @@
+import { GOMOKU_AGENT_RULES } from '../src/shared/agentPlaybook.js';
+import { GAME_AGENT_PLAYBOOKS } from '../src/shared/agentGameGuides.js';
+
 export const AGENT_API_VERSION = '1';
 const text = (max = 20) => ({ type: 'string', maxLength: max });
 const guess = { type: 'array', items: 'integer', minItems: 3, maxItems: 3, minimum: 1, maximum: 4 };
@@ -72,6 +75,14 @@ export const GAME_AGENT_GUIDES = {
     ]
   }
 };
+
+// main 的动作目录集中在 agentProtocol；提示词与当前分支共用同一份规则源。
+for (const [gameId, playbook] of Object.entries(GAME_AGENT_PLAYBOOKS)) {
+  GAME_AGENT_GUIDES[gameId].rules.push(...playbook.rules);
+}
+GAME_AGENT_GUIDES.gomoku.rules.push(...GOMOKU_AGENT_RULES);
+const bombRules = GAME_AGENT_GUIDES.bombdefuse.rules;
+bombRules[bombRules.findIndex(rule => rule.includes('select_symbols'))] = '操作放在 action 字段中，例如 cut_wire / press_key / press_symbols / enter_password / move。';
 
 export function getAgentActions(room, playerId, gameId) {
   const me = room.players.find(player => player.id === playerId);
