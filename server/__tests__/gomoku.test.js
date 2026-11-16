@@ -4,6 +4,8 @@ import { getGameAdapter } from '../games/index.js';
 import { C2S, S2C } from '../protocol.js';
 import { GAME_AGENT_GUIDES, validateAgentIntent } from '../agentProtocol.js';
 import { BLACK, WHITE } from '../../games/gomoku/src/services/gameEngine.js';
+import { AGENT_DECISION_RULES, GOMOKU_AGENT_RULES } from '../../src/shared/agentPlaybook.js';
+import { createAgentHttp } from '../agentHttp.js';
 
 let codeSeq;
 function generateRoomCode() {
@@ -252,10 +254,40 @@ describe('gomoku agent protocol', () => {
     expect(validateAgentIntent('gomoku', 'PLACE_STONE', { row: 0, col: 0, extra: 1 }).error).toContain('未定义字段');
   });
 
-  it('exposes the gomoku guide through the agent discovery payload', () => {
+  it('exposes the shared decision rules and gomoku safeguards through discovery', () => {
     const guide = GAME_AGENT_GUIDES['gomoku'];
     expect(guide).toBeTruthy();
     expect(guide.name).toBe('五子棋');
     expect(guide.actions.map(a => a.action)).toEqual(['START_GAME', 'PLACE_STONE', 'RESIGN', 'RESTART_GAME', 'END_GAME']);
+    expect(guide.rules).toEqual(expect.arrayContaining(GOMOKU_AGENT_RULES));
+    expect(AGENT_DECISION_RULES.map(rule => rule.title)).toContain('不可逆动作单独授权');
+  });
+
+  it('returns decisionRules in discovery and safety instructions after joining over HTTP', async () => {
+    const manager = makeManager();
+    const host = makeConn();
+    manager.handleMessage(host, { type: C2S.CREATE, gameId: 'gomoku', playerId: 'human', playerName: '真人房主' });
+    const roomCode = host.last().roomCode;
+    manager.handleMessage(host, { type: 'AGENT_INVITE' });
+    const inviteToken = host.last().inviteToken;
+    const responses = [];
+    const response = {
+      writeHead(status, headers) { this.status = status; this.headers = headers; },
+      end(body) { responses.push({ status: this.status, body: JSON.parse(body) }); }
+    };
+    const http = createAgentHttp({ manager });
+    await http.handle({ method: 'GET', url: '/api/agent/discovery' }, response);
+    expect(responses[0].body.decisionRules).toEqual(AGENT_DECISION_RULES);
+    expect(responses[0].body.games.find(game => game.gameId === 'gomoku').rules).toEqual(expect.arrayContaining(GOMOKU_AGENT_RULES));
+
+    await http.handle({
+      method: 'POST',
+      url: '/api/agent/rpc',
+      async *[Symbol.asyncIterator]() { yield JSON.stringify({ operation: 'join', roomCode, inviteToken, agentName: 'HTTP Agent' }); }
+    }, response);
+    expect(responses[1].status).toBe(200);
+    expect(responses[1].body.instructions).toContain('RESIGN 仅在用户明确授权');
+    expect(responses[1].body.instructions).toContain('按本游戏专属规则比较玩家身份、角色、队伍或回合字段');
+    expect(responses[1].body.instructions).toContain('ROOM_NOT_FOUND / AGENT_AUTH_FAILED');
   });
 });

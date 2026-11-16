@@ -8,6 +8,7 @@
 import * as engine from '../../games/gomoku/src/services/gameEngine.js';
 import { baseRoom, clone } from '../projection.js';
 import { action, field } from '../agentSchema.js';
+import { GOMOKU_AGENT_RULES } from '../../src/shared/agentPlaybook.js';
 
 const AGENT_GUIDE = {
   gameId: 'gomoku',
@@ -17,7 +18,8 @@ const AGENT_GUIDE = {
   rules: [
     'board 为 15×15 的二维数组（0 空、1 黑、2 白），行/列下标均为 0–14。',
     '只在自己的回合（room.currentTurn 与你的 role 相同）落子；每手限时 60 秒，超时判负。',
-    'moveHistory 记录全部落子；winner / winningLine / endReason 表示终局原因。'
+    'moveHistory 记录全部落子；winner / winningLine / endReason 表示终局原因。',
+    ...GOMOKU_AGENT_RULES
   ],
   actions: [
     action('START_GAME', '房主在两名玩家在线时开始。'),

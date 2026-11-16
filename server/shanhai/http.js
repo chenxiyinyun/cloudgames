@@ -125,7 +125,7 @@ export function createShanhaiHttp({
     return profile ? { profile, token } : null;
   }
 
-  function issueGuest(body) {
+  function issueGuest() {
     const profileId = `p_${randomUUID()}`;
     const token = randomBytes(TOKEN_BYTES).toString('base64url');
     let code = randomCode();
@@ -140,7 +140,7 @@ export function createShanhaiHttp({
     const rawCode = body.transferCode == null ? '' : String(body.transferCode).trim().toUpperCase();
     if (!rawCode) {
       if (!guestLimiter(ip)) return fail(res, 429, 'RATE_LIMITED', '创建档案过于频繁，请稍后再试');
-      const created = issueGuest(body);
+      const created = issueGuest();
       return send(res, 201, { profileId: created.profileId, token: created.token, transferCode: created.transferCode, rev: 0 });
     }
     if (!transferLimiter(ip)) return fail(res, 429, 'RATE_LIMITED', '尝试次数过多，请稍后再试');
@@ -239,7 +239,7 @@ export function createShanhaiHttp({
   }
 
   async function handle(req, res) {
-    let pathname = '';
+    let pathname;
     try {
       pathname = new URL(req.url, 'http://localhost').pathname;
     } catch {

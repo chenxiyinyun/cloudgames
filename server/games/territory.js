@@ -9,6 +9,7 @@
 import * as engine from '../../games/territory-control/src/services/gameEngine.js';
 import { baseRoom, clone } from '../projection.js';
 import { action, field, text } from '../agentSchema.js';
+import { TERRITORY_AGENT_RULES } from '../../src/shared/agentGameGuides.js';
 
 const AGENT_GUIDE = {
   gameId: 'territory',
@@ -17,7 +18,8 @@ const AGENT_GUIDE = {
   summary: '2–4 人即时策略，从自己领地派兵，经连通路线占领地图。',
   rules: [
     'gameState.territories 提供 id、ownerId、units、坐标；edges 提供连通关系。',
-    '只能由自己的领地派兵，ratio 为 0.25 / 0.5 / 0.75；每个 tick 地图都会变化。'
+    '只能由自己的领地派兵，ratio 为 0.25 / 0.5 / 0.75；每个 tick 地图都会变化。',
+    ...TERRITORY_AGENT_RULES
   ],
   actions: [
     action('START_GAME', '房主在 2–4 名玩家在线时开始。'),

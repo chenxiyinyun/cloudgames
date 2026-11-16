@@ -8,6 +8,7 @@
 import * as engine from '../../games/bomb-defuse/src/services/gameEngine.js';
 import { baseRoom, clone } from '../projection.js';
 import { action, field, text } from '../agentSchema.js';
+import { BOMBDEFUSE_AGENT_RULES } from '../../src/shared/agentGameGuides.js';
 
 const AGENT_GUIDE = {
   gameId: 'bombdefuse',
@@ -16,8 +17,9 @@ const AGENT_GUIDE = {
   summary: '两人合作。defuser 查看 bombView 并操作；expert 查看 manualView，负责指导。',
   rules: [
     '专家不能直接操作模块；拆弹员不会收到说明书，专家不会收到模块答案。',
-    '操作放在 action 字段中，例如 cut_wire / press_key / select_symbols / enter_password / move。',
-    '每次合法操作后的 actionLog 与模块状态可供双方共享信息。'
+    '操作放在 action 字段中，例如 cut_wire / press_key / press_symbols / enter_password / move。',
+    '每次合法操作后的 actionLog 与模块状态可供双方共享信息。',
+    ...BOMBDEFUSE_AGENT_RULES
   ],
   actions: [
     action('START_GAME', '房主在两名玩家在线时开始。'),

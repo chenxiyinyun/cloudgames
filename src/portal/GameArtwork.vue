@@ -364,6 +364,71 @@ defineProps({
       />
     </g>
 
+    <g v-else-if="game === 'shanhai-letters'">
+      <path
+        fill="#F4D03F"
+        d="m384 52 5 13 13 5-13 5-5 13-5-13-13-5 13-5 5-13Z"
+      />
+      <path
+        fill="#5EDCF4"
+        d="M72 224h8v8h-8zM86 68h10v10H86zM404 234h8v8h-8z"
+      />
+      <g transform="rotate(-5 240 162)">
+        <path
+          fill="#E8BE7E"
+          d="M126 78h228v162H126z"
+        />
+        <path
+          fill="#FFF9EB"
+          d="M114 64h228v162H114z"
+          stroke="#0A0E27"
+          stroke-width="5"
+        />
+        <path
+          fill="#F0A6CA"
+          d="M114 64h228v44H114z"
+          stroke="#0A0E27"
+          stroke-width="4"
+        />
+        <path
+          fill="none"
+          stroke="#0A0E27"
+          stroke-width="4"
+          d="m116 66 112 72 112-72"
+        />
+        <path
+          fill="#5EDCF4"
+          d="M140 156h96v10h-96zM140 178h68v8h-68z"
+        />
+        <rect
+          x="266"
+          y="146"
+          width="48"
+          height="52"
+          fill="#F0544F"
+          stroke="#0A0E27"
+          stroke-width="4"
+        />
+        <path
+          fill="#FFF9EB"
+          d="M278 158h24v6h-24zM287 158h6v28h-6zM278 180h24v6h-24z"
+        />
+      </g>
+      <path
+        fill="#5EDCF4"
+        d="M320 72c18-16 44-16 58-4-12 10-16 20-16 32-18-6-32-14-42-28Z"
+        stroke="#0A0E27"
+        stroke-width="4"
+      />
+      <path
+        fill="none"
+        stroke="#F4D03F"
+        stroke-width="5"
+        stroke-dasharray="8 9"
+        d="M68 258q86 38 172 2t172-8"
+      />
+    </g>
+
     <g v-else>
       <path
         fill="#5EDCF4"

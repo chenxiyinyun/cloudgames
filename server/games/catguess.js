@@ -14,6 +14,7 @@ import * as engine from '../../games/catguess/src/services/gameEngine.js';
 import { DEFAULT_WORD_POOL } from '../../games/catguess/src/services/wordPool.js';
 import { baseRoom, clone } from '../projection.js';
 import { action, field, text } from '../agentSchema.js';
+import { CATGUESS_AGENT_RULES } from '../../src/shared/agentGameGuides.js';
 
 const AGENT_GUIDE = {
   gameId: 'catguess',
@@ -23,7 +24,8 @@ const AGENT_GUIDE = {
   rules: [
     '说书人选择手牌下标并写 1–20 字提示；其他玩家选择手牌下标，随后给公开卡牌 id 投票。',
     'scoring 前不会泄露答案、他人手牌或他人投票。',
-    '计时阶段会自动推进，收到状态后及时行动。'
+    '计时阶段会自动推进，收到状态后及时行动。',
+    ...CATGUESS_AGENT_RULES
   ],
   actions: [
     action('START_GAME', '房主在至少三人在线时开始。'),

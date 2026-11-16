@@ -26,6 +26,7 @@ import {
 } from '../../games/codenames/src/services/gameEngine.js';
 import { baseRoom, clone } from '../projection.js';
 import { action } from '../agentSchema.js';
+import { CODENAMES_AGENT_RULES } from '../../src/shared/agentGameGuides.js';
 
 const guess = { type: 'array', items: 'integer', minItems: 3, maxItems: 3, minimum: 1, maximum: 4 };
 
@@ -37,7 +38,8 @@ const AGENT_GUIDE = {
   rules: [
     '关键词和当前密码只对当前情报官可见。',
     '每轮提交三个 1–4 的整数；以 availableActions 为准，不要猜其他队伍的未公开投票。',
-    '房间需满四人才建议开始；Agent 不能自动成为真人。'
+    '房间需满四人才建议开始；Agent 不能自动成为真人。',
+    ...CODENAMES_AGENT_RULES
   ],
   actions: [
     action('START_GAME', '房主开始游戏，等待或分队阶段且满四人。'),

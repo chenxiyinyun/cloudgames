@@ -1,6 +1,8 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { getAgentServiceUrl, getAgentWebSocketUrl } from '../agentAccess'
+import { formatAgentRules, AGENT_DECISION_RULES, GOMOKU_AGENT_RULES, GOMOKU_AGENT_EXAMPLE } from '../agentPlaybook'
+import { GAME_AGENT_PLAYBOOKS, formatGameAgentGuide } from '../agentGameGuides'
 
 const props = defineProps({
   gameId: { type: String, required: true },
@@ -41,6 +43,10 @@ const discoveryUrl = computed(() => activeInvite.value ? `${activeInvite.value.s
 
 const OFFLINE_AFTER_SECONDS = 90
 
+const gameAgentGuide = computed(() => props.gameId === 'gomoku'
+  ? formatGameAgentGuide({ rules: GOMOKU_AGENT_RULES, example: GOMOKU_AGENT_EXAMPLE })
+  : formatGameAgentGuide(GAME_AGENT_PLAYBOOKS[props.gameId]))
+
 const instruction = computed(() => {
   if (!activeInvite.value) return ''
   const wsUrl = getAgentWebSocketUrl(activeInvite.value.serviceUrl)
@@ -72,7 +78,8 @@ WebSocket 接口：${wsUrl}
 - 房间消失：收到 ROOM_NOT_FOUND → 立即退出，禁止无限重试。
 - 凭证失效：AGENT_AUTH_FAILED / INVITE_INVALID → 停止后台任务，告知我需要新的邀请，绝不冒用真人身份。
 - 主动中止：当我要求"停止/退出"时，先 leave 再终止后台任务。
-- 自身异常：网络连续失败（如 5 次退避重试仍失败）→ 退避 5/10/20 秒，仍失败则停止并汇报，不要高频轰炸。
+- 自身异常：TLS / 断连 / 请求超时只代表网络失败，不代表对局结束、房间关闭或凭证失效；连续失败按 5/10/20 秒退避，最多 5 次仍失败则停止并汇报，不要高频轰炸。自己的行动回合不能按完整退避序列空等 deadline，应优先重连；恢复后先 state 再行动。
+- 正常结束、网络中断、房间关闭、凭证失效必须分别汇报；ROOM_NOT_FOUND / AGENT_AUTH_FAILED 后旧会话已不可继续，不再请求 leave，不宣称已正常退出或完成本局。
 - 退出前务必让后台循环可被取消（保存进程/任务句柄或设置停止标志），避免留下僵尸任务。
 
 【四、接口调用（HTTP）】
@@ -89,14 +96,16 @@ WebSocket 接口：${wsUrl}
 【五、WebSocket（可选，更实时）】
 连接 ${wsUrl}，发送 {"type":"AGENT_JOIN", ...} 加入，随后用 AGENT_STATE / AGENT_INTENT / AGENT_LEAVE；字段与 HTTP 一致。WebSocket 断开会立即触发离线判定，因此也应带重连与退避，或改用 HTTP 心跳兜底。
 
-【六、决策与合规】
-- 只依据自己视角的 room 与 availableActions 决策；不要尝试获取他人手牌、拆弹答案、未公开投票或截码战密码。
-- 每次只从 availableActions 里选动作；payload 需符合其 payloadSchema。
-- AGENT_ACTION_RESULT 的 accepted=false 表示被拒或规则内失误，按 reason 调整策略；ACTION_REJECTED 表示参数/权限问题，读取新状态后重试一次即可，不要死循环。
-- 不要冒充真人，不要使用真人 playerId；不要在同一房间重复加入多个身份。
-- 对局中若轮到你可行动而你迟迟不动，服务端会按各游戏规则自动推进（可能判你失败），所以保持心跳与及时决策。
+【六、安全决策协议（必须实现，不能只做口头承诺）】
+${formatAgentRules(AGENT_DECISION_RULES)}
 
-【七、汇报格式】
+【七、本游戏专属规则】
+${gameAgentGuide.value || '先读取 GET ' + discoveryUrl.value + ' 中本游戏的 rules 与 actions，再按上述协议行动。'}
+- 只依据自己视角的 room 与 availableActions 决策；不要尝试获取他人手牌、拆弹答案、未公开投票或截码战密码。
+- AGENT_ACTION_RESULT 的 accepted=false 表示被拒或规则内失误，按 reason 与最新状态修正；不要死循环。
+- 不要冒充真人，不要使用真人 playerId；不要在同一房间重复加入多个身份。
+
+【八、汇报格式】
 后台任务启动后回复一句简短确认（房间号 + 运行方式）。结束时汇报：最终结果、关键决策、退出原因（正常结束/房间关闭/凭证失效/被要求停止）。`
 })
 function onInvite(message) {
