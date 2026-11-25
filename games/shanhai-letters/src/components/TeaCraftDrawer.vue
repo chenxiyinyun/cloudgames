@@ -9,6 +9,7 @@ import {
   openModal
 } from '../stores/gameStore.js';
 import ArtSprite from './ArtSprite.vue';
+import GameIcon from './GameIcon.vue';
 
 const state = computed(() => gameState.state);
 
@@ -34,7 +35,7 @@ function recipeParts(it) {
     aria-modal="true"
     aria-label="屋内茶案手作炉"
   >
-    <div class="modal-head">
+    <div class="modal-head desk-head">
       <div>
         <h2>茶案手作炉</h2>
         <span class="mh-sub">当前节气「{{ currentSeason.name }}」 · 庭院采灵材，案头烹器物</span>
@@ -47,11 +48,15 @@ function recipeParts(it) {
           回桌案整行囊
         </button>
         <button
-          class="modal-close"
-          aria-label="关闭"
+          class="return-clasp"
+          aria-label="收起茶案"
           @click="closeModal"
         >
-          ×
+          <GameIcon
+            name="close-tab"
+            :size="14"
+          />
+          <span>收起</span>
         </button>
       </div>
     </div>

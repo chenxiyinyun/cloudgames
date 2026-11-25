@@ -31,8 +31,9 @@ import {
 } from './stores/gameStore.js';
 import { audioBridge, hapticsBridge } from './bridge/platformBridge.js';
 
-import StageCanvas from './stage/StageCanvas.vue';
+import Stage3DCanvas from './stage3d/Stage3DCanvas.vue';
 import ArtSprite from './components/ArtSprite.vue';
+import GameIcon from './components/GameIcon.vue';
 import FlightFxLayer from './components/FlightFxLayer.vue';
 import PackDrawer from './components/PackDrawer.vue';
 import MailDeskDrawer from './components/MailDeskDrawer.vue';
@@ -170,19 +171,24 @@ onUnmounted(() => {
   >
     <div class="paper-bg" />
 
-    <div class="viewport">
+    <div
+      class="viewport"
+      :class="{ 'is-focused': !!view.modal }"
+    >
       <div
         ref="scrollerRef"
         class="scene-scroller"
       >
         <div class="scene-canvas">
-          <!-- 60fps Canvas 2D 游戏舞台 -->
-          <StageCanvas
+          <!-- Three.js 2.5D 宣纸景深微缩剧场 -->
+          <Stage3DCanvas
             :scene="view.scene"
             :time-of-day="currentTimeOfDay"
             :particle-mode="currentSeason.particle"
             :home-beast-ids="homeBeastIds"
             :pet-triggers="petTriggers"
+            :focus-target="view.modal"
+            :camera-shake="view.screenShake"
             @actor-positions="onActorPositions"
           />
 
@@ -207,7 +213,7 @@ onUnmounted(() => {
                 v-if="currentAura.primary"
                 class="shelf-aura-plaque"
               >
-                {{ currentAura.primary.name }}
+                <i>{{ currentAura.primary.name }}</i>
               </div>
               <div class="ws-frame">
                 <button
@@ -234,7 +240,7 @@ onUnmounted(() => {
                   />
                 </button>
               </div>
-              <span class="hotspot-tag ws-tag">博古架 · 点格摆件</span>
+              <span class="hotspot-tag ws-tag">博古架 · 摆件聚雅韵</span>
             </div>
 
             <!-- 左下茶炉：茶案手作 -->
@@ -245,7 +251,7 @@ onUnmounted(() => {
               @click="openModal('tea')"
             >
               <span class="stove-glow" />
-              <span class="hotspot-tag">茶案手作</span>
+              <span class="hotspot-tag">茶炉手作</span>
             </button>
 
             <!-- 桌案包袱：整行囊 -->
@@ -256,8 +262,14 @@ onUnmounted(() => {
               aria-label="桌案行囊包袱"
               @click="openModal('pack')"
             >
-              <span class="bundle-badge">行囊</span>
-              <span class="hotspot-tag">整理包袱出发</span>
+              <span class="bundle-badge">
+                <GameIcon
+                  name="pack"
+                  :size="14"
+                />
+                <span>整行囊</span>
+              </span>
+              <span class="hotspot-tag">收拾包袱送神兽出门</span>
             </button>
 
             <!-- 廊窗出口 -->
@@ -274,7 +286,7 @@ onUnmounted(() => {
               v-for="(t, idx) in awayTrips"
               :key="t.beastId"
               class="away-marker"
-              :style="{ left: `${24 + idx * 22}%`, top: '60%' }"
+              :style="{ left: `${26 + idx * 24}%`, top: '69%' }"
             >
               <div class="away-tag">
                 <span class="at-name">{{ t.beastName }}{{ t.partnerId ? ` & ${BEASTS.find((b) => b.id === t.partnerId)?.name}` : '' }} 远行中</span>
@@ -287,7 +299,11 @@ onUnmounted(() => {
                 :title="`使用静心沙漏（今日剩 ${leftHg} 次）`"
                 @click="doForceReturn(t.beastId)"
               >
-                ⏳ <span>{{ leftHg }}</span>
+                <GameIcon
+                  name="hourglass"
+                  :size="13"
+                />
+                <span>{{ leftHg }}</span>
               </button>
             </div>
           </template>
@@ -327,7 +343,12 @@ onUnmounted(() => {
                 class="yv-hit"
                 @click="handleTapVisitor(v.id)"
               >
-                <span class="yv-badge">🍵</span>
+                <span class="yv-badge">
+                  <GameIcon
+                    name="teacup"
+                    :size="18"
+                  />
+                </span>
                 <span class="yv-name">{{ v.name }}</span>
               </button>
               <div
@@ -381,7 +402,11 @@ onUnmounted(() => {
                     :disabled="!leftHg"
                     @click="doForceReturn(t.beastId)"
                   >
-                    ⏳ <span>{{ leftHg }}</span>
+                    <GameIcon
+                      name="hourglass"
+                      :size="13"
+                    />
+                    <span>{{ leftHg }}</span>
                   </button>
                 </div>
               </template>
@@ -403,7 +428,13 @@ onUnmounted(() => {
               <span
                 v-if="herbReady"
                 class="herb-ready-glow"
-              >✦ 灵草已熟 · 采撷灵材</span>
+              >
+                <GameIcon
+                  name="herb"
+                  :size="14"
+                />
+                <span>灵草已熟 · 采撷灵材</span>
+              </span>
               <span
                 v-else
                 class="herb-cd-tag"
@@ -505,6 +536,10 @@ onUnmounted(() => {
             :title="currentSeason.desc"
             @click="cycleTimeFilter"
           >
+            <GameIcon
+              name="sundial"
+              :size="15"
+            />
             <span>{{ currentSeason.name }}</span>
             <em>{{ state.timeOfDay === 'auto' ? `${timeLabelMap[currentTimeOfDay]}（自动）` : timeLabelMap[currentTimeOfDay] }}</em>
           </button>
@@ -516,7 +551,10 @@ onUnmounted(() => {
             :title="state.settings.muted ? '开启声音' : '静音'"
             @click="toggleSound"
           >
-            {{ state.settings.muted ? '🔇' : '🔔' }}
+            <GameIcon
+              :name="state.settings.muted ? 'bell-mute' : 'bell'"
+              :size="18"
+            />
           </button>
           <button
             class="hud-icon-btn"
@@ -524,12 +562,15 @@ onUnmounted(() => {
             title="驿站杂记与云存档"
             @click="openModal('settings')"
           >
-            ⚙
+            <GameIcon
+              name="settings"
+              :size="18"
+            />
           </button>
         </div>
       </div>
 
-      <!-- 底部木牌操作坞 -->
+      <!-- 底部红木漆牌操作坞 -->
       <div class="hud-bottom">
         <div
           class="hud-tokens"
@@ -540,7 +581,10 @@ onUnmounted(() => {
             class="token-btn"
             @click="openModal('pack')"
           >
-            <span class="tb-glyph">🎒</span>
+            <span class="tb-glyph"><GameIcon
+              name="pack"
+              :size="19"
+            /></span>
             <span>行囊</span>
           </button>
           <button
@@ -548,7 +592,10 @@ onUnmounted(() => {
             :class="{ 'has-badge': unreadLetters.length > 0 }"
             @click="openMailDrawer()"
           >
-            <span class="tb-glyph">✉️</span>
+            <span class="tb-glyph"><GameIcon
+              name="mail"
+              :size="19"
+            /></span>
             <span>信箱</span>
             <i
               v-if="unreadLetters.length"
@@ -559,28 +606,40 @@ onUnmounted(() => {
             class="token-btn"
             @click="openModal('tea')"
           >
-            <span class="tb-glyph">🍵</span>
+            <span class="tb-glyph"><GameIcon
+              name="tea"
+              :size="19"
+            /></span>
             <span>茶案</span>
           </button>
           <button
             class="token-btn"
             @click="openModal('shelf')"
           >
-            <span class="tb-glyph">🏺</span>
+            <span class="tb-glyph"><GameIcon
+              name="shelf"
+              :size="19"
+            /></span>
             <span>博古</span>
           </button>
           <button
             class="token-btn"
             @click="openModal('beast')"
           >
-            <span class="tb-glyph">🦊</span>
+            <span class="tb-glyph"><GameIcon
+              name="beast"
+              :size="19"
+            /></span>
             <span>心境</span>
           </button>
           <button
             class="token-btn"
             @click="openModal('codex')"
           >
-            <span class="tb-glyph">📜</span>
+            <span class="tb-glyph"><GameIcon
+              name="codex"
+              :size="19"
+            /></span>
             <span>图鉴</span>
           </button>
         </div>
@@ -589,6 +648,10 @@ onUnmounted(() => {
           class="scene-flip"
           @click="switchScene()"
         >
+          <GameIcon
+            :name="view.scene === 'hall' ? 'door-out' : 'door-in'"
+            :size="17"
+          />
           <span>{{ view.scene === 'hall' ? '出门去庭院' : '回屋进正厅' }}</span>
           <i
             v-if="view.scene === 'hall' && (unreadLetters.length || herbReady)"

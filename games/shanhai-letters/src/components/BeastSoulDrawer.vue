@@ -18,6 +18,7 @@ import {
 } from '../stores/gameStore.js';
 import { audioBridge } from '../bridge/platformBridge.js';
 import ArtSprite from './ArtSprite.vue';
+import GameIcon from './GameIcon.vue';
 
 const state = computed(() => gameState.state);
 const view = computed(() => gameState.view);
@@ -75,7 +76,7 @@ function quirkReqText(q) {
     aria-modal="true"
     aria-label="神兽心境与印记谱"
   >
-    <div class="modal-head">
+    <div class="modal-head desk-head">
       <div>
         <h2>神兽心境谱</h2>
         <span class="mh-sub">回信话语塑造五维心境，觉醒可切换的后天性格印记</span>
@@ -92,11 +93,15 @@ function quirkReqText(q) {
         </button>
       </div>
       <button
-        class="modal-close"
-        aria-label="关闭"
+        class="return-clasp"
+        aria-label="收起心境谱"
         @click="closeModal"
       >
-        ×
+        <GameIcon
+          name="close-tab"
+          :size="14"
+        />
+        <span>收起</span>
       </button>
     </div>
 

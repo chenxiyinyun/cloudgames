@@ -17,6 +17,7 @@ import {
 } from '../stores/gameStore.js';
 import { audioBridge } from '../bridge/platformBridge.js';
 import ArtSprite from './ArtSprite.vue';
+import GameIcon from './GameIcon.vue';
 
 const state = computed(() => gameState.state);
 const view = computed(() => gameState.view);
@@ -57,7 +58,7 @@ function canTrade(tr) {
     aria-modal="true"
     aria-label="堂前博古架与访客茶席"
   >
-    <div class="modal-head">
+    <div class="modal-head desk-head">
       <div>
         <h2>堂前博古架</h2>
         <span class="mh-sub">摆出风物聚成堂前雅韵，还能在庭院招待茶客以物易物</span>
@@ -79,11 +80,15 @@ function canTrade(tr) {
         </button>
       </div>
       <button
-        class="modal-close"
-        aria-label="关闭"
+        class="return-clasp"
+        aria-label="收起博古架"
         @click="closeModal"
       >
-        ×
+        <GameIcon
+          name="close-tab"
+          :size="14"
+        />
+        <span>收起</span>
       </button>
     </div>
 

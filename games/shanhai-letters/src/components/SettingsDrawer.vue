@@ -19,6 +19,7 @@ import {
 } from '../stores/gameStore.js';
 import { hourglassLeft } from '../systems/gameSystems.js';
 import { audioBridge, hapticsBridge } from '../bridge/platformBridge.js';
+import GameIcon from './GameIcon.vue';
 
 const state = computed(() => gameState.state);
 const cloud = computed(() => gameState.cloud);
@@ -116,17 +117,21 @@ async function submitBind() {
     aria-modal="true"
     aria-label="驿站杂记与云存档"
   >
-    <div class="modal-head">
+    <div class="modal-head desk-head">
       <div>
         <h2>驿站杂记</h2>
         <span class="mh-sub">四时天光 · 声画触感 · 跨端云存档</span>
       </div>
       <button
-        class="modal-close"
-        aria-label="关闭"
+        class="return-clasp"
+        aria-label="收起杂记"
         @click="closeModal"
       >
-        ×
+        <GameIcon
+          name="close-tab"
+          :size="14"
+        />
+        <span>收起</span>
       </button>
     </div>
 

@@ -1,5 +1,6 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
+import gsap from 'gsap';
 import {
   BEASTS,
   CITIES,
@@ -20,10 +21,14 @@ import {
 } from '../stores/gameStore.js';
 import { audioBridge, hapticsBridge } from '../bridge/platformBridge.js';
 import ArtSprite from './ArtSprite.vue';
+import GameIcon from './GameIcon.vue';
+import Relic3DStage from '../stage3d/Relic3DStage.vue';
 
 const state = computed(() => gameState.state);
 const view = computed(() => gameState.view);
 const inspectSouId = ref(null);
+const inspectPostcardId = ref(null);
+const bookBodyRef = ref(null);
 
 const tabs = [
   ['progress', '山海总卷'],
@@ -37,17 +42,59 @@ const selectedSou = computed(() => {
   return souById(inspectSouId.value);
 });
 
+const selectedPostcard = computed(() => {
+  if (!inspectPostcardId.value) return null;
+  return (state.value.postcards || []).find((pc) => pc.id === inspectPostcardId.value) || null;
+});
+
 function switchTab(id) {
+  if (view.value.codexTab === id) return;
   audioBridge.pageTurn();
   hapticsBridge.trigger('light');
   view.value.codexTab = id;
   inspectSouId.value = null;
+  inspectPostcardId.value = null;
+  nextTick(() => {
+    if (!bookBodyRef.value) return;
+    gsap.killTweensOf(bookBodyRef.value);
+    gsap.fromTo(
+      bookBodyRef.value,
+      { rotateY: -12, opacity: 0.35, transformPerspective: 1100, transformOrigin: 'left center' },
+      { rotateY: 0, opacity: 1, duration: 0.36, ease: 'power3.out' }
+    );
+  });
 }
 
 function toggleSou(s) {
   if (!(state.value.souvenirs[s.id] > 0)) return;
   audioBridge.wood();
   inspectSouId.value = inspectSouId.value === s.id ? null : s.id;
+}
+
+function togglePostcard(pc) {
+  audioBridge.paperOpen();
+  inspectPostcardId.value = inspectPostcardId.value === pc.id ? null : pc.id;
+}
+
+function onCardMove(e) {
+  const el = e.currentTarget;
+  if (!el || el.classList.contains('locked')) return;
+  const r = el.getBoundingClientRect();
+  const x = (e.clientX - r.left) / Math.max(1, r.width);
+  const y = (e.clientY - r.top) / Math.max(1, r.height);
+  el.style.setProperty('--mx', `${(x * 100).toFixed(1)}%`);
+  el.style.setProperty('--my', `${(y * 100).toFixed(1)}%`);
+  el.style.setProperty('--rx', `${((0.5 - y) * 14).toFixed(1)}deg`);
+  el.style.setProperty('--ry', `${((x - 0.5) * 16).toFixed(1)}deg`);
+}
+
+function onCardLeave(e) {
+  const el = e.currentTarget;
+  if (!el) return;
+  el.style.removeProperty('--mx');
+  el.style.removeProperty('--my');
+  el.style.removeProperty('--rx');
+  el.style.removeProperty('--ry');
 }
 
 function inspectBeast(id) {
@@ -64,7 +111,13 @@ function inspectBeast(id) {
     aria-modal="true"
     aria-label="线装古籍《新山海经》"
   >
-    <div class="modal-head">
+    <div
+      class="book-spine-stitch"
+      aria-hidden="true"
+    >
+      <i /><i /><i /><i />
+    </div>
+    <div class="modal-head desk-head">
       <div class="book-title-seal">
         <h2>新山海经</h2>
         <span class="mh-sub">总纂 {{ codexSummary.avg }}% · 藏品 {{ codexSummary.owned }}/{{ SOUVENIRS.length }}</span>
@@ -86,16 +139,23 @@ function inspectBeast(id) {
         </button>
       </div>
       <button
-        class="modal-close"
-        aria-label="关闭"
+        class="return-clasp"
+        aria-label="合上典籍"
         @click="closeModal"
       >
-        ×
+        <GameIcon
+          name="close-tab"
+          :size="14"
+        />
+        <span>合卷</span>
       </button>
     </div>
 
     <!-- 线装古籍双页书脊 -->
-    <div class="modal-scroll book-pages">
+    <div
+      ref="bookBodyRef"
+      class="modal-scroll book-pages"
+    >
       <!-- 分页 1：山海总卷（左右双页排版） -->
       <div
         v-if="view.codexTab === 'progress'"
@@ -163,21 +223,24 @@ function inspectBeast(id) {
         </div>
       </div>
 
-      <!-- 分页 2：百物雅志（36 件藏品） -->
+      <!-- 分页 2：百物雅志（36 件藏品 + 3D 描金鉴赏台） -->
       <div
         v-else-if="view.codexTab === 'souvenirs'"
         class="souvenirs-page"
       >
         <div
           v-if="selectedSou"
-          class="sou-inspect"
+          class="sou-inspect relic-showcase"
         >
-          <span class="si-art"><ArtSprite
-            :id="selectedSou.id"
+          <Relic3DStage
+            :key="selectedSou.id"
             kind="souvenir"
-            :alt="selectedSou.name"
-          /></span>
+            :art-id="selectedSou.id"
+            :title="selectedSou.name"
+            :rarity="selectedSou.rarity"
+          />
           <div class="si-txt">
+            <span class="si-rarity">{{ selectedSou.rarity === 'legend' ? '稀世孤品' : selectedSou.rarity === 'rare' ? '雅致珍玩' : '山海风物' }}</span>
             <b>{{ selectedSou.name }}</b>
             <p>{{ selectedSou.desc }}</p>
             <em>招客气息：{{ (selectedSou.attract || []).map((t) => tagName(t)).join('、') || '暂无' }} · 现有 ×{{ state.souvenirs[selectedSou.id] }}</em>
@@ -187,7 +250,7 @@ function inspectBeast(id) {
           v-else
           class="hint"
         >
-          点按已收到的风物纪念品可细看来历；多余件数还可用于跨城捎物或访客茶会以物易物。
+          点按已收到的风物纪念品，在 3D 赏玩台拨动细观描金釉色；多余件数可用于跨城捎物或访客茶会以物易物。
         </p>
 
         <div class="shelf">
@@ -202,6 +265,8 @@ function inspectBeast(id) {
             ]"
             :disabled="!(state.souvenirs[s.id] > 0)"
             @click="toggleSou(s)"
+            @pointermove="onCardMove"
+            @pointerleave="onCardLeave"
           >
             <div class="frame-art">
               <ArtSprite
@@ -288,13 +353,37 @@ function inspectBeast(id) {
         class="album-page"
       >
         <div
+          v-if="selectedPostcard"
+          class="sou-inspect relic-showcase"
+        >
+          <Relic3DStage
+            :key="selectedPostcard.id"
+            kind="city"
+            :art-id="selectedPostcard.cityId"
+            :title="selectedPostcard.title"
+            rarity="rare"
+          />
+          <div class="si-txt">
+            <span class="si-rarity">{{ cityById(selectedPostcard.cityId)?.name || '九州胜景' }}</span>
+            <b>{{ selectedPostcard.title }}</b>
+            <p>{{ selectedPostcard.caption }}</p>
+            <em>摄于 {{ fmtDate(selectedPostcard.at) }}</em>
+          </div>
+        </div>
+
+        <div
           v-if="state.postcards.length"
           class="polaroid-grid"
         >
-          <div
+          <button
             v-for="pc in state.postcards"
             :key="pc.id"
+            type="button"
             class="polaroid-card"
+            :class="{ focus: inspectPostcardId === pc.id }"
+            @click="togglePostcard(pc)"
+            @pointermove="onCardMove"
+            @pointerleave="onCardLeave"
           >
             <div class="pol-photo">
               <ArtSprite
@@ -302,13 +391,18 @@ function inspectBeast(id) {
                 kind="city"
                 :alt="cityById(pc.cityId)?.name"
               />
-              <span class="pol-weather">{{ WEATHER_MAP[pc.weather]?.icon || '' }}</span>
+              <span class="pol-weather">
+                <GameIcon
+                  :name="WEATHER_MAP[pc.weather]?.iconName || 'weather-sunny'"
+                  :size="14"
+                />
+              </span>
             </div>
             <div class="pol-cap">
               <b>{{ pc.title }}</b>
               <em>{{ pc.caption }} · {{ fmtDate(pc.at) }}</em>
             </div>
-          </div>
+          </button>
         </div>
         <div
           v-else

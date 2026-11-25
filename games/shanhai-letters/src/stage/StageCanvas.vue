@@ -20,24 +20,24 @@ const LOGICAL_H = 800;
 
 /* 屋内正厅锚点与室外庭院锚点 */
 const HALL_ANCHORS = [
-  { x: 300, y: 470, label: '品茗' },
-  { x: 600, y: 515, label: '蒲团' },
-  { x: 910, y: 430, label: '望窗' },
-  { x: 650, y: 465, label: '赏古架' },
-  { x: 225, y: 545, label: '烤炉' }
+  { x: 430, y: 520, label: '蒲团' },
+  { x: 640, y: 545, label: '堂中' },
+  { x: 905, y: 495, label: '望窗' },
+  { x: 750, y: 515, label: '赏古架' },
+  { x: 525, y: 560, label: '听风' }
 ];
 
 const YARD_ANCHORS = [
   { x: 560, y: 510, label: '石凳' },
-  { x: 820, y: 565, label: '药圃边' },
-  { x: 280, y: 515, label: '廊下' }
+  { x: 740, y: 565, label: '月洞门' },
+  { x: 340, y: 515, label: '廊下' }
 ];
 
 const INITIAL_SPOT = {
-  baize: { x: 300, y: 470 },
-  jiuweihu: { x: 600, y: 515 },
-  qingniao: { x: 910, y: 430 },
-  jingwei: { x: 465, y: 485 }
+  baize: { x: 430, y: 520 },
+  jiuweihu: { x: 645, y: 545 },
+  qingniao: { x: 905, y: 495 },
+  jingwei: { x: 540, y: 555 }
 };
 
 let rafId = 0;

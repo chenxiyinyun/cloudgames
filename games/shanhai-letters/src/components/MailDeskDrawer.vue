@@ -20,15 +20,18 @@ import {
 } from '../stores/gameStore.js';
 import { audioBridge, hapticsBridge } from '../bridge/platformBridge.js';
 import ArtSprite from './ArtSprite.vue';
+import GameIcon from './GameIcon.vue';
+import Envelope3DStage from '../stage3d/Envelope3DStage.vue';
+import Stamp3DStage from '../stage3d/Stamp3DStage.vue';
 
 const state = computed(() => gameState.state);
 const view = computed(() => gameState.view);
 
-const waxBreaking = ref(false);
 const inkRevealing = ref(false);
 const pendingOptionIdx = ref(null);
 const selectedStampId = ref('jianzi');
 const stamping = ref(false);
+const stampStageRef = ref(null);
 
 const curLetter = computed(() => {
   const list = state.value.letters;
@@ -52,7 +55,6 @@ const letterParagraphs = computed(() => {
 
 watch(curLetter, () => {
   pendingOptionIdx.value = null;
-  waxBreaking.value = false;
   inkRevealing.value = false;
   stamping.value = false;
 });
@@ -63,14 +65,10 @@ function selectLetter(l) {
   view.value.openLetterId = l.id;
 }
 
-function breakSealAndOpen() {
-  if (!curLetter.value || waxBreaking.value) return;
-  waxBreaking.value = true;
+function onEnvelopeOpened() {
+  if (!curLetter.value) return;
   doOpenLetter(curLetter.value.id);
-  setTimeout(() => {
-    waxBreaking.value = false;
-    inkRevealing.value = true;
-  }, 260);
+  inkRevealing.value = true;
 }
 
 function skipInkReveal() {
@@ -90,14 +88,24 @@ function pickReplyChoice(idx) {
   }
 }
 
-function pressCinnabarStamp() {
+function triggerStampPress() {
   if (!curLetter.value || pendingOptionIdx.value == null || stamping.value) return;
   stamping.value = true;
-  setTimeout(() => {
-    doReplyLetter(curLetter.value.id, pendingOptionIdx.value, selectedStampId.value);
-    pendingOptionIdx.value = null;
+  if (stampStageRef.value && typeof stampStageRef.value.triggerStamp === 'function') {
+    stampStageRef.value.triggerStamp();
+  } else {
+    completeReplyAfterStamp();
+  }
+}
+
+function completeReplyAfterStamp() {
+  if (!curLetter.value || pendingOptionIdx.value == null) {
     stamping.value = false;
-  }, 200);
+    return;
+  }
+  doReplyLetter(curLetter.value.id, pendingOptionIdx.value, selectedStampId.value);
+  pendingOptionIdx.value = null;
+  stamping.value = false;
 }
 </script>
 
@@ -109,20 +117,24 @@ function pressCinnabarStamp() {
     aria-modal="true"
     aria-label="驿站信笺桌"
   >
-    <div class="modal-head">
+    <div class="modal-head desk-head">
       <div>
-        <h2>驿站信箱</h2>
+        <h2>驿站信案</h2>
         <span
           v-if="state.letters.length"
           class="mh-sub"
         >{{ state.letters.length }} 封来信 · {{ unreadLetters.length ? `${unreadLetters.length} 封待拆或待回` : '皆已回信落印' }}</span>
       </div>
       <button
-        class="modal-close"
-        aria-label="关闭"
+        class="return-clasp"
+        aria-label="收起信案"
         @click="closeModal"
       >
-        ×
+        <GameIcon
+          name="close-tab"
+          :size="14"
+        />
+        <span>收起</span>
       </button>
     </div>
 
@@ -199,33 +211,17 @@ function pressCinnabarStamp() {
 
       <!-- 右侧信笺桌 -->
       <div class="letter-pane">
-        <!-- 仪式 1：未拆封的火漆信封特写 -->
-        <div
+        <!-- 仪式 1：未拆封的 3D 宣纸火漆信封特写 -->
+        <Envelope3DStage
           v-if="!curLetter.opened"
-          class="sealed-envelope"
-          :class="{ 'is-breaking': waxBreaking }"
-          @click="breakSealAndOpen"
-        >
-          <div class="se-postmark">
-            <span>{{ curLetter.cityName }}邮驿</span>
-            <em>{{ fmtDate(curLetter.at) }}</em>
-          </div>
-          <div class="se-flap" />
-          <div class="se-body">
-            <p class="se-from">
-              {{ curLetter.beastName }}{{ curLetter.coAuthorName ? ` 与 ${curLetter.coAuthorName}` : '' }} 寄呈
-            </p>
-            <h3>{{ curLetter.title }}</h3>
-          </div>
-          <button
-            class="wax-seal-btn"
-            type="button"
-            aria-label="点破火漆拆信"
-          >
-            <span class="ws-ring">山海</span>
-            <em>轻触火漆拆封</em>
-          </button>
-        </div>
+          :key="curLetter.id"
+          :title="curLetter.title"
+          :from-text="`${curLetter.beastName}${curLetter.coAuthorName ? ` 与 ${curLetter.coAuthorName}` : ''} 寄呈`"
+          :city-name="curLetter.cityName"
+          :date-text="fmtDate(curLetter.at)"
+          :paper-tint="curBeastDef?.paperTint || 'warm'"
+          @opened="onEnvelopeOpened"
+        />
 
         <!-- 仪式 2：已展开的宣纸信笺 + 水墨显影 -->
         <template v-else>
@@ -259,7 +255,10 @@ function pressCinnabarStamp() {
               class="sheet-weather"
               :title="curWeather.label"
             >
-              {{ curWeather.icon }}
+              <GameIcon
+                :name="curWeather.iconName || 'weather-sunny'"
+                :size="18"
+              />
             </div>
 
             <h3 class="sheet-title">
@@ -363,7 +362,7 @@ function pressCinnabarStamp() {
               </button>
             </div>
 
-            <!-- 选定语句后展开朱砂印泥盘 -->
+            <!-- 选定语句后展开 3D 朱砂印泥台 -->
             <div
               v-if="pendingOptionIdx != null"
               class="stamp-tray"
@@ -378,16 +377,24 @@ function pressCinnabarStamp() {
                   :key="st.id"
                   class="stamp-chip"
                   :class="{ on: selectedStampId === st.id, locked: !state.stamps.includes(st.id) }"
-                  :disabled="!state.stamps.includes(st.id)"
+                  :disabled="!state.stamps.includes(st.id) || stamping"
                   @click="selectedStampId = st.id"
                 >
                   <span>{{ state.stamps.includes(st.id) ? st.name : '未得' }}</span>
                 </button>
               </div>
+              <Stamp3DStage
+                ref="stampStageRef"
+                :stamp-name="stampById(selectedStampId)?.name || '见字如晤'"
+                :stamp-motto="stampById(selectedStampId)?.motto || ''"
+                :disabled="stamping"
+                @stamped="completeReplyAfterStamp"
+              />
               <button
                 class="wood-btn seal-btn stamp-press-btn"
                 :class="{ 'is-stamping': stamping }"
-                @click="pressCinnabarStamp"
+                :disabled="stamping"
+                @click="triggerStampPress"
               >
                 落印寄出「{{ stampById(selectedStampId)?.name }}」
               </button>

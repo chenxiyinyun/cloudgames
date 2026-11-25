@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue';
+import gsap from 'gsap';
 import {
   BEASTS,
   ITEMS,
@@ -22,8 +23,10 @@ import {
 } from '../stores/gameStore.js';
 import { audioBridge, hapticsBridge } from '../bridge/platformBridge.js';
 import ArtSprite from './ArtSprite.vue';
+import GameIcon from './GameIcon.vue';
 
 const tying = ref(false);
+const furoshikiRef = ref(null);
 
 const state = computed(() => gameState.state);
 const view = computed(() => gameState.view);
@@ -153,10 +156,17 @@ function handleDepart() {
   tying.value = true;
   audioBridge.wood();
   hapticsBridge.trigger('medium');
+  if (furoshikiRef.value) {
+    gsap.fromTo(
+      furoshikiRef.value,
+      { scale: 1, rotate: 0 },
+      { scale: 0.88, rotate: -2, duration: 0.24, ease: 'power3.inOut' }
+    );
+  }
   setTimeout(() => {
     tying.value = false;
     doDepartTrip();
-  }, 340);
+  }, 320);
 }
 </script>
 
@@ -167,7 +177,7 @@ function handleDepart() {
     aria-modal="true"
     aria-label="桌案蓝印花布包袱"
   >
-    <div class="modal-head">
+    <div class="modal-head desk-head">
       <div>
         <h2>桌案包袱</h2>
         <span class="mh-sub">点物件抛入包袱，还可为故人捎带跨城信物</span>
@@ -180,11 +190,15 @@ function handleDepart() {
           去茶案手作
         </button>
         <button
-          class="modal-close"
-          aria-label="关闭"
+          class="return-clasp"
+          aria-label="收起桌案"
           @click="closeModal"
         >
-          ×
+          <GameIcon
+            name="close-tab"
+            :size="14"
+          />
+          <span>收起</span>
         </button>
       </div>
     </div>
@@ -216,7 +230,13 @@ function handleDepart() {
         class="pack-beast-locked"
         :title="BEASTS[3].unlockHint"
       >
-        <span>🕊️ 精卫未入驻</span>
+        <span class="pbl-title">
+          <GameIcon
+            name="bird-lock"
+            :size="15"
+          />
+          <span>精卫未入驻</span>
+        </span>
         <em>任意神兽达「好奇」阶或累计出行 4 次解锁</em>
       </div>
     </div>
@@ -225,6 +245,7 @@ function handleDepart() {
       <!-- 左侧：蓝印花布包袱 + 捎带锦囊 + 路引 + 双兽结伴 -->
       <div class="furoshiki-zone">
         <div
+          ref="furoshikiRef"
           class="furoshiki-cloth"
           :class="{ 'is-tying': tying }"
         >

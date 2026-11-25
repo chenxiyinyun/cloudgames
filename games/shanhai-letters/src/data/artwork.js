@@ -138,9 +138,9 @@ export const CITY_GRADIENTS = {
 };
 
 export const WEATHER_MAP = {
-  sunny: { icon: '☀️', label: '晴朗' },
-  cloudy: { icon: '☁️', label: '多云' },
-  rain: { icon: '🌧️', label: '细雨' },
-  snow: { icon: '❄️', label: '飘雪' },
-  night: { icon: '🌙', label: '夜色' }
+  sunny: { iconName: 'weather-sunny', label: '晴朗' },
+  cloudy: { iconName: 'weather-cloudy', label: '多云' },
+  rain: { iconName: 'weather-rain', label: '细雨' },
+  snow: { iconName: 'weather-snow', label: '飘雪' },
+  night: { iconName: 'weather-night', label: '夜色' }
 };
