@@ -371,6 +371,12 @@ function completeReplyAfterStamp() {
                 <b>择一枚山海朱砂闲章落印</b>
                 <span>{{ stampById(selectedStampId)?.motto }}</span>
               </div>
+              <p
+                v-if="stampById(selectedStampId)?.blessing"
+                class="st-blessing"
+              >
+                闲章共鸣：{{ stampById(selectedStampId).blessing.desc }}
+              </p>
               <div class="st-grid">
                 <button
                   v-for="st in STAMPS"

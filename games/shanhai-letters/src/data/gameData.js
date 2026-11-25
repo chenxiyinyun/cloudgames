@@ -158,62 +158,62 @@ export const TRAITS = [
 /* ---------- 12 种后天性格印记（由五维心境觉醒，带来反差萌） ---------- */
 export const PERSONA_QUIRKS = [
   {
-    id: 'quirk-gourmet', name: '夜市老饕', requireTrait: { food: 3 },
+    id: 'quirk-gourmet', name: '夜市老饕', requireTrait: { food: 2 },
     desc: '哪怕平日端庄，一嗅到烤串与红汤香味也会走不动路。',
     tagBoost: { food: 1.8, night: 1.5 }, cityBias: { chengdu: 2, xian: 1 }
   },
   {
-    id: 'quirk-collator', name: '古籍校勘', requireTrait: { scholar: 3 },
+    id: 'quirk-collator', name: '古籍校勘', requireTrait: { scholar: 2 },
     desc: '路过博物馆和碑林总要蹲下来核对铭文与偏旁。',
     tagBoost: { history: 1.8, scholar: 1.8 }, cityBias: { xian: 2, dunhuang: 2 }
   },
   {
-    id: 'quirk-rainlistener', name: '檐下听雨人', requireTrait: { calm: 3 },
+    id: 'quirk-rainlistener', name: '檐下听雨人', requireTrait: { calm: 2 },
     desc: '一落雨就放慢步子，在青石板巷子里听雨打芭蕉。',
     tagBoost: { rain: 2.0, quiet: 1.6 }, cityBias: { suzhou: 2, hangzhou: 2 }
   },
   {
-    id: 'quirk-messenger', name: '山海飞鸿', requireTrait: { empathy: 3 },
+    id: 'quirk-messenger', name: '山海飞鸿', requireTrait: { empathy: 2 },
     desc: '擅长记下陌生人没说出口的挂念，并替他们带一程话。',
     tagBoost: { letter: 2.0, empathy: 1.8 }, cityBias: { suzhou: 1, quanzhou: 2 }
   },
   {
-    id: 'quirk-pioneer', name: '破浪问津', requireTrait: { brave: 3 },
+    id: 'quirk-pioneer', name: '破浪问津', requireTrait: { brave: 2 },
     desc: '喜欢天没亮就出发，去港口、车站和地图的边缘。',
     tagBoost: { travel: 1.9, star: 1.5 }, cityBias: { quanzhou: 2, dunhuang: 2 }
   },
   {
-    id: 'quirk-teadrinker', name: '竹炉煎茶客', requireTrait: { calm: 6 },
+    id: 'quirk-teadrinker', name: '竹炉煎茶客', requireTrait: { calm: 4 },
     desc: '在每座城都能准确找到坐得住一下午的街角茶寮。',
     tagBoost: { tea: 2.0, water: 1.5 }, cityBias: { hangzhou: 2, dali: 2 }
   },
   {
-    id: 'quirk-storyteller', name: '茶馆听书人', requireTrait: { empathy: 6 },
+    id: 'quirk-storyteller', name: '茶馆听书人', requireTrait: { empathy: 4 },
     desc: '坐在长凳尾排捧场，最爱听老街坊讲三十年前的旧事。',
     tagBoost: { social: 1.8, quiet: 1.5 }, cityBias: { chengdu: 2, dali: 1 }
   },
   {
-    id: 'quirk-starwatcher', name: '观星拾遗', requireTrait: { scholar: 6 },
+    id: 'quirk-starwatcher', name: '观星拾遗', requireTrait: { scholar: 4 },
     desc: '能把上古二十八宿与现代天文望远镜里的星座一一叠合。',
     tagBoost: { star: 2.0, desert: 1.6 }, cityBias: { dunhuang: 3, dali: 2 }
   },
   {
-    id: 'quirk-snowwalker', name: '踏雪寻灯', requireTrait: { brave: 6 },
+    id: 'quirk-snowwalker', name: '踏雪寻灯', requireTrait: { brave: 4 },
     desc: '越冷越精神，专门在结霜的夜街上数透着暖光的窗户。',
     tagBoost: { snow: 2.0, night: 1.6 }, cityBias: { harbin: 3 }
   },
   {
-    id: 'quirk-sketcher', name: '风物速写师', requireTrait: { scholar: 5, empathy: 4 },
+    id: 'quirk-sketcher', name: '风物速写师', requireTrait: { scholar: 3, empathy: 3 },
     desc: '随身带炭笔，见了老手艺与古桥总要画下拆解线稿。',
     tagBoost: { record: 2.0, craft: 1.7 }
   },
   {
-    id: 'quirk-hearth', name: '人间掌灯人', requireTrait: { empathy: 8, calm: 5 },
+    id: 'quirk-hearth', name: '人间掌灯人', requireTrait: { empathy: 5, calm: 3 },
     desc: '习惯为晚归的人留一盏小灯，也总被夜色里的温柔留住。',
     tagBoost: { night: 1.9, empathy: 1.7 }
   },
   {
-    id: 'quirk-seaexplorer', name: '百川归海志', requireTrait: { brave: 8, food: 4 },
+    id: 'quirk-seaexplorer', name: '百川归海志', requireTrait: { brave: 5, food: 3 },
     desc: '走过海港与排档，知道潮汐何时起落，也知道鲜蚝几分熟。',
     tagBoost: { water: 2.0, travel: 1.7 }, cityBias: { quanzhou: 3 }
   }
@@ -510,12 +510,30 @@ export const ROOM_AURAS = [
 
 /* ---------- 六枚山海朱砂闲章 ---------- */
 export const STAMPS = [
-  { id: 'jianzi', name: '见字如面', sub: '常备闲章', motto: '纸短情长，展信安好' },
-  { id: 'pingan', name: '岁岁平安', sub: '常备闲章', motto: '风霜不侵，早归驿站' },
-  { id: 'shanhai', name: '山海同风', sub: '常备闲章', motto: '天地虽阔，心意相通' },
-  { id: 'yanyu', name: '烟雨江南', sub: '故人赠印', motto: '一伞一巷，慢听微雨' },
-  { id: 'xinghe', name: '大漠星河', sub: '故人赠印', motto: '星斗垂野，古今同观' },
-  { id: 'changhuan', name: '人间长欢', sub: '访客赠印', motto: '一饭一茶，尽得其乐' }
+  {
+    id: 'jianzi', name: '见字如面', sub: '常备闲章', motto: '纸短情长，展信安好',
+    blessing: { tagBoost: { letter: 1.35, empathy: 1.35 }, desc: '下趟更易触发书信与共情奇遇' }
+  },
+  {
+    id: 'pingan', name: '岁岁平安', sub: '常备闲章', motto: '风霜不侵，早归驿站',
+    blessing: { bonusMaterial: true, desc: '下趟归来额外携回 1 份时令灵材' }
+  },
+  {
+    id: 'shanhai', name: '山海同风', sub: '常备闲章', motto: '天地虽阔，心意相通',
+    blessing: { tagBoost: { travel: 1.35, nature: 1.35 }, desc: '下趟更易触发山河远行见闻' }
+  },
+  {
+    id: 'yanyu', name: '烟雨江南', sub: '故人赠印', motto: '一伞一巷，慢听微雨',
+    blessing: { cityBias: { suzhou: 2.5, hangzhou: 2.5 }, tagBoost: { rain: 1.5, quiet: 1.4 }, desc: '下趟偏向苏州/杭州，细雨幽巷奇遇提升' }
+  },
+  {
+    id: 'xinghe', name: '大漠星河', sub: '故人赠印', motto: '星斗垂野，古今同观',
+    blessing: { cityBias: { dunhuang: 2.5, dali: 2.5 }, tagBoost: { star: 1.5, history: 1.4 }, desc: '下趟偏向敦煌/大理，星河古史奇遇提升' }
+  },
+  {
+    id: 'changhuan', name: '人间长欢', sub: '访客赠印', motto: '一饭一茶，尽得其乐',
+    blessing: { cityBias: { chengdu: 2.5, xian: 2.5 }, tagBoost: { food: 1.5, social: 1.4 }, desc: '下趟偏向成都/西安，市井美食奇遇提升' }
+  }
 ];
 
 /* ---------- 庭院动态茶会访客（含以物易物清单） ---------- */

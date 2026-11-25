@@ -9,6 +9,7 @@ import {
   INSIGHT_STAGES,
   cityById,
   souById,
+  isSouvenirDiscovered,
   tagName,
   fmtDate
 } from '../systems/gameSystems.js';
@@ -38,7 +39,7 @@ const tabs = [
 ];
 
 const selectedSou = computed(() => {
-  if (!inspectSouId.value || !(state.value.souvenirs[inspectSouId.value] > 0)) return null;
+  if (!inspectSouId.value || !isSouvenirDiscovered(state.value, inspectSouId.value)) return null;
   return souById(inspectSouId.value);
 });
 
@@ -66,7 +67,7 @@ function switchTab(id) {
 }
 
 function toggleSou(s) {
-  if (!(state.value.souvenirs[s.id] > 0)) return;
+  if (!isSouvenirDiscovered(state.value, s.id)) return;
   audioBridge.wood();
   inspectSouId.value = inspectSouId.value === s.id ? null : s.id;
 }
@@ -243,14 +244,17 @@ function inspectBeast(id) {
             <span class="si-rarity">{{ selectedSou.rarity === 'legend' ? '稀世孤品' : selectedSou.rarity === 'rare' ? '雅致珍玩' : '山海风物' }}</span>
             <b>{{ selectedSou.name }}</b>
             <p>{{ selectedSou.desc }}</p>
-            <em>招客气息：{{ (selectedSou.attract || []).map((t) => tagName(t)).join('、') || '暂无' }} · 现有 ×{{ state.souvenirs[selectedSou.id] }}</em>
+            <em>
+              招客气息：{{ (selectedSou.attract || []).map((t) => tagName(t)).join('、') || '暂无' }} ·
+              {{ (state.souvenirs[selectedSou.id] || 0) > 0 ? `现有 ×${state.souvenirs[selectedSou.id]}` : '已赠出 · 图鉴永久收录（可再寻得）' }}
+            </em>
           </div>
         </div>
         <p
           v-else
           class="hint"
         >
-          点按已收到的风物纪念品，在 3D 赏玩台拨动细观描金釉色；多余件数可用于跨城捎物或访客茶会以物易物。
+          点按已收到的风物纪念品，在 3D 赏玩台拨动细观描金釉色；即使送礼用尽，图鉴也永久保留。
         </p>
 
         <div class="shelf">
@@ -259,11 +263,11 @@ function inspectBeast(id) {
             :key="s.id"
             class="frame"
             :class="[
-              state.souvenirs[s.id] > 0 ? 'have' : 'locked',
+              isSouvenirDiscovered(state, s.id) ? 'have' : 'locked',
               `r-${s.rarity}`,
               { focus: inspectSouId === s.id }
             ]"
-            :disabled="!(state.souvenirs[s.id] > 0)"
+            :disabled="!isSouvenirDiscovered(state, s.id)"
             @click="toggleSou(s)"
             @pointermove="onCardMove"
             @pointerleave="onCardLeave"
@@ -276,14 +280,14 @@ function inspectBeast(id) {
               />
             </div>
             <div class="frame-name">
-              {{ state.souvenirs[s.id] > 0 ? s.name : '？？？' }}
+              {{ isSouvenirDiscovered(state, s.id) ? s.name : '？？？' }}
             </div>
             <div class="frame-city">
-              {{ state.souvenirs[s.id] > 0 ? (s.city === '*' ? '旅途各处' : cityById(s.city)?.name) : '' }}
-              {{ state.souvenirs[s.id] > 1 ? ` ×${state.souvenirs[s.id]}` : '' }}
+              {{ isSouvenirDiscovered(state, s.id) ? (s.city === '*' ? '旅途各处' : cityById(s.city)?.name) : '' }}
+              {{ (state.souvenirs[s.id] || 0) > 1 ? ` ×${state.souvenirs[s.id]}` : isSouvenirDiscovered(state, s.id) && !(state.souvenirs[s.id] > 0) ? ' · 已赠' : '' }}
             </div>
             <i
-              v-if="state.souvenirs[s.id] > 0 && s.rarity === 'legend'"
+              v-if="isSouvenirDiscovered(state, s.id) && s.rarity === 'legend'"
               class="frame-shine"
             />
           </button>

@@ -11,7 +11,9 @@ import {
   cityById,
   itemById,
   souById,
-  quirkById
+  quirkById,
+  getBeastStampBlessing,
+  totalStationTravels
 } from '../systems/gameSystems.js';
 import {
   gameState,
@@ -43,6 +45,10 @@ const selectedBeastState = computed(() =>
   selectedBeast.value ? state.value.beasts[selectedBeast.value.id] : null
 );
 
+const activeStampBlessing = computed(() =>
+  selectedBeast.value ? getBeastStampBlessing(state.value, selectedBeast.value.id) : null
+);
+
 const availablePartners = computed(() =>
   unlockedBeasts.value.filter((b) => b.id !== view.value.prepBeast && !state.value.trips[b.id])
 );
@@ -69,12 +75,18 @@ const giftCandidates = computed(() => {
 
 const activeGiftComm = computed(() => {
   if (!view.value.prepGift) return null;
-  return COMMISSIONS.find((c) => c.wantSouvenir === view.value.prepGift) || null;
+  return COMMISSIONS.find(
+    (c) => c.wantSouvenir === view.value.prepGift && !(state.value.commissions[c.id] && state.value.commissions[c.id].completed)
+  ) || null;
 });
 
 const durRangeText = computed(() => {
   if (!selectedBeast.value) return '神兽都在外游历';
   const hasExpress = view.value.prepItems.includes('waxseal');
+  if (totalStationTravels(state.value) === 0 && !state.value.settings.fastMode) {
+    const sec = hasExpress ? Math.round((CONSTANTS.FIRST_TRIP_MS * 0.65) / 1000) : Math.round(CONSTANTS.FIRST_TRIP_MS / 1000);
+    return `初探短途：约 ${sec} 秒归来，体验首封远方来信`;
+  }
   const mult = (state.value.settings.fastMode ? 0.06 : 1) * (hasExpress ? 0.65 : 1);
   const minMs = Math.max(15000, Math.round((CONSTANTS.DURATION.base + CONSTANTS.DURATION.perStop) * mult));
   const maxMs = Math.max(25000, Math.round((CONSTANTS.DURATION.base + CONSTANTS.DURATION.perStop * 2 + 5 * 60000) * mult));
@@ -285,7 +297,8 @@ function handleDepart() {
             <div class="gp-head">
               <b>捎带信物锦囊（第 4 格）</b>
               <span v-if="activeGiftComm">将直飞「{{ cityById(activeGiftComm.targetCity)?.name }}」转交{{ activeGiftComm.requester }}</span>
-              <span v-else>可顺路捎带纪念品给故人</span>
+              <span v-else-if="view.prepGift">将顺路赠予路人茶客，获回礼灵材与见闻（图鉴永久保留）</span>
+              <span v-else>捎信物给故人圆梦，其余风物也可顺路换灵材</span>
             </div>
             <div class="gp-row">
               <div
@@ -314,16 +327,26 @@ function handleDepart() {
                 >
                   <span>{{ cand.sou.name }} ×{{ cand.count }}</span>
                   <em v-if="cand.commission">→ {{ cand.targetCityName }}心愿</em>
+                  <em v-else>顺路赠礼</em>
                 </button>
               </div>
               <div
                 v-else
                 class="gp-empty"
               >
-                行囊尚无多余纪念品，先出门带回几件再替故人捎物吧。
+                行囊尚无纪念品，先出门带回几件再替故人捎物吧。
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- 上封信朱砂闲章余温提示 -->
+        <div
+          v-if="activeStampBlessing && activeStampBlessing.blessing"
+          class="blessing-strip"
+        >
+          <b>闲章余温「{{ activeStampBlessing.name }}」</b>
+          <span>{{ activeStampBlessing.blessing.desc }}</span>
         </div>
 
         <!-- 双兽结伴同行 -->

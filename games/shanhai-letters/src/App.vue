@@ -604,6 +604,7 @@ onUnmounted(() => {
           </button>
           <button
             class="token-btn"
+            data-flight-target="tea-dock"
             @click="openModal('tea')"
           >
             <span class="tb-glyph"><GameIcon

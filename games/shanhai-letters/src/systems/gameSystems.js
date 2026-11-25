@@ -32,7 +32,8 @@ const MIN = 60 * 1000;
 
 export const CONSTANTS = {
   DURATION: { base: 8 * MIN, perStop: 9 * MIN },
-  SUPPLY_COOLDOWN_MS: 4 * 60 * MIN,
+  FIRST_TRIP_MS: 45 * 1000,
+  SUPPLY_COOLDOWN_MS: 90 * MIN,
   FAST_SUPPLY_COOLDOWN_MS: 45 * 1000,
   SLOTS: 12,
   HOURGLASS_LIMIT: 4
@@ -137,12 +138,82 @@ export function grantStarterItems(state) {
   });
 }
 
+export function totalStationTravels(state) {
+  return BEASTS.reduce((s, b) => s + ((state && state.beasts && state.beasts[b.id] && state.beasts[b.id].travels) || 0), 0);
+}
+
+export function markSouvenirDiscovered(state, souId) {
+  if (!state || !souId) return;
+  state.worldFlags = state.worldFlags || {};
+  state.worldFlags[`sou_seen:${souId}`] = true;
+}
+
+export function isSouvenirDiscovered(state, souId) {
+  if (!state || !souId) return false;
+  return !!((state.souvenirs && state.souvenirs[souId] > 0) || (state.worldFlags && state.worldFlags[`sou_seen:${souId}`]));
+}
+
+export function syncDiscoveredSouvenirs(state) {
+  if (!state) return;
+  Object.keys(state.souvenirs || {}).forEach((id) => {
+    if (state.souvenirs[id] > 0) markSouvenirDiscovered(state, id);
+  });
+  Object.values(state.placed || {}).forEach((id) => {
+    if (id) markSouvenirDiscovered(state, id);
+  });
+  (state.letters || []).forEach((l) => {
+    if (l && l.souvenir) markSouvenirDiscovered(state, l.souvenir);
+  });
+}
+
+export function getBeastStampBlessing(state, beastId) {
+  if (!state || !beastId || !state.worldFlags) return null;
+  const sid = state.worldFlags[`stamp_blessing:${beastId}`];
+  return sid ? stampById(sid) : null;
+}
+
 export function isFreshState(state) {
+  const letters = state.letters || [];
+  const onlyUntouchedWelcome = letters.every((l) => l && l.welcome && !l.opened && l.replied == null);
   return (
-    !state.letters.length &&
+    onlyUntouchedWelcome &&
     !Object.keys(state.trips).length &&
     BEASTS.every((b) => !state.beasts[b.id] || !state.beasts[b.id].travels)
   );
+}
+
+export function grantWelcomeLetter(state, now = Date.now()) {
+  if (!state || !isFreshState(state)) return null;
+  state.worldFlags = state.worldFlags || {};
+  if (state.worldFlags.welcome_sent) return null;
+  state.worldFlags.welcome_sent = true;
+  state.souvenirs['sou-postcard'] = (state.souvenirs['sou-postcard'] || 0) + 1;
+  markSouvenirDiscovered(state, 'sou-postcard');
+  const letter = {
+    id: 'WELCOME_1',
+    beastId: 'baize',
+    beastName: '白泽',
+    city: null,
+    cityName: '山海驿站正厅',
+    weather: 'sunny',
+    title: '山海驿站今朝开张',
+    body: '掌柜安好：\n我们从山海旧卷里寻到这间带院子的老木屋，刚把博古架擦净、炉上水烧开。\n门口那只蓝印花布包袱已经替你摊在茶桌上了，随信附上第一张「空白明信片」。选一枚喜欢的闲章回我们一句，再挑一件随身物送我们出门转转吧！',
+    eventId: null,
+    reply: [
+      { text: '茶已温好，去看看外头的山河', trait: 'scholar', memory: { look_out: 1 } },
+      { text: '早去早回，驿站替你们留灯', trait: 'empathy', memory: { keep_light: 1 } },
+      { text: '不必赶路，喜欢哪阵风便多听一会儿', trait: 'calm', memory: { slow_down: 1 } }
+    ],
+    replied: null,
+    opened: false,
+    stamp: null,
+    causes: ['初入山海驿站的开张礼信'],
+    souvenir: 'sou-postcard',
+    welcome: true,
+    at: now
+  };
+  state.letters.unshift(letter);
+  return letter;
 }
 
 /* ---------- 记忆与后天印记 ---------- */
@@ -251,6 +322,7 @@ export function refreshVisitors(state, now = Date.now()) {
         }
         if (v.gift) {
           state.souvenirs[v.gift] = (state.souvenirs[v.gift] || 0) + 1;
+          markSouvenirDiscovered(state, v.gift);
         }
         if (v.letter) {
           state.letters.unshift({
@@ -378,7 +450,7 @@ export function harvestGarden(state, now = Date.now()) {
     weight: (season.materialBoost || []).indexOf(m.id) >= 0 ? 2.6 : 1
   }));
   const gotMaterials = [];
-  const count = 3 + (rand() < 0.4 ? 1 : 0);
+  const count = 4 + (rand() < 0.45 ? 1 : 0);
   for (let i = 0; i < count; i += 1) {
     const pick = weightedPick(rand, pool);
     if (pick) {
@@ -475,12 +547,14 @@ function reqOk(state, beast, ev, items) {
   return true;
 }
 
-function pickCity(state, beastDef, beastState, pref, items, rand, exclude) {
+function pickCity(state, beastDef, beastState, pref, items, rand, exclude, stampBlessing = null) {
   const pool = CITIES.filter((c) => exclude.indexOf(c.id) < 0);
   const quirk = beastState && beastState.equippedQuirk ? quirkById(beastState.equippedQuirk) : null;
+  const stampBias = stampBlessing && stampBlessing.blessing && stampBlessing.blessing.cityBias;
   const list = pool.map((c) => {
     let w = 1 + ((beastDef.cityPref && beastDef.cityPref[c.id]) || 0);
     if (quirk && quirk.cityBias && quirk.cityBias[c.id]) w += quirk.cityBias[c.id];
+    if (stampBias && stampBias[c.id]) w += stampBias[c.id];
     items.forEach((iid) => {
       const it = itemById(iid);
       if (it && it.bias && it.bias[c.id]) w += it.bias[c.id];
@@ -503,7 +577,7 @@ function pickWeather(city, season, rand, forced) {
   return hit ? hit.w : randItem(rand, city.weather);
 }
 
-function pickEvent(state, beastId, pref, items, rand, usedEventIds, excludeCities, forcedCityId = null) {
+function pickEvent(state, beastId, pref, items, rand, usedEventIds, excludeCities, forcedCityId = null, stampBlessing = null) {
   const beastDef = beastById(beastId);
   const beastState = state.beasts[beastId];
   if (!beastDef || !beastState) return null;
@@ -511,6 +585,7 @@ function pickEvent(state, beastId, pref, items, rand, usedEventIds, excludeCitie
   const season = SEASONS[state.seasonIdx % SEASONS.length] || SEASONS[0];
   const aura = computeRoomAura(state);
   const quirk = beastState.equippedQuirk ? quirkById(beastState.equippedQuirk) : null;
+  const stampTags = stampBlessing && stampBlessing.blessing && stampBlessing.blessing.tagBoost;
   const hasExpress = items.indexOf('waxseal') >= 0;
 
   const list = [];
@@ -534,7 +609,7 @@ function pickEvent(state, beastId, pref, items, rand, usedEventIds, excludeCitie
       }
       city = cityById(forcedCityId);
     } else if (ev.city === '*' || !ev.city) {
-      city = pickCity(state, beastDef, beastState, pref, items, rand, excludeCities);
+      city = pickCity(state, beastDef, beastState, pref, items, rand, excludeCities, stampBlessing);
     } else if (Array.isArray(ev.city)) {
       const avail = ev.city.filter((c) => excludeCities.indexOf(c) < 0);
       if (!avail.length) return;
@@ -552,6 +627,11 @@ function pickEvent(state, beastId, pref, items, rand, usedEventIds, excludeCitie
     if (quirk && quirk.tagBoost) {
       ev.tags.forEach((t) => {
         if (quirk.tagBoost[t]) w *= quirk.tagBoost[t];
+      });
+    }
+    if (stampTags) {
+      ev.tags.forEach((t) => {
+        if (stampTags[t]) w *= stampTags[t];
       });
     }
     items.forEach((iid) => {
@@ -603,10 +683,9 @@ export function startTrip(state, beastId, preferenceId, itemIds, opts = {}) {
   let targetCommission = null;
   if (giftSouvenir) {
     if (!(state.souvenirs[giftSouvenir] > 0)) return { ok: false, msg: '行囊里没有这件信物' };
-    targetCommission = COMMISSIONS.find((c) => c.wantSouvenir === giftSouvenir && !(state.commissions[c.id] && state.commissions[c.id].completed));
-    if (!targetCommission) {
-      targetCommission = COMMISSIONS.find((c) => c.wantSouvenir === giftSouvenir) || null;
-    }
+    targetCommission = COMMISSIONS.find(
+      (c) => c.wantSouvenir === giftSouvenir && !(state.commissions[c.id] && state.commissions[c.id].completed)
+    ) || null;
     state.souvenirs[giftSouvenir] -= 1;
     if (state.souvenirs[giftSouvenir] <= 0) {
       delete state.souvenirs[giftSouvenir];
@@ -624,19 +703,27 @@ export function startTrip(state, beastId, preferenceId, itemIds, opts = {}) {
     if (state.inventory[id] <= 0) delete state.inventory[id];
   });
 
+  const stampBlessing = getBeastStampBlessing(state, beastId);
+  if (stampBlessing && state.worldFlags) {
+    delete state.worldFlags[`stamp_blessing:${beastId}`];
+  }
+
   const seed = `${beastId}|${now}|${Math.floor(Math.random() * 1e6)}`;
   const rand = makeRng(`${seed}:plan`);
   const season = SEASONS[state.seasonIdx % SEASONS.length] || SEASONS[0];
+  const aura = computeRoomAura(state);
+  const hasVoyageAura = aura.all.some((a) => a.id === 'aura-voyage');
 
   const stops = [];
   const usedEvents = [];
   const excludeCities = [];
   const far = items.indexOf('map') >= 0 || items.indexOf('bamboo') >= 0 || items.indexOf('compass') >= 0;
-  const stopCount = rand() < (far ? 0.78 : 0.38) ? 2 : 1;
+  const twoStopProb = far && hasVoyageAura ? 0.88 : far || hasVoyageAura ? 0.78 : 0.38;
+  const stopCount = rand() < twoStopProb ? 2 : 1;
 
   for (let i = 0; i < stopCount; i += 1) {
     const forcedCity = i === 0 && targetCommission ? targetCommission.targetCity : null;
-    const hit = pickEvent(state, beastId, pref, items, rand, usedEvents, excludeCities, forcedCity);
+    const hit = pickEvent(state, beastId, pref, items, rand, usedEvents, excludeCities, forcedCity, stampBlessing);
     if (!hit) {
       if (forcedCity) {
         const fc = cityById(forcedCity);
@@ -652,13 +739,18 @@ export function startTrip(state, beastId, preferenceId, itemIds, opts = {}) {
   }
 
   if (!stops.length) {
-    const c = pickCity(state, beastDef, beast, pref, items, rand, []);
+    const c = pickCity(state, beastDef, beast, pref, items, rand, [], stampBlessing);
     stops.push({ city: c.id, weather: pickWeather(c, season, rand), eventId: null });
   }
 
+  const isFirstTrip = totalStationTravels(state) === 0 && !(state.settings && state.settings.fastMode);
   let dur = CONSTANTS.DURATION.base + CONSTANTS.DURATION.perStop * stops.length + Math.floor(rand() * 5 * MIN);
   if (items.indexOf('waxseal') >= 0) dur = Math.round(dur * 0.65);
-  if (state.settings && state.settings.fastMode) dur = Math.max(15 * 1000, Math.round(dur * 0.06));
+  if (state.settings && state.settings.fastMode) {
+    dur = Math.max(15 * 1000, Math.round(dur * 0.06));
+  } else if (isFirstTrip) {
+    dur = items.indexOf('waxseal') >= 0 ? Math.round(CONSTANTS.FIRST_TRIP_MS * 0.65) : CONSTANTS.FIRST_TRIP_MS;
+  }
 
   const trip = {
     beastId,
@@ -666,6 +758,8 @@ export function startTrip(state, beastId, preferenceId, itemIds, opts = {}) {
     preference: pref.id,
     items,
     giftSouvenir,
+    stampBlessing: stampBlessing ? stampBlessing.id : null,
+    isFirstTrip,
     partnerId,
     seed,
     departAt: now,
@@ -788,6 +882,74 @@ function applyItemEffects(trip, stop, ev, rand, acc) {
   });
 }
 
+function composeCoAuthorDynamicLetter(beastA, beastB, city, weather, season, rand) {
+  const opens = DYNAMIC_FRAGMENTS.openings[weather] || DYNAMIC_FRAGMENTS.openings.sunny;
+  const obsA = DYNAMIC_FRAGMENTS.observations[beastA.id] || DYNAMIC_FRAGMENTS.observations.baize;
+  const obsB = DYNAMIC_FRAGMENTS.observations[beastB.id] || DYNAMIC_FRAGMENTS.observations.jiuweihu;
+  const cityName = city ? city.name : '山海道途';
+  const seasonName = season ? season.name.split('·')[0] : '人间';
+  return {
+    title: `【合写】${cityName}同游杂记 · ${seasonName}`,
+    body: `${randItem(rand, opens)}\n【${beastA.name}笔】今日与${beastB.name}在${cityName}结伴同行，${randItem(rand, obsA)}\n\n【${beastB.name}续】其实在半路我还发现件趣事：${randItem(rand, obsB)}路上遇着一位采药人，托我们顺手带些新采的灵材回驿站给掌柜添茶！`,
+    cause: `${beastA.name}与${beastB.name}再次结伴游历 ${cityName}，合写短笺`
+  };
+}
+
+function pickSouvenirWeighted(state, pool, rand) {
+  if (!pool || !pool.length) return null;
+  const weighted = pool.map((s) => ({
+    s,
+    weight: isSouvenirDiscovered(state, s.id) ? 1 : 3
+  }));
+  const hit = weightedPick(rand, weighted);
+  return hit ? hit.s : pool[0];
+}
+
+function pickSeasonalMaterials(season, rand, count = 1) {
+  const pool = MATERIALS.map((m) => ({
+    mat: m,
+    weight: season && season.materialBoost && season.materialBoost.indexOf(m.id) >= 0 ? 2.6 : 1
+  }));
+  const out = [];
+  for (let i = 0; i < count; i += 1) {
+    const hit = weightedPick(rand, pool);
+    if (hit) out.push(hit.mat);
+  }
+  return out;
+}
+
+export function advanceBeastProgression(state, beastId, now = Date.now()) {
+  const beast = state && state.beasts && state.beasts[beastId];
+  const beastDef = beastById(beastId);
+  if (!beast || !beastDef) return { stages: [], stageLetters: [] };
+  const stages = [];
+  const stageLetters = [];
+  while (beast.insight < 5 && beast.insightExp >= INSIGHT_THRESHOLD[beast.insight + 1]) {
+    beast.insight += 1;
+    const st = INSIGHT_STAGES[beast.insight];
+    stages.push(st);
+    stageLetters.unshift({
+      id: `S${now}_${beastId}_${beast.insight}`,
+      beastId,
+      beastName: beastDef.name,
+      city: null,
+      cityName: '山海驿站',
+      weather: null,
+      title: `【第 ${beast.insight + 1} 阶 · ${st.name}】${st.desc}`,
+      body: st.letter,
+      eventId: null,
+      reply: null,
+      replied: null,
+      opened: false,
+      causes: [],
+      souvenir: null,
+      at: now,
+      stage: true
+    });
+  }
+  return { stages, stageLetters };
+}
+
 /* ---------- 结算旅行 ---------- */
 export function resolveTrip(state, beastId, now = Date.now()) {
   const trip = state.trips[beastId];
@@ -851,7 +1013,8 @@ export function resolveTrip(state, beastId, now = Date.now()) {
       ];
       if (rand() < 0.65) {
         const citySous = SOUVENIRS.filter((s) => s.city === city.id || s.city === '*');
-        souId = (randItem(rand, citySous) || SOUVENIRS[0]).id;
+        const pickedSou = pickSouvenirWeighted(state, citySous, rand) || SOUVENIRS[0];
+        souId = pickedSou.id;
       }
     }
 
@@ -859,6 +1022,19 @@ export function resolveTrip(state, beastId, now = Date.now()) {
       causesFor(beast, trip, ev).forEach((c) => {
         if (causes.indexOf(c) < 0) causes.push(c);
       });
+      if (trip.stampBlessing) {
+        const stDef = stampById(trip.stampBlessing);
+        if (stDef) {
+          causes.push(`带着上次落印「${stDef.name}」的余温`);
+          if (stDef.blessing && stDef.blessing.bonusMaterial) {
+            const mats = pickSeasonalMaterials(season, rand, 1);
+            if (mats[0]) {
+              state.materials[mats[0].id] = (state.materials[mats[0].id] || 0) + 1;
+              causes.push(`「${stDef.name}」护佑额外拾得「${mats[0].name}」`);
+            }
+          }
+        }
+      }
     }
 
     const acc = { bonusSou: null, insightBonus: 0, dropBoost: 0, rareBoost: false, takePhoto: false, causes: [] };
@@ -870,16 +1046,17 @@ export function resolveTrip(state, beastId, now = Date.now()) {
 
     if (!souId && acc.rareBoost) {
       const rares = SOUVENIRS.filter((s) => s.rarity !== 'common' && (s.city === city.id || s.city === '*'));
-      if (rares.length) souId = randItem(rand, rares).id;
+      if (rares.length) souId = pickSouvenirWeighted(state, rares, rand).id;
     }
     if (!souId && acc.dropBoost > 0 && rand() < acc.dropBoost) {
       const pool = SOUVENIRS.filter((s) => s.city === city.id || s.city === '*');
-      souId = (randItem(rand, pool) || SOUVENIRS[0]).id;
+      souId = (pickSouvenirWeighted(state, pool, rand) || SOUVENIRS[0]).id;
     }
     if (!souId && acc.bonusSou) souId = acc.bonusSou;
 
     if (souId) {
       state.souvenirs[souId] = (state.souvenirs[souId] || 0) + 1;
+      markSouvenirDiscovered(state, souId);
       gained.push(souId);
     }
 
@@ -924,10 +1101,16 @@ export function resolveTrip(state, beastId, now = Date.now()) {
     }
   });
 
-  // 结算跨城捎物委托
+  // 结算第 4 格锦囊：跨城捎物委托 或 顺路赠礼回礼
   if (trip.giftSouvenir && trip.stops[0]) {
+    const firstCityObj = cityById(trip.stops[0].city);
     const firstCity = trip.stops[0].city;
-    const comm = COMMISSIONS.find((c) => c.wantSouvenir === trip.giftSouvenir && c.targetCity === firstCity);
+    const comm = COMMISSIONS.find(
+      (c) =>
+        c.wantSouvenir === trip.giftSouvenir &&
+        c.targetCity === firstCity &&
+        !(state.commissions[c.id] && state.commissions[c.id].completed)
+    );
     if (comm) {
       const rec = state.commissions[comm.id] || { step: 0, completed: false };
       rec.step += 1;
@@ -936,6 +1119,7 @@ export function resolveTrip(state, beastId, now = Date.now()) {
 
       if (comm.rewardSouvenir) {
         state.souvenirs[comm.rewardSouvenir] = (state.souvenirs[comm.rewardSouvenir] || 0) + 1;
+        markSouvenirDiscovered(state, comm.rewardSouvenir);
         gained.push(comm.rewardSouvenir);
       }
       if (comm.rewardMaterial) {
@@ -948,13 +1132,12 @@ export function resolveTrip(state, beastId, now = Date.now()) {
       }
       beast.insightExp += 3;
 
-      const cityObj = cityById(comm.targetCity);
       letters.unshift({
         id: `C${now}_${comm.id}`,
         beastId,
         beastName: beastDef.name,
         city: comm.targetCity,
-        cityName: cityObj ? cityObj.name : '远方',
+        cityName: firstCityObj ? firstCityObj.name : '远方',
         weather: trip.stops[0].weather,
         title: comm.fulfillTitle,
         body: comm.fulfillBody,
@@ -971,28 +1154,55 @@ export function resolveTrip(state, beastId, now = Date.now()) {
         souvenir: comm.rewardSouvenir || null,
         at: now
       });
+    } else {
+      // 普通风物顺路赠礼：转化为见闻与灵材回礼，绝不静默消失
+      const giftName = (souById(trip.giftSouvenir) || {}).name || '驿站小物';
+      const cityLabel = firstCityObj ? firstCityObj.name : '半途茶寮';
+      const giftedMats = pickSeasonalMaterials(season, rand, 2);
+      giftedMats.forEach((m) => {
+        state.materials[m.id] = (state.materials[m.id] || 0) + 1;
+      });
+      beast.insightExp += 2;
+      const matSummary = giftedMats.map((m) => m.name).join('、');
+      if (letters[0]) {
+        letters[0].body = `${letters[0].body}\n\n【顺路赠礼】途中我将你托我捎带的「${giftName}」送给了${cityLabel}的投缘茶客，人家欢喜极了，回赠了几份「${matSummary}」带回驿站。`;
+        letters[0].causes = [`顺路赠出「${giftName}」，获赠 ${matSummary}`, ...(letters[0].causes || [])].slice(0, 5);
+      }
     }
   }
 
-  // 结算双兽同行羁绊与合写家书
+  // 结算双兽同行羁绊、同伴升阶与合写家书（首次触发剧情合写，后续改写动态合写）
+  let partnerStages = [];
+  let partnerStageLetters = [];
   if (trip.partnerId && state.beasts[trip.partnerId]) {
     const partner = state.beasts[trip.partnerId];
     const pDef = beastById(trip.partnerId);
-    beast.bonds[trip.partnerId] = (beast.bonds[trip.partnerId] || 0) + 1;
-    partner.bonds[beastId] = (partner.bonds[beastId] || 0) + 1;
+    const bondDelta = season.id === 'dahan' ? 2 : 1;
+    beast.bonds[trip.partnerId] = (beast.bonds[trip.partnerId] || 0) + bondDelta;
+    partner.bonds[beastId] = (partner.bonds[beastId] || 0) + bondDelta;
     partner.travels += 1;
     partner.insightExp += 2;
     if (trip.stops[0]) partner.visited[trip.stops[0].city] = (partner.visited[trip.stops[0].city] || 0) + 1;
 
-    const pair = COAUTHOR_LETTERS.find(
-      (cl) => cl.beasts.indexOf(beastId) >= 0 && cl.beasts.indexOf(trip.partnerId) >= 0
-    );
+    const pProg = advanceBeastProgression(state, trip.partnerId, now);
+    partnerStages = pProg.stages;
+    partnerStageLetters = pProg.stageLetters;
+
+    state.worldFlags = state.worldFlags || {};
+    const pairKey = [beastId, trip.partnerId].sort().join('_');
+    const seenKey = `coauthor_seen:${pairKey}`;
+    const cObj = cityById(trip.stops[0] && trip.stops[0].city);
+    const pair = !state.worldFlags[seenKey]
+      ? COAUTHOR_LETTERS.find((cl) => cl.beasts.indexOf(beastId) >= 0 && cl.beasts.indexOf(trip.partnerId) >= 0)
+      : null;
+
     if (pair) {
+      state.worldFlags[seenKey] = true;
       if (pair.souvenir) {
         state.souvenirs[pair.souvenir] = (state.souvenirs[pair.souvenir] || 0) + 1;
+        markSouvenirDiscovered(state, pair.souvenir);
         gained.push(pair.souvenir);
       }
-      const cObj = cityById(trip.stops[0] && trip.stops[0].city);
       letters.unshift({
         id: `CA_${now}_${beastId}_${trip.partnerId}`,
         beastId,
@@ -1016,6 +1226,40 @@ export function resolveTrip(state, beastId, now = Date.now()) {
         souvenir: pair.souvenir || null,
         at: now
       });
+    } else {
+      const dynCo = composeCoAuthorDynamicLetter(
+        beastDef,
+        pDef,
+        cObj,
+        trip.stops[0] ? trip.stops[0].weather : 'sunny',
+        season,
+        rand
+      );
+      const giftMat = pickSeasonalMaterials(season, rand, 1)[0];
+      if (giftMat) state.materials[giftMat.id] = (state.materials[giftMat.id] || 0) + 1;
+      letters.unshift({
+        id: `CAD_${now}_${beastId}_${trip.partnerId}`,
+        beastId,
+        beastName: beastDef.name,
+        coAuthorId: trip.partnerId,
+        coAuthorName: pDef.name,
+        city: cObj ? cObj.id : null,
+        cityName: cObj ? cObj.name : '半途茶寮',
+        weather: trip.stops[0] ? trip.stops[0].weather : 'sunny',
+        title: dynCo.title,
+        body: dynCo.body,
+        eventId: null,
+        reply: [
+          { text: '二位这趟默契更深了', trait: 'empathy', memory: { bring_friend: 1 } },
+          { text: '带回的灵材正好拿来烹茶', trait: 'calm', memory: { care_back: 1 } },
+          { text: '记下这页新的同行篇章', trait: 'scholar', memory: { record_habit: 1 } }
+        ],
+        replied: null,
+        opened: false,
+        causes: [dynCo.cause],
+        souvenir: null,
+        at: now
+      });
     }
     delete state.trips[trip.partnerId];
   }
@@ -1023,35 +1267,13 @@ export function resolveTrip(state, beastId, now = Date.now()) {
   if (letters.length) beast.travels += 1;
 
   // 每累计 3 次出行推进一个节气
-  const totalTravels = BEASTS.reduce((s, b) => s + ((state.beasts[b.id] && state.beasts[b.id].travels) || 0), 0);
+  const totalTravels = totalStationTravels(state);
   state.seasonIdx = Math.floor(totalTravels / 3) % SEASONS.length;
 
-  // 认知弧线六阶升级
-  const stages = [];
-  const stageLetters = [];
-  while (beast.insight < 5 && beast.insightExp >= INSIGHT_THRESHOLD[beast.insight + 1]) {
-    beast.insight += 1;
-    const st = INSIGHT_STAGES[beast.insight];
-    stages.push(st);
-    stageLetters.unshift({
-      id: `S${now}_${beastId}_${beast.insight}`,
-      beastId,
-      beastName: beastDef.name,
-      city: null,
-      cityName: '山海驿站',
-      weather: null,
-      title: `【第 ${beast.insight + 1} 阶 · ${st.name}】${st.desc}`,
-      body: st.letter,
-      eventId: null,
-      reply: null,
-      replied: null,
-      opened: false,
-      causes: [],
-      souvenir: null,
-      at: now,
-      stage: true
-    });
-  }
+  // 认知弧线六阶升级（主出行神兽 + 同伴汇总）
+  const mainProg = advanceBeastProgression(state, beastId, now);
+  const stages = [...mainProg.stages, ...partnerStages];
+  const stageLetters = [...mainProg.stageLetters, ...partnerStageLetters];
 
   state.letters = stageLetters.concat(letters, state.letters);
   delete state.trips[beastId];
@@ -1119,38 +1341,60 @@ export function openLetter(state, letterId) {
   return letter;
 }
 
-export function replyLetter(state, letterId, optionIndex, stampId = 'jianzi') {
+export function replyLetter(state, letterId, optionIndex, stampId = 'jianzi', now = Date.now()) {
   const letter = state.letters.find((l) => l.id === letterId);
   if (!letter || letter.replied != null || !letter.reply) return null;
   const opt = letter.reply[optionIndex];
   if (!opt) return null;
 
-  const targets = letter.visitor
-    ? BEASTS.map((b) => state.beasts[b.id]).filter((b) => b && b.unlocked)
-    : [state.beasts[letter.beastId], letter.coAuthorId ? state.beasts[letter.coAuthorId] : null].filter(Boolean);
+  const chosenStamp = state.stamps.indexOf(stampId) >= 0 ? stampId : state.stamps[0] || 'jianzi';
+  const targetIds = letter.visitor
+    ? BEASTS.filter((b) => state.beasts[b.id] && state.beasts[b.id].unlocked).map((b) => b.id)
+    : [letter.beastId, letter.coAuthorId].filter((id) => id && state.beasts[id]);
 
   const newlyUnlockedQuirks = [];
-  targets.forEach((beast) => {
+  const stages = [];
+  const stageLetters = [];
+  state.worldFlags = state.worldFlags || {};
+
+  targetIds.forEach((bid) => {
+    const beast = state.beasts[bid];
+    if (!beast) return;
     if (opt.memory) writeMemory(beast, opt.memory);
     if (opt.trait && beast.traits) {
       beast.traits[opt.trait] = (beast.traits[opt.trait] || 0) + 1;
     }
-    if (!letter.visitor) beast.insightExp += 1;
+    if (!letter.visitor) {
+      beast.insightExp += 1;
+      // 记录本神兽下趟出行可激活的朱砂闲章余温
+      state.worldFlags[`stamp_blessing:${bid}`] = chosenStamp;
+    }
     const unlocked = unlockEligibleQuirks(beast);
     unlocked.forEach((q) => newlyUnlockedQuirks.push({ beast, quirk: q }));
+
+    if (!letter.visitor) {
+      const prog = advanceBeastProgression(state, bid, now);
+      prog.stages.forEach((st) => stages.push(st));
+      prog.stageLetters.forEach((sl) => stageLetters.push(sl));
+    }
   });
 
   letter.opened = true;
   letter.replied = optionIndex;
   letter.replyText = opt.text;
-  letter.stamp = state.stamps.indexOf(stampId) >= 0 ? stampId : state.stamps[0] || 'jianzi';
+  letter.stamp = chosenStamp;
 
-  return { opt, letter, newlyUnlockedQuirks };
+  if (stageLetters.length) {
+    state.letters = stageLetters.concat(state.letters);
+  }
+  const unlockedBeast = !letter.visitor ? checkJingweiUnlock(state, now) : null;
+
+  return { opt, letter, newlyUnlockedQuirks, stages, stageLetters, unlockedBeast };
 }
 
 /* ---------- 图鉴与统计 ---------- */
 export function ownedSouvenirCount(state) {
-  return SOUVENIRS.filter((s) => (state.souvenirs[s.id] || 0) > 0).length;
+  return SOUVENIRS.filter((s) => isSouvenirDiscovered(state, s.id)).length;
 }
 
 export function codexProgress(state) {
@@ -1193,11 +1437,25 @@ export function beastIdleQuote(state, beastId, seedIdx = 0) {
   return pool[Math.abs(seedIdx) % pool.length];
 }
 
-export function petBeast(state, beastId) {
+export function petBeast(state, beastId, now = Date.now()) {
   const bs = state.beasts[beastId];
   if (!bs) return null;
   bs.petCount = (bs.petCount || 0) + 1;
-  return bs.petCount;
+
+  state.worldFlags = state.worldFlags || {};
+  const today = fmtDate(now);
+  const giftKey = `pet_gift_day:${beastId}`;
+  let giftedMaterial = null;
+  if (state.worldFlags[giftKey] !== today) {
+    state.worldFlags[giftKey] = today;
+    const season = SEASONS[(state.seasonIdx || 0) % SEASONS.length] || SEASONS[0];
+    const rand = makeRng(`pet:${today}:${beastId}`);
+    giftedMaterial = pickSeasonalMaterials(season, rand, 1)[0] || MATERIALS[0];
+    if (giftedMaterial) {
+      state.materials[giftedMaterial.id] = (state.materials[giftedMaterial.id] || 0) + 1;
+    }
+  }
+  return { count: bs.petCount, giftedMaterial };
 }
 
 export {

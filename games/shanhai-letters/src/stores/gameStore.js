@@ -10,6 +10,8 @@ import {
   createFreshState,
   normalizeState,
   grantStarterItems,
+  grantWelcomeLetter,
+  syncDiscoveredSouvenirs,
   isFreshState,
   refreshVisitors,
   computeRoomAura,
@@ -137,7 +139,14 @@ export function triggerShake(ms = 240) {
 
 export function emitFlight({ fromRect, toSelector, kind, id, label }) {
   if (typeof document === 'undefined') return;
-  const target = toSelector ? document.querySelector(toSelector) : null;
+  let target = null;
+  if (toSelector) {
+    const candidates = Array.from(document.querySelectorAll(toSelector));
+    target = candidates.find((el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    }) || candidates[0] || null;
+  }
   const fromX = fromRect ? fromRect.left + fromRect.width / 2 : window.innerWidth * 0.5;
   const fromY = fromRect ? fromRect.top + fromRect.height / 2 : window.innerHeight * 0.5;
   const toRect = target ? target.getBoundingClientRect() : null;
@@ -269,6 +278,7 @@ export async function pullCloudOnStart() {
 
 function applyRemoteState(remote) {
   gameState.state = normalizeState(remote.state, false);
+  syncDiscoveredSouvenirs(gameState.state);
   refreshVisitors(gameState.state, serverNow());
   gameState.cloud.meta.rev = Number(remote.rev) || 0;
   gameState.cloud.meta.dirty = false;
@@ -417,9 +427,9 @@ export function openMailDrawer(letterId = null) {
 export function tapBeastOnStage(beastId) {
   const bs = gameState.state.beasts[beastId];
   if (!bs || !bs.unlocked) return;
-  const count = petBeast(gameState.state, beastId) || 1;
+  const petRes = petBeast(gameState.state, beastId, serverNow()) || { count: 1, giftedMaterial: null };
   const idx = BEASTS.findIndex((b) => b.id === beastId);
-  audioBridge.pet(idx, count % 4);
+  audioBridge.pet(idx, petRes.count % 4);
   hapticsBridge.trigger('light');
   gameState.view.petAnim[beastId] = Date.now();
   gameState.view.bubbleVisitorId = null;
@@ -431,6 +441,10 @@ export function tapBeastOnStage(beastId) {
     gameState.view.bubbleSeed = Math.floor(Math.random() * 12);
   }
   gameState.view.bubbleText = beastIdleQuote(gameState.state, beastId, gameState.view.bubbleSeed);
+  if (petRes.giftedMaterial) {
+    const bName = beastById(beastId)?.name || '神兽';
+    showToast(`${bName}蹭了蹭你的手心，顺爪递来一份「${petRes.giftedMaterial.name}」`);
+  }
   saveGame();
 }
 
@@ -448,7 +462,7 @@ export function doHarvestGarden(event) {
     const rect = event.currentTarget.getBoundingClientRect();
     emitFlight({
       fromRect: rect,
-      toSelector: '[data-flight-target="tea"]',
+      toSelector: '[data-flight-target="tea"], [data-flight-target="tea-dock"]',
       kind: 'material',
       id: r.gotMaterials[0]?.id || 'dew',
       label: `+${r.gotMaterials.length} 灵材`
@@ -540,13 +554,17 @@ export function doOpenLetter(letterId) {
 }
 
 export function doReplyLetter(letterId, optionIndex, stampId) {
-  const res = replyLetter(gameState.state, letterId, optionIndex, stampId);
+  const res = replyLetter(gameState.state, letterId, optionIndex, stampId, serverNow());
   if (!res) return null;
   audioBridge.stampPress();
   hapticsBridge.trigger('heavy');
   triggerShake(260);
   saveGame();
-  if (res.newlyUnlockedQuirks.length) {
+  if (res.unlockedBeast) {
+    showToast('雨夜叩门：新同伴「精卫」加入了山海驿站！', 'return');
+  } else if (res.stages && res.stages.length) {
+    showToast(`心境升阶：迈入第 ${res.stages[0].n + 1} 阶「${res.stages[0].name}」！`, 'return');
+  } else if (res.newlyUnlockedQuirks.length) {
     const first = res.newlyUnlockedQuirks[0];
     showToast(`心境共鸣：觉醒新印记「${first.quirk.name}」！`, 'return');
   } else {
@@ -597,6 +615,7 @@ export function doResetSave() {
   storageBridge.remove(SAVE_KEY);
   gameState.state = createFreshState();
   grantStarterItems(gameState.state);
+  grantWelcomeLetter(gameState.state, serverNow());
   refreshVisitors(gameState.state, serverNow());
   saveGame();
   gameState.view.modal = null;
@@ -617,6 +636,7 @@ export function doImportSave(text) {
     throw new Error('这不是有效的 JSON 文件');
   }
   gameState.state = normalizeState(raw, true);
+  syncDiscoveredSouvenirs(gameState.state);
   refreshVisitors(gameState.state, serverNow());
   saveGame();
   syncAudioPrefs();
@@ -639,6 +659,8 @@ export async function bootGame() {
   if (isFreshState(gameState.state) && !Object.keys(gameState.state.inventory).length) {
     grantStarterItems(gameState.state);
   }
+  syncDiscoveredSouvenirs(gameState.state);
+  grantWelcomeLetter(gameState.state, serverNow());
   refreshVisitors(gameState.state, serverNow());
   saveGame(true);
   syncAudioPrefs();

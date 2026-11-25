@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
   createFreshState,
   normalizeState,
+  isFreshState,
   grantStarterItems,
+  grantWelcomeLetter,
+  syncDiscoveredSouvenirs,
+  isSouvenirDiscovered,
+  ownedSouvenirCount,
   harvestGarden,
   craftItem,
   startTrip,
@@ -12,8 +17,11 @@ import {
   placeSouvenir,
   computeRoomAura,
   tradeWithVisitor,
+  petBeast,
+  getBeastStampBlessing,
   forceReturn,
   hourglassLeft,
+  CONSTANTS,
   EVENTS
 } from '../gameSystems.js';
 
@@ -112,14 +120,14 @@ describe('山海来信 v2.0 规则引擎', () => {
     );
 
     replyLetter(state, 'L1', 0, 'jianzi');
-    replyLetter(state, 'L2', 0, 'pingan');
+    const r2 = replyLetter(state, 'L2', 0, 'pingan');
     const r3 = replyLetter(state, 'L3', 0, 'shanhai');
 
     expect(state.beasts.baize.traits.food).toBe(3);
     expect(state.beasts.baize.unlockedQuirks).toContain('quirk-gourmet');
     expect(state.beasts.baize.equippedQuirk).toBe('quirk-gourmet');
     expect(r3.letter.stamp).toBe('shanhai');
-    expect(r3.newlyUnlockedQuirks.length).toBeGreaterThanOrEqual(1);
+    expect(r2.newlyUnlockedQuirks.length).toBeGreaterThanOrEqual(1);
 
     const eq = equipQuirk(state, 'baize', null);
     expect(eq.ok).toBe(true);
@@ -164,5 +172,101 @@ describe('山海来信 v2.0 规则引擎', () => {
     startTrip(state, 'qingniao', 'free', [], { now: now + 5000 });
     const blocked = forceReturn(state, 'qingniao', now + 5000);
     expect(blocked.limited).toBe(true);
+  });
+
+  it('迎新首信不影响新档判定，且首趟普通模式出行固定约 45 秒归来', () => {
+    const state = createFreshState();
+    const now = 1_760_000_000_000;
+    const wl = grantWelcomeLetter(state, now);
+    expect(wl).toBeTruthy();
+    expect(wl.welcome).toBe(true);
+    expect(wl.opened).toBe(false);
+    expect(isSouvenirDiscovered(state, 'sou-postcard')).toBe(true);
+    expect(isFreshState(state)).toBe(true);
+
+    // 重复调用不会重复发放
+    expect(grantWelcomeLetter(state, now + 1000)).toBeNull();
+
+    const first = startTrip(state, 'baize', 'free', [], { now });
+    expect(first.ok).toBe(true);
+    expect(first.trip.isFirstTrip).toBe(true);
+    expect(first.trip.returnAt - now).toBe(CONSTANTS.FIRST_TRIP_MS);
+  });
+
+  it('图鉴与库存解耦：消耗光唯一纪念品后图鉴仍永久点亮，非委托捎带触发顺路赠礼且委托不重复刷', () => {
+    const state = createFreshState();
+    const now = 1_760_000_000_000;
+    state.souvenirs['sou-silk'] = 1;
+    state.souvenirs['sou-panda-ear'] = 1;
+    syncDiscoveredSouvenirs(state);
+
+    // 1. 完成跨城委托，消耗最后 1 件苏绣手帕，图鉴依然保持收录
+    startTrip(state, 'baize', 'free', [], { giftSouvenir: 'sou-silk', now });
+    resolveTrip(state, 'baize', now + 60 * 60 * 1000);
+    expect(state.souvenirs['sou-silk']).toBeUndefined();
+    expect(isSouvenirDiscovered(state, 'sou-silk')).toBe(true);
+    expect(ownedSouvenirCount(state)).toBeGreaterThanOrEqual(2);
+
+    // 2. 用非委托纪念品（熊猫耳朵）放第 4 格，不吞噬，触发顺路赠礼
+    const matBefore = Object.values(state.materials).reduce((a, b) => a + b, 0);
+    startTrip(state, 'jiuweihu', 'free', [], { giftSouvenir: 'sou-panda-ear', now: now + 1000 });
+    const casualRes = resolveTrip(state, 'jiuweihu', now + 2 * 60 * 60 * 1000);
+    expect(isSouvenirDiscovered(state, 'sou-panda-ear')).toBe(true);
+    const matAfter = Object.values(state.materials).reduce((a, b) => a + b, 0);
+    expect(matAfter - matBefore).toBe(2);
+    expect(casualRes.letters.some((l) => l.body.includes('顺路赠礼'))).toBe(true);
+
+    // 3. 已完成委托即使再携带同一物品也不重复触发完成信与奖品
+    state.souvenirs['sou-silk'] = 1;
+    const commLetterBefore = state.letters.filter((l) => l.commissionId === 'comm-dunhuang-silk').length;
+    startTrip(state, 'baize', 'free', [], { giftSouvenir: 'sou-silk', now: now + 3000 });
+    resolveTrip(state, 'baize', now + 4 * 60 * 60 * 1000);
+    const commLetterAfter = state.letters.filter((l) => l.commissionId === 'comm-dunhuang-silk').length;
+    expect(commLetterAfter).toBe(commLetterBefore);
+  });
+
+  it('回信即时触发升阶与精卫入驻、朱砂闲章余温生效、大寒羁绊+2及合写信去重、摸头每日首礼', () => {
+    const state = createFreshState();
+    const now = 1_760_000_000_000;
+    state.stamps.push('yanyu');
+    state.beasts.baize.insightExp = 3;
+    state.letters.push({
+      id: 'L_UP', beastId: 'baize', beastName: '白泽', title: '将升阶', body: '正文',
+      reply: [{ text: '记下来', trait: 'scholar', memory: { record_habit: 1 } }],
+      replied: null
+    });
+
+    const rep = replyLetter(state, 'L_UP', 0, 'yanyu', now);
+    expect(state.beasts.baize.insight).toBe(1);
+    expect(rep.stages.length).toBe(1);
+    expect(rep.unlockedBeast.id).toBe('jingwei');
+    expect(state.beasts.jingwei.unlocked).toBe(true);
+    expect(getBeastStampBlessing(state, 'baize').id).toBe('yanyu');
+
+    // 岁岁平安余温触发额外灵材并消费余温标记
+    state.worldFlags['stamp_blessing:qingniao'] = 'pingan';
+    const m0 = Object.values(state.materials).reduce((a, b) => a + b, 0);
+    const tPingan = startTrip(state, 'qingniao', 'free', [], { now: now + 1000 });
+    expect(tPingan.trip.stampBlessing).toBe('pingan');
+    expect(getBeastStampBlessing(state, 'qingniao')).toBeNull();
+    resolveTrip(state, 'qingniao', now + 60 * 60 * 1000);
+    expect(Object.values(state.materials).reduce((a, b) => a + b, 0)).toBe(m0 + 1);
+
+    // 大寒节气双兽结伴羁绊 +2，且第二次结伴改写动态合写短笺不复读
+    state.seasonIdx = 7; // 大寒·守岁
+    startTrip(state, 'baize', 'free', [], { partnerId: 'jiuweihu', now: now + 2000 });
+    resolveTrip(state, 'baize', now + 2 * 60 * 60 * 1000);
+    expect(state.beasts.baize.bonds.jiuweihu).toBe(2);
+    expect(state.worldFlags['coauthor_seen:baize_jiuweihu']).toBe(true);
+
+    startTrip(state, 'baize', 'free', [], { partnerId: 'jiuweihu', now: now + 3000 });
+    const res2 = resolveTrip(state, 'baize', now + 3 * 60 * 60 * 1000);
+    expect(res2.letters.some((l) => l.id.startsWith('CAD_'))).toBe(true);
+
+    // 每日首次摸头赠礼，同日二次摸头不重复赠送
+    const p1 = petBeast(state, 'baize', now);
+    expect(p1.giftedMaterial).toBeTruthy();
+    const p2 = petBeast(state, 'baize', now + 1000);
+    expect(p2.giftedMaterial).toBeNull();
   });
 });
